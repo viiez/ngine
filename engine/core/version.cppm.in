@@ -1,0 +1,19 @@
+// Wird von CMake aus version.cppm.in erzeugt. Nicht von Hand bearbeiten.
+module;
+
+#include <string_view>
+
+export module ngine.core:version;
+
+export namespace ngine {
+
+struct Version {
+    unsigned major;
+    unsigned minor;
+    unsigned patch;
+};
+
+inline constexpr std::string_view engine_name = "@PROJECT_NAME@";
+inline constexpr Version engine_version{@PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@};
+
+} // namespace ngine
