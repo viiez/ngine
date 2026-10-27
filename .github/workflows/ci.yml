@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (Clang 18)
+            os: ubuntu-24.04
+            preset: linux-clang-debug
+            vcpkg_cache: ~/.cache/vcpkg/archives
+          - name: Windows (MSVC)
+            os: windows-latest
+            preset: windows-msvc-debug
+            vcpkg_cache: ~\AppData\Local\vcpkg\archives
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Werkzeuge installieren (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-18 clang-tools-18
+
+      - name: MSVC-Umgebung einrichten (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: vcpkg holen
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$RUNNER_TEMP/vcpkg"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+          else
+            "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: vcpkg-Cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.vcpkg_cache }}
+          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ matrix.os }}-
+
+      - name: Konfigurieren
+        run: cmake --preset ${{ matrix.preset }} -DNGINE_WARNINGS_AS_ERRORS=ON
+
+      - name: Bauen
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Testen
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Sandbox ohne Fenster starten
+        shell: bash
+        run: |
+          exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
+          [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
+          "$exe" --headless

@@ -1,0 +1,13 @@
+# Build-Ausgaben
+/build/
+/out/
+/vcpkg_installed/
+
+# Editoren
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# Lokale CMake-Einstellungen
+CMakeUserPresets.json

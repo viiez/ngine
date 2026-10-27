@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "ngine",
+  "version": "0.1.0",
+  "builtin-baseline": "9126c6f1ff834e12372c5711ff3bdbca1921541c",
+  "dependencies": [
+    "catch2"
+  ]
+}
