@@ -3,7 +3,8 @@
 Eine moderne 3D-Engine in C++23 mit Vulkan, Voxel-Terrain im Stil von Enshrouded, C#-Scripting,
 eigenem Editor und Multiplayer. Lernprojekt und Grundlage für ein eigenes Spiel.
 
-**Stand:** Stufe 0 (Fundament). Bisher gibt es das Build-System und das Core-Modul mit Logging.
+**Stand:** Phase Ausarbeitung, nächste Iteration A2 (Fenster und Vulkan-Dreieck). Bisher gibt es das
+Build-System und das Core-Modul mit Logging. Siehe [Roadmap](docs/roadmap.md).
 
 ## Bauen
 
@@ -23,3 +24,8 @@ ctest --preset linux-clang-debug
 ```
 
 Unter Windows dieselben Befehle mit `windows-msvc-debug` in einer Developer-Konsole.
+
+
+## Dokumentation
+
+Alles zu Vision, Prozess, Roadmap, Features und Architektur steht in [`docs/`](docs/README.md).
