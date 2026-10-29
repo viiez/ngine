@@ -575,10 +575,13 @@ std::expected<void, std::string> VulkanDevice::pick_physical_device() {
 
         VkPhysicalDeviceVulkan13Features features13{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+        VkPhysicalDeviceVulkan11Features features11{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, .pNext = &features13};
         VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                                           .pNext = &features13};
+                                           .pNext = &features11};
         vkGetPhysicalDeviceFeatures2(candidate, &features);
-        if (features13.dynamicRendering != VK_TRUE || features13.synchronization2 != VK_TRUE) {
+        if (features13.dynamicRendering != VK_TRUE || features13.synchronization2 != VK_TRUE ||
+            features11.shaderDrawParameters != VK_TRUE) {
             continue;
         }
 
@@ -634,8 +637,8 @@ std::expected<void, std::string> VulkanDevice::pick_physical_device() {
     }
 
     if (physical_device_ == VK_NULL_HANDLE) {
-        return std::unexpected(
-            "Keine GPU mit Vulkan 1.3, Dynamic Rendering und Synchronization2 gefunden");
+        return std::unexpected("Keine GPU mit Vulkan 1.3, Dynamic Rendering, Synchronization2 und "
+                               "Draw Parameters gefunden");
     }
     return {};
 }
@@ -654,9 +657,15 @@ std::expected<void, std::string> VulkanDevice::create_logical_device() {
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
     };
+    // Slang übersetzt SV_VertexID mit der SPIR-V-Fähigkeit DrawParameters.
+    VkPhysicalDeviceVulkan11Features features11{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &features13,
+        .shaderDrawParameters = VK_TRUE,
+    };
     const VkPhysicalDeviceFeatures2 features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &features13,
+        .pNext = &features11,
     };
 
     std::vector<const char*> extensions;
