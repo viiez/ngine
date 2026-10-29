@@ -14,6 +14,8 @@ module;
 
 module ngine.platform;
 
+import ngine.core;
+
 namespace ngine::platform {
 
 struct Window::Impl {
