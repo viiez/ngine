@@ -2,7 +2,19 @@
 
 NGine (Arbeitstitel) ist eine 3D-Engine in C++23 mit Vulkan, glattem Voxel-Terrain, C#-Scripting,
 eigenem Editor und Multiplayer. Lernprojekt und Grundlage für ein Survival-RPG mit Horror-Elementen.
-Vision, Entscheidungen und Reifegradmodell stehen im Planungsdokument „Engine-Vision“ im Claude-Projekt.
+Vision, Prozess, Roadmap, Feature-Katalog und Entscheidungen stehen in [`docs/`](docs/README.md).
+
+## Dokumentation (Docs as Code)
+
+- `docs/` ist die verbindliche Quelle. Doku ändert sich im selben PR wie der Code.
+- Wir arbeiten nach einem vereinfachten Unified Process ([docs/process.md](docs/process.md)):
+  Phasen, Iterationen mit Plan und Review unter `docs/iterations/`, Definition of Done.
+- Feature fertig oder neu → Status und ID in [docs/features.md](docs/features.md) pflegen.
+- Neues Modul oder geänderte Schnittstelle → [docs/architecture.md](docs/architecture.md).
+- Neue oder ersetzte Bibliothek → [docs/third-party.md](docs/third-party.md).
+- Schwer umkehrbare Entscheidung → neues ADR unter `docs/adr/` (Vorlage `template.md`) und Eintrag
+  in der ADR-Liste.
+- Diagramme als Mermaid in Markdown.
 
 ## Bauen und testen
 
