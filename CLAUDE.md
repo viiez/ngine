@@ -21,9 +21,9 @@ Vision, Prozess, Roadmap, Feature-Katalog und Entscheidungen stehen in [`docs/`]
 Voraussetzungen: CMake 3.30 oder neuer, Ninja, `VCPKG_ROOT` zeigt auf eine vcpkg-Installation.
 Apt-Pakete für Linux stehen in der README.
 
-- Linux: Clang 20 oder neuer (`clang-tools-20` für `clang-scan-deps`, `libstdc++-14-dev`).
-  Clang 18 reicht nicht, weil es `std::expected` aus libstdc++ nicht übersetzen kann.
-- Windows: MSVC (Visual Studio 2022) aus einer Developer-Konsole.
+- Linux: Clang 23 aus apt.llvm.org (`clang-tools-23` für `clang-scan-deps`, `libstdc++-14-dev`).
+  Mindestversion ist Clang 20; Clang 18 kann `std::expected` aus libstdc++ nicht übersetzen.
+- Windows: MSVC (aktuelles Visual Studio) aus einer Developer-Konsole.
 - GCC wird erst ab Version 14 unterstützt (C++-Module).
 
 ```sh
@@ -52,6 +52,8 @@ GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden 
   Kein `import std;`, bis alle Zielcompiler es zuverlässig können.
 - Fremdbibliotheken nur hinter einer Engine-Schnittstelle. Außerhalb des Adapters kennt kein Code die
   Bibliothek direkt, damit sie austauschbar bleibt.
+- Aktuelle Versionen von Werkzeugen und Bibliotheken nutzen, wenn nichts dagegen spricht
+  (Compiler, CMake, vcpkg-Baseline, GitHub Actions). Gründe für ältere Versionen ins ADR schreiben.
 - Linux ist Hauptplattform, Windows muss immer mitbauen. Plattformcode nur in Plattform-Adaptern.
 - Namen: Typen `PascalCase`, Funktionen und Variablen `snake_case`, Konstanten `snake_case`,
   Namespaces klein (`ngine::log`). Zahlentypen aus `ngine.core:types` (`u32`, `f32`, …).

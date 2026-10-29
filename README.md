@@ -13,22 +13,27 @@ Voraussetzungen:
 - CMake 3.30 oder neuer und Ninja
 - [vcpkg](https://github.com/microsoft/vcpkg), Umgebungsvariable `VCPKG_ROOT` gesetzt; vcpkg holt SDL3,
   volk, VMA, Slang und Catch2 selbst
-- Linux: Clang 20 oder neuer · Windows: Visual Studio 2022 (MSVC)
+- Linux: Clang 23 (Mindestversion 20) · Windows: Visual Studio (MSVC), aktuelle Version
 - Ein Vulkan-1.3-Treiber; für Debug-Builds die Vulkan Validation Layers (optional)
 
 ### Linux Mint 22 / Ubuntu 24.04
 
-Das mitgelieferte CMake ist zu alt, Clang 20 ist in den Paketquellen enthalten:
+Wir nutzen aktuelle Werkzeuge. Das mitgelieferte CMake ist zu alt, und Clang 23 kommt aus der
+LLVM-Paketquelle ([apt.llvm.org](https://apt.llvm.org)):
 
 ```sh
 pip install --user cmake      # oder die Kitware-Paketquelle
-sudo apt install ninja-build clang-20 clang-tools-20 libstdc++-14-dev \
+wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+sudo apt update
+sudo apt install ninja-build clang-23 clang-tools-23 libstdc++-14-dev \
     mesa-vulkan-drivers vulkan-validationlayers \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
     libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 ```
 
-Die X11- und Wayland-Pakete braucht vcpkg, um SDL3 zu bauen.
+Die X11- und Wayland-Pakete braucht vcpkg, um SDL3 zu bauen. Clang 20 aus den normalen Paketquellen
+funktioniert ebenfalls; dann im eigenen `CMakeUserPresets.json` `clang++-20` eintragen.
 
 ### Bauen, testen, starten
 
