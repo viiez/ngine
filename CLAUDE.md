@@ -59,5 +59,6 @@ GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden 
 - Keine nackten `new`/`delete`. Besitz über `std::unique_ptr`/`std::shared_ptr` oder eigene Handles.
 - Keine Warnungen: CI baut mit `NGINE_WARNINGS_AS_ERRORS=ON`.
 - Formatierung mit `.clang-format`.
+- Testnamen (`TEST_CASE`) nur mit ASCII-Zeichen: ctest gibt sie unter Windows sonst falsch kodiert weiter.
 - Jede Änderung mit Tests, soweit ohne GPU testbar. Die Engine muss ohne Fenster und GPU starten
   können (`--headless`), weil der dedizierte Server so läuft.

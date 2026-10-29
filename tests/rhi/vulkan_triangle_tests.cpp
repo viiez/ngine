@@ -36,7 +36,7 @@ Pixel pixel_at(const std::vector<ngine::u8>& pixels, ngine::u32 x, ngine::u32 y)
 
 } // namespace
 
-TEST_CASE("Vulkan-Gerät meldet seine Fähigkeiten", "[rhi][vulkan][gpu]") {
+TEST_CASE("Vulkan-Device meldet Capabilities", "[rhi][vulkan][gpu]") {
     const auto device = make_device();
     const auto& caps = device->capabilities();
 
