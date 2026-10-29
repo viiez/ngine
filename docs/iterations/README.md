@@ -6,7 +6,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | Iteration | Phase | Ziel | Status |
 | --- | --- | --- | --- |
 | [A1](A1-projektgeruest.md) | Ausarbeitung | Projektgerüst mit CMake, Modulen, Core und CI | abgeschlossen |
-| [A2](A2-fenster-und-dreieck.md) | Ausarbeitung | Fenster und Vulkan-Dreieck | geplant |
+| [A2](A2-fenster-und-dreieck.md) | Ausarbeitung | Fenster und Vulkan-Dreieck | in Arbeit |
 
 ## Vorlage
 

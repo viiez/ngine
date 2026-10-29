@@ -12,9 +12,11 @@ target_sources(ngine_core
         FILES
             core.cppm
             types.cppm
+            check.cppm
             log.cppm
             "${CMAKE_CURRENT_BINARY_DIR}/version.cppm"
     PRIVATE
+        check.cpp
         log.cpp)
 
 target_compile_features(ngine_core PUBLIC cxx_std_23)

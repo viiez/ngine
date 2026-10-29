@@ -19,8 +19,10 @@ Vision, Prozess, Roadmap, Feature-Katalog und Entscheidungen stehen in [`docs/`]
 ## Bauen und testen
 
 Voraussetzungen: CMake 3.30 oder neuer, Ninja, `VCPKG_ROOT` zeigt auf eine vcpkg-Installation.
+Apt-Pakete für Linux stehen in der README.
 
-- Linux: Clang 18 oder neuer (`clang-tools` für `clang-scan-deps`).
+- Linux: Clang 20 oder neuer (`clang-tools-20` für `clang-scan-deps`, `libstdc++-14-dev`).
+  Clang 18 reicht nicht, weil es `std::expected` aus libstdc++ nicht übersetzen kann.
 - Windows: MSVC (Visual Studio 2022) aus einer Developer-Konsole.
 - GCC wird erst ab Version 14 unterstützt (C++-Module).
 
@@ -31,10 +33,14 @@ ctest --preset linux-clang-debug
 ./build/linux-clang-debug/apps/sandbox/ngine_sandbox --headless
 ```
 
+GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden sie übersprungen.
+`NGINE_WITH_WINDOW=OFF` baut ohne SDL3. Shader sind Slang-Dateien und werden beim Bauen mit
+`slangc` zu SPIR-V kompiliert (`ngine_compile_shader()` in `cmake/NgineShaders.cmake`).
+
 ## Aufbau
 
 - `engine/<system>/` ein Engine-System, ein CMake-Ziel `ngine_<system>` mit Alias `ngine::<system>`.
-- `apps/sandbox/` Testanwendung, an der jede Stufe sichtbar wird.
+- `apps/sandbox/` Testanwendung, an der jede Iteration sichtbar wird.
 - `tests/<system>/` Catch2-Tests, gespiegelt zur Engine-Struktur.
 - `cmake/` gemeinsame CMake-Funktionen, z. B. `ngine_set_compiler_options()`.
 

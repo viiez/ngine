@@ -24,10 +24,34 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
-| `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `version` | vorhanden |
+| `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version` | vorhanden |
+| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList | vorhanden |
+| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.3-Backend mit volk und VMA | vorhanden |
+| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.platform`, `ngine.rhi` mit
-`ngine.rhi.vulkan`, `ngine.jobs`, `ngine.world`, `ngine.voxel`, `ngine.script`, `ngine.net`.
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.jobs`, `ngine.world`,
+`ngine.voxel`, `ngine.script`, `ngine.net`.
+
+```mermaid
+flowchart BT
+    core["ngine.core"]
+    platform["ngine.platform<br/>(SDL3)"]
+    rhi["ngine.rhi"]
+    vulkan["ngine.rhi.vulkan<br/>(volk, VMA)"]
+    shaders["ngine.shaders<br/>(Slang)"]
+    sandbox["Sandbox"]
+    platform --> core
+    rhi --> core
+    vulkan --> rhi
+    shaders --> rhi
+    sandbox --> platform
+    sandbox --> vulkan
+    sandbox --> shaders
+```
+
+Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
+`SurfaceDesc`, deren Funktionen das Fenster bereitstellt ([ADR 0013](adr/0013-rhi-design.md)).
 
 ## Regeln
 

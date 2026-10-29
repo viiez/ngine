@@ -21,3 +21,4 @@ betroffene Code einreichen.
 | [0010](0010-own-logger.md) | Eigener Logger statt spdlog | angenommen |
 | [0011](0011-unified-process.md) | Vereinfachter Unified Process | angenommen |
 | [0012](0012-64bit-world-coordinates.md) | 64-Bit-Weltkoordinaten, kamerarelatives Rendering | angenommen |
+| [0013](0013-rhi-design.md) | Aufbau der RHI: abstrakte Klassen, Backend-Fabrik, SurfaceDesc | angenommen |

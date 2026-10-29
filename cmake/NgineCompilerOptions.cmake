@@ -12,6 +12,10 @@ function(ngine_set_compiler_options target)
             -Wall -Wextra -Wpedantic
             -Wconversion -Wsign-conversion -Wshadow
             -Wnon-virtual-dtor -Wold-style-cast)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            # Teilweise Designated Initializers mit Nullwerten sind bei Vulkan-Strukturen gewollt.
+            target_compile_options(${target} PRIVATE -Wno-missing-designated-field-initializers)
+        endif()
         if(NGINE_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE -Werror)
         endif()

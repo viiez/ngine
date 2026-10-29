@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux (Clang 18)
+          - name: Linux (Clang 20)
             os: ubuntu-24.04
             preset: linux-clang-debug
             vcpkg_cache: ~/.cache/vcpkg/archives
@@ -34,7 +34,12 @@ jobs:
 
       - name: Werkzeuge installieren (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-18 clang-tools-18
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-20 clang-tools-20 libstdc++-14-dev \
+            mesa-vulkan-drivers vulkan-validationlayers xvfb \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
+            libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 
       - name: MSVC-Umgebung einrichten (Windows)
         if: runner.os == 'Windows'
@@ -73,3 +78,9 @@ jobs:
           exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
           [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
           "$exe" --headless
+
+      # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
+      # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.
+      - name: Sandbox mit Fenster starten (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60

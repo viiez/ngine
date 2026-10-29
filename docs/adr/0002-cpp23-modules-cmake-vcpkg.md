@@ -16,7 +16,9 @@ in Game Engines aber noch kein Standard, und die Werkzeuge reifen erst.
 
 ## Konsequenzen
 
-- Iteration A1 hat bestätigt: Clang 18 und MSVC bauen Module mit CMake zuverlässig.
+- Iteration A1 hat bestätigt: Clang und MSVC bauen Module mit CMake zuverlässig.
+- Iteration A2: Clang 18 kann `std::expected` aus libstdc++ nicht nutzen; Mindestversion ist daher
+  Clang 20 (in den Paketquellen von Ubuntu 24.04 und Linux Mint 22 enthalten).
 - GCC wird erst ab Version 14 unterstützt; das GCC 13 von Ubuntu 24.04 und Linux Mint 22 reicht nicht.
 - IDE-Unterstützung (clangd, IntelliSense) für Module ist noch lückenhaft.
 - Falls Module bremsen, bleibt der Rückweg zu Headern offen.
