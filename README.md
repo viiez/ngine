@@ -18,11 +18,11 @@ Voraussetzungen:
 
 ### Linux Mint 22 / Ubuntu 24.04
 
-Wir nutzen aktuelle Werkzeuge. Das mitgelieferte CMake ist zu alt, und Clang 23 kommt aus der
-LLVM-Paketquelle ([apt.llvm.org](https://apt.llvm.org)):
+Wir nutzen aktuelle Werkzeuge. Das mitgelieferte CMake ist zu alt (Kitware-Paketquelle oder
+`pipx install cmake`), und Clang 23 kommt aus der LLVM-Paketquelle ([apt.llvm.org](https://apt.llvm.org)).
+Die ausführliche Anleitung inklusive VS Code steht in [docs/setup.md](docs/setup.md).
 
 ```sh
-pip install --user cmake      # oder die Kitware-Paketquelle
 wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
 echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
 sudo apt update
