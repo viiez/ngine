@@ -51,8 +51,8 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)) | A2 | fertig |
-| REND-02 | Vulkan-Backend | Vulkan 1.3, Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
-| REND-03 | Feature-Stufen | Fähigkeiten der GPU erkennen (Mesh Shader, Raytracing); noch ohne Nutzung | A2 | fertig |
+| REND-02 | Vulkan-Backend | Vulkan 1.4, Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
+| REND-03 | Mindestanforderung prüfen | GPU beim Start gegen [ADR 0014](adr/0014-modern-gpu-baseline.md) prüfen, Fehlendes protokollieren, alles einschalten | A2 | fertig |
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
 | REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren automatisch | R1 | geplant |
 | REND-06 | Bindless | Ressourcen über Indizes statt Descriptor-Sets pro Draw | R1 | geplant |
@@ -62,8 +62,8 @@ eine Komponente.
 | REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU | R1 | Idee |
 | REND-11 | Post-Processing | Tone Mapping, Bloom, Farbkorrektur | R1 | geplant |
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
-| REND-13 | Mesh Shader | Optionaler Pfad auf fähiger Hardware | später | Idee |
-| REND-14 | Raytracing | Optional für Schatten oder GI auf RTX | später | Idee |
+| REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU; einziger Geometriepfad | R1 | geplant |
+| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries; Nutzung pro Effekt als Qualitätseinstellung | R2 | geplant |
 | REND-15 | Debug-Zeichnen | Linien, Boxen, Text in der Welt | R1 | geplant |
 
 ## Welt und ECS

@@ -35,7 +35,7 @@ flowchart LR
 | Konzeption (Inception) | Ziel, Rahmen und große Entscheidungen klären | Vision, Feature-Katalog, erste ADRs, Werkzeugwahl | **M1 Vision steht:** Vision und Katalog abgestimmt, Projektgerüst baut auf Linux und Windows |
 | Ausarbeitung (Elaboration) | Ausführbare Architektur bauen und die größten Risiken ausräumen | Core, Plattform, RHI, Job-System, ECS, Durchstiche für Voxel, C# und Netzwerk | **M2 Architektur-Baseline:** jedes Kernsystem existiert als dünne, getestete Schicht; keine großen Unbekannten mehr |
 | Konstruktion (Construction) | Features in die Breite bauen | Rendering, Editor, Voxel-Terrain, Physik, Audio, Scripting, Multiplayer | **M3 Feature-komplett:** alles, was der Spiel-Prototyp braucht, ist da |
-| Übergabe (Transition) | Engine an einem echten Spiel erproben | Spiel-Prototyp, Leistung auf schwacher Hardware, Pakete für Linux und Windows | **M4 Prototyp spielbar:** danach beginnt ein neuer Zyklus mit neuer Vision |
+| Übergabe (Transition) | Engine an einem echten Spiel erproben | Spiel-Prototyp, Leistung auf der Ziel-Hardware, Pakete für Linux und Windows | **M4 Prototyp spielbar:** danach beginnt ein neuer Zyklus mit neuer Vision |
 
 Die Phasen überlappen: Auch in der Konstruktion entstehen noch ADRs, und schon in der Ausarbeitung
 wird getestet. Die Phase sagt nur, wo der Schwerpunkt liegt.
@@ -48,10 +48,37 @@ ist nicht an feste Wochen gebunden, soll aber in wenigen Abenden machbar sein.
 1. **Planen:** Iterationsplan unter `docs/iterations/` anlegen: Ziel, Features aus dem Katalog,
    Risiken, Abnahmekriterien. Den Plan stimmen wir im Projekt ab.
 2. **Umsetzen:** Pull Requests mit Code, Tests und Doku. CI baut auf Linux und Windows.
-3. **Prüfen:** viiez testet auf echter Hardware (Linux-Notebook mit Intel-Grafik, Windows mit RTX 3060 Ti)
-   und merged.
-4. **Review:** Ergebnis und Erkenntnisse im Iterationsdokument festhalten. Dann Vision, Roadmap und
-   Feature-Katalog anpassen und neue Entscheidungen als ADR aufschreiben.
+3. **Prüfen:** viiez testet auf echter Hardware (RTX 3060 Ti, unter Windows und später auch unter
+   Linux) und merged.
+4. **Review:** Ergebnis und Erkenntnisse im Iterationsdokument festhalten, dazu ein kurzes
+   Architektur-Review (siehe unten). Dann Vision, Roadmap und Feature-Katalog anpassen und neue
+   Entscheidungen als ADR aufschreiben.
+
+### Architektur-Review
+
+Am Ende jeder Iteration prüfen wir den Code, der dazugekommen ist, gegen diese Fragen und halten das
+Ergebnis im Iterationsdokument fest:
+
+- Stimmen die Abhängigkeiten noch mit der [Architektur](architecture.md) überein (nur nach unten,
+  Plattform und RHI getrennt)?
+- Stecken alle Fremdbibliotheken hinter Engine-Schnittstellen?
+- Sind Schnittstellen schmal und passen sie zu dem, was die nächsten Iterationen brauchen?
+- Ist eine Datei oder Klasse zu groß geworden, oder mischt sie mehrere Aufgaben?
+- Gibt es Abkürzungen, die als technische Schulden ins Register gehören?
+- Passen Leistung und Speicherverbrauch zu dem, was wir erwarten? Gibt es offensichtliche Engpässe?
+
+Am Ende jeder Phase kommt ein größeres Review dazu, das die Architektur als Ganzes betrachtet.
+
+## Technische Schulden
+
+Technische Schulden ersticken wir im Keim. Dafür gelten drei Regeln:
+
+1. **Sichtbar machen:** Jede bewusste Abkürzung und jedes gefundene Problem kommt mit Grund und Plan
+   ins [Schuldenregister](tech-debt.md). Ein Kommentar im Code allein reicht nicht.
+2. **Früh abbauen:** Schulden, die beim Review auffallen, bauen wir in der laufenden oder spätestens
+   der nächsten Iteration ab. Längere Fristen nur, wenn ein späteres Feature die Lösung ohnehin bringt
+   (z. B. der Render-Graph feinere Barrieren); das steht dann im Register.
+3. **Nicht anhäufen:** Eine neue Iteration beginnt erst, wenn kein Eintrag mit Frist „jetzt“ offen ist.
 
 ## Disziplinen und wo sie im Repository leben
 
@@ -81,3 +108,4 @@ ist nicht an feste Wochen gebunden, soll aber in wenigen Abenden machbar sein.
 - [ ] Betroffene Doku ist im selben PR aktualisiert: Feature-Status, Architektur, ADR bei Entscheidungen.
 - [ ] Fremdbibliotheken stecken hinter einer Engine-Schnittstelle.
 - [ ] Code ist mit `.clang-format` formatiert.
+- [ ] Bewusste Abkürzungen stehen im [Schuldenregister](tech-debt.md).

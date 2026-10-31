@@ -183,6 +183,121 @@ bool contains(const std::vector<VkExtensionProperties>& extensions, const char* 
     });
 }
 
+// --- Mindestanforderungen --------------------------------------------------------------
+//
+// NGine setzt eine moderne GPU voraus (ADR 0014): Vulkan 1.4, Bindless, Buffer Device
+// Address, Mesh Shader und Raytracing. Es gibt keine Rückfallpfade für ältere Hardware.
+
+constexpr u32 required_api_version = VK_API_VERSION_1_4;
+// Der Loader muss nur die Instanz-Funktionen von 1.3 kennen; Device-Funktionen kommen direkt
+// vom Treiber. So reicht z. B. der Loader 1.3.275 aus Ubuntu 24.04 und Linux Mint 22.
+constexpr u32 required_loader_version = VK_API_VERSION_1_3;
+
+// Device-Extensions, die jede GPU mitbringen muss (die Swapchain kommt nur mit Fenster dazu).
+constexpr std::array required_extensions{
+    VK_EXT_MESH_SHADER_EXTENSION_NAME,
+    VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+    VK_KHR_RAY_QUERY_EXTENSION_NAME,
+    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+};
+
+// Verkettete Feature-Strukturen. Dieselbe Kette dient zum Abfragen und zum Einschalten;
+// die Zeiger zeigen in das Objekt selbst, deshalb ist es weder kopier- noch verschiebbar.
+struct FeatureChain {
+    VkPhysicalDeviceFeatures2 root{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    VkPhysicalDeviceVulkan11Features v11{.sType =
+                                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceVulkan12Features v12{.sType =
+                                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceVulkan13Features v13{.sType =
+                                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_pipeline{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+
+    FeatureChain() {
+        root.pNext = &v11;
+        v11.pNext = &v12;
+        v12.pNext = &v13;
+        v13.pNext = &mesh;
+        mesh.pNext = &acceleration;
+        acceleration.pNext = &ray_query;
+        ray_query.pNext = &ray_pipeline;
+    }
+    FeatureChain(const FeatureChain&) = delete;
+    FeatureChain& operator=(const FeatureChain&) = delete;
+};
+
+// Liefert die Felder aller Pflicht-Features einer Kette, damit Abfrage und Einschalten
+// dieselbe Liste benutzen.
+template <typename Visitor>
+void for_each_required_feature(FeatureChain& chain, Visitor&& visit) {
+    // Slang übersetzt SV_VertexID mit der SPIR-V-Fähigkeit DrawParameters.
+    visit("Draw Parameters", chain.v11.shaderDrawParameters);
+    visit("Descriptor Indexing", chain.v12.descriptorIndexing);
+    visit("Runtime Descriptor Arrays", chain.v12.runtimeDescriptorArray);
+    visit("Partially Bound Descriptors", chain.v12.descriptorBindingPartiallyBound);
+    visit("Variable Descriptor Count", chain.v12.descriptorBindingVariableDescriptorCount);
+    visit("Non-Uniform Indexing", chain.v12.shaderSampledImageArrayNonUniformIndexing);
+    visit("Update After Bind", chain.v12.descriptorBindingSampledImageUpdateAfterBind);
+    visit("Buffer Device Address", chain.v12.bufferDeviceAddress);
+    visit("Timeline Semaphores", chain.v12.timelineSemaphore);
+    visit("Scalar Block Layout", chain.v12.scalarBlockLayout);
+    visit("Dynamic Rendering", chain.v13.dynamicRendering);
+    visit("Synchronization2", chain.v13.synchronization2);
+    visit("Maintenance4", chain.v13.maintenance4);
+    visit("Task Shader", chain.mesh.taskShader);
+    visit("Mesh Shader", chain.mesh.meshShader);
+    visit("Acceleration Structures", chain.acceleration.accelerationStructure);
+    visit("Ray Query", chain.ray_query.rayQuery);
+    visit("Raytracing-Pipeline", chain.ray_pipeline.rayTracingPipeline);
+}
+
+std::string format_version(u32 version) {
+    return std::format("{}.{}.{}", VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version),
+                       VK_API_VERSION_PATCH(version));
+}
+
+// Was einer GPU zur Mindestanforderung fehlt; leer, wenn sie genügt.
+std::vector<std::string> missing_requirements(VkPhysicalDevice device,
+                                              const VkPhysicalDeviceProperties& properties,
+                                              bool needs_swapchain) {
+    std::vector<std::string> missing;
+    if (properties.apiVersion < required_api_version) {
+        missing.push_back(std::format("Vulkan 1.4 (hat {})", format_version(properties.apiVersion)));
+        return missing;
+    }
+
+    const auto extensions = device_extensions(device);
+    for (const char* name : required_extensions) {
+        if (!contains(extensions, name)) {
+            missing.emplace_back(name);
+        }
+    }
+    if (needs_swapchain && !contains(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
+        missing.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    }
+    if (!missing.empty()) {
+        // Feature-Strukturen fehlender Extensions dürfen nicht abgefragt werden.
+        return missing;
+    }
+
+    FeatureChain chain;
+    vkGetPhysicalDeviceFeatures2(device, &chain.root);
+    for_each_required_feature(chain, [&](const char* name, const VkBool32& value) {
+        if (value != VK_TRUE) {
+            missing.emplace_back(name);
+        }
+    });
+    return missing;
+}
+
 // --- Ressourcen -------------------------------------------------------------------------
 
 class VulkanTexture final : public Texture {
@@ -482,16 +597,13 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
 
     log::info("Vulkan-Gerät: {} ({}), Vulkan {}", capabilities_.device_name,
               to_string(capabilities_.device_type), capabilities_.api_version);
-    log::info("Feature-Stufen: Mesh Shader {}, Raytracing {}",
-              capabilities_.mesh_shaders ? "ja" : "nein",
-              capabilities_.ray_tracing ? "ja" : "nein");
     return {};
 }
 
 std::expected<void, std::string> VulkanDevice::create_instance(const DeviceDesc& desc) {
     u32 version = VK_API_VERSION_1_0;
-    if (vkEnumerateInstanceVersion(&version) != VK_SUCCESS || version < VK_API_VERSION_1_3) {
-        return std::unexpected("Der Vulkan-Loader unterstützt Vulkan 1.3 nicht");
+    if (vkEnumerateInstanceVersion(&version) != VK_SUCCESS || version < required_loader_version) {
+        return std::unexpected("Der Vulkan-Loader ist älter als Vulkan 1.3");
     }
 
     std::vector<const char*> layers;
@@ -530,7 +642,7 @@ std::expected<void, std::string> VulkanDevice::create_instance(const DeviceDesc&
         .pEngineName = engine_name.data(),
         .engineVersion = VK_MAKE_API_VERSION(0, engine_version.major, engine_version.minor,
                                              engine_version.patch),
-        .apiVersion = VK_API_VERSION_1_3,
+        .apiVersion = required_api_version,
     };
     const VkInstanceCreateInfo instance_info{
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -569,24 +681,14 @@ std::expected<void, std::string> VulkanDevice::pick_physical_device() {
     for (VkPhysicalDevice candidate : devices) {
         VkPhysicalDeviceProperties properties;
         vkGetPhysicalDeviceProperties(candidate, &properties);
-        if (properties.apiVersion < VK_API_VERSION_1_3) {
-            continue;
-        }
-
-        VkPhysicalDeviceVulkan13Features features13{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-        VkPhysicalDeviceVulkan11Features features11{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, .pNext = &features13};
-        VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                                           .pNext = &features11};
-        vkGetPhysicalDeviceFeatures2(candidate, &features);
-        if (features13.dynamicRendering != VK_TRUE || features13.synchronization2 != VK_TRUE ||
-            features11.shaderDrawParameters != VK_TRUE) {
-            continue;
-        }
-
-        const auto extensions = device_extensions(candidate);
-        if (surface_ != VK_NULL_HANDLE && !contains(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
+        if (const auto missing =
+                missing_requirements(candidate, properties, surface_ != VK_NULL_HANDLE);
+            !missing.empty()) {
+            std::string list;
+            for (const auto& name : missing) {
+                list += list.empty() ? name : ", " + name;
+            }
+            log::info("GPU {} übersprungen, es fehlt: {}", properties.deviceName, list);
             continue;
         }
 
@@ -626,19 +728,14 @@ std::expected<void, std::string> VulkanDevice::pick_physical_device() {
         queue_family_ = *family;
         capabilities_ = Capabilities{
             .device_name = properties.deviceName,
-            .api_version = std::format("{}.{}.{}", VK_API_VERSION_MAJOR(properties.apiVersion),
-                                       VK_API_VERSION_MINOR(properties.apiVersion),
-                                       VK_API_VERSION_PATCH(properties.apiVersion)),
+            .api_version = format_version(properties.apiVersion),
             .device_type = type,
-            .mesh_shaders = contains(extensions, VK_EXT_MESH_SHADER_EXTENSION_NAME),
-            .ray_tracing = contains(extensions, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
-                           contains(extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME),
         };
     }
 
     if (physical_device_ == VK_NULL_HANDLE) {
-        return std::unexpected("Keine GPU mit Vulkan 1.3, Dynamic Rendering, Synchronization2 und "
-                               "Draw Parameters gefunden");
+        return std::unexpected("Keine GPU erfüllt die Mindestanforderung (Vulkan 1.4, Bindless, "
+                               "Mesh Shader, Raytracing); Details stehen im Log");
     }
     return {};
 }
@@ -652,30 +749,17 @@ std::expected<void, std::string> VulkanDevice::create_logical_device() {
         .pQueuePriorities = &priority,
     };
 
-    VkPhysicalDeviceVulkan13Features features13{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .synchronization2 = VK_TRUE,
-        .dynamicRendering = VK_TRUE,
-    };
-    // Slang übersetzt SV_VertexID mit der SPIR-V-Fähigkeit DrawParameters.
-    VkPhysicalDeviceVulkan11Features features11{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-        .pNext = &features13,
-        .shaderDrawParameters = VK_TRUE,
-    };
-    const VkPhysicalDeviceFeatures2 features{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &features11,
-    };
+    FeatureChain features;
+    for_each_required_feature(features, [](const char*, VkBool32& value) { value = VK_TRUE; });
 
-    std::vector<const char*> extensions;
+    std::vector<const char*> extensions(required_extensions.begin(), required_extensions.end());
     if (surface_ != VK_NULL_HANDLE) {
         extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
 
     const VkDeviceCreateInfo device_info{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &features,
+        .pNext = &features.root,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queue_info,
         .enabledExtensionCount = static_cast<u32>(extensions.size()),
@@ -696,11 +780,12 @@ std::expected<void, std::string> VulkanDevice::create_allocator() {
     functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
 
     const VmaAllocatorCreateInfo allocator_info{
+        .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
         .physicalDevice = physical_device_,
         .device = device_,
         .pVulkanFunctions = &functions,
         .instance = instance_,
-        .vulkanApiVersion = VK_API_VERSION_1_3,
+        .vulkanApiVersion = required_api_version,
     };
     if (const VkResult result = vmaCreateAllocator(&allocator_info, &allocator_);
         result != VK_SUCCESS) {

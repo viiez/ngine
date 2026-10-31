@@ -58,14 +58,12 @@ struct DeviceDesc {
     std::optional<SurfaceDesc> surface;
 };
 
-// Was die GPU kann. Grundlage der Feature-Stufen: Die Basis läuft überall,
-// optionale Features werden nur genutzt, wo sie vorhanden sind.
+// Beschreibung der gewählten GPU. Mesh Shader und Raytracing sind Mindestanforderung
+// (ADR 0014) und stehen deshalb immer zur Verfügung.
 struct Capabilities {
     std::string device_name;
     std::string api_version;
     DeviceType device_type = DeviceType::Other;
-    bool mesh_shaders = false;
-    bool ray_tracing = false;
 };
 
 class Resource {

@@ -27,7 +27,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version` | vorhanden |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList | vorhanden |
-| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.3-Backend mit volk und VMA | vorhanden |
+| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.4-Backend mit volk und VMA | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
 Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.jobs`, `ngine.world`,

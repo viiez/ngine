@@ -8,6 +8,7 @@ außerhalb des Repositorys sind nur Vorarbeit.
 | --- | --- | --- |
 | [Vision](vision.md) | Ziel, Leitprinzipien, Rahmenbedingungen, Spielidee | Bei jedem Phasen- oder Iterations-Review, wenn sich Ziele verschieben |
 | [Entwicklungsumgebung](setup.md) | Einrichtung von Linux, Windows und VS Code Schritt für Schritt | Wenn sich Werkzeuge, Abhängigkeiten oder Build-Schritte ändern |
+| [Technische Schulden](tech-debt.md) | Register bekannter Schulden mit Grund und Plan | Bei jedem Architektur-Review und wenn eine Abkürzung dazukommt oder abgebaut ist |
 | [Prozess](process.md) | Vereinfachter Unified Process: Phasen, Iterationen, Definition of Done | Wenn wir die Arbeitsweise ändern |
 | [Roadmap](roadmap.md) | Phasen, Meilensteine, Iterationen, Reifegrade | Bei jeder Iterationsplanung und jedem Review |
 | [Feature-Katalog](features.md) | Alle Features nach Engine-Komponente, mit Status | Wenn ein Feature dazukommt, sich ändert oder fertig wird |

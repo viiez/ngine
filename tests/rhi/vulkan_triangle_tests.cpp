@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,15 +12,33 @@ import ngine.shaders;
 
 // Diese Tests brauchen einen Vulkan-Treiber. In der CI unter Linux läuft dafür
 // lavapipe (Software-Rendering von Mesa); ohne Treiber werden sie übersprungen.
+// Ist NGINE_REQUIRE_GPU gesetzt (CI unter Linux), schlagen sie stattdessen fehl, damit
+// ein fehlendes Gerät nicht als grüner Lauf durchgeht.
 
 namespace {
 
 constexpr ngine::u32 size = 64;
 
+bool gpu_required() {
+// getenv gilt bei MSVC als unsicher (C4996); hier wird nur gelesen.
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+    const char* value = std::getenv("NGINE_REQUIRE_GPU");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+    return value != nullptr && *value != '\0';
+}
+
 std::unique_ptr<ngine::rhi::Device> make_device() {
     auto device = ngine::rhi::vulkan::create_device(
         {.application_name = "NGine Tests", .enable_validation = true});
     if (!device) {
+        if (gpu_required()) {
+            FAIL("Kein nutzbares Vulkan-Gerät: " + device.error());
+        }
         SKIP("Kein nutzbares Vulkan-Gerät: " + device.error());
     }
     return std::move(*device);
@@ -41,7 +60,9 @@ TEST_CASE("Vulkan-Device meldet Capabilities", "[rhi][vulkan][gpu]") {
     const auto& caps = device->capabilities();
 
     CHECK_FALSE(caps.device_name.empty());
-    CHECK(caps.api_version.starts_with("1."));
+    // Mindestanforderung ist Vulkan 1.4 (ADR 0014).
+    REQUIRE(caps.api_version.starts_with("1."));
+    CHECK(std::stoi(caps.api_version.substr(2)) >= 4);
     CHECK(device->validation_errors() == 0);
 }
 
