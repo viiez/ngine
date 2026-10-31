@@ -20,10 +20,15 @@ namespace {
 constexpr ngine::u32 size = 64;
 
 bool gpu_required() {
+// getenv gilt bei MSVC als unsicher (C4996); hier wird nur gelesen.
 #ifdef _MSC_VER
-#pragma warning(suppress : 4996) // getenv gilt bei MSVC als unsicher; hier nur gelesen.
+#pragma warning(push)
+#pragma warning(disable : 4996)
 #endif
     const char* value = std::getenv("NGINE_REQUIRE_GPU");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
     return value != nullptr && *value != '\0';
 }
 
