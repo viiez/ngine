@@ -3,8 +3,8 @@
 Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist ein Plan, kein
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
-**Aktuell:** Phase Ausarbeitung. A2 ist abgeschlossen, als Nächstes kommt A3 (Job-System und Speicher).
-A3 beginnt mit dem Abbau von TD-01 aus dem [Schuldenregister](tech-debt.md).
+**Aktuell:** Phase Ausarbeitung, Iteration A3 (Job-System und Speicher) läuft. TD-01 aus dem
+[Schuldenregister](tech-debt.md) ist abgebaut; der Plan steht in [Iteration A3](iterations/A3-jobs-und-speicher.md).
 
 ## Phasen und Iterationen
 
@@ -42,7 +42,7 @@ getestete Schicht, und die drei größten Risiken sind durch Durchstiche geklär
 | --- | --- | --- |
 | A1 Projektgerüst | CMake, Module, Core mit Logging, CI | Erledigt, siehe [Iteration A1](iterations/A1-projektgeruest.md) |
 | A2 Fenster und Vulkan-Dreieck | SDL3-Fenster, Vulkan 1.4 über volk und VMA, erste RHI-Schnittstelle | Erledigt, siehe [Iteration A2](iterations/A2-fenster-und-dreieck.md) |
-| A3 Job-System und Speicher | Task-System mit Abhängigkeiten, Frame- und Pool-Allokatoren | Parallele Jobs in Tests; Tracy zeigt die Threads |
+| A3 Job-System und Speicher | Task-System mit Abhängigkeiten, Frame- und Pool-Allokatoren, Tracy | Parallele Jobs in Tests; Tracy zeigt die Threads; siehe [Iteration A3](iterations/A3-jobs-und-speicher.md) |
 | A4 ECS und Reflection | flecs hinter `World`/`Entity`, Reflection-Grundlage, Szene speichern | Szene mit Entities speichern und laden |
 | D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | Glatter Hügel sichtbar und zur Laufzeit veränderbar |
 | D2 Durchstich C#-Hosting | .NET über hostfxr starten, C#-Methode aus C++ aufrufen und zurück | C#-Skript loggt über die Engine |

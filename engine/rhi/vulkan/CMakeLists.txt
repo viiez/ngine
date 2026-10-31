@@ -6,8 +6,22 @@ target_sources(ngine_rhi_vulkan
         FILE_SET CXX_MODULES
         FILES
             vulkan.cppm
+    # Interne Partitionen: Teil des Moduls, aber außerhalb nicht sichtbar.
+    PRIVATE
+        FILE_SET internal_partitions TYPE CXX_MODULES
+        FILES
+            common.cppm
+            instance.cppm
+            physical_device.cppm
+            resources.cppm
+            command_list.cppm
+            swapchain.cppm
     PRIVATE
         device.cpp
+        instance.cpp
+        physical_device.cpp
+        resources.cpp
+        swapchain.cpp
         vma.cpp)
 
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)

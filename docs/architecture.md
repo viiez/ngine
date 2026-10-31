@@ -27,7 +27,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version` | vorhanden |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList | vorhanden |
-| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.4-Backend mit volk und VMA | vorhanden |
+| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.4-Backend mit volk und VMA; interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
 Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.jobs`, `ngine.world`,
@@ -63,6 +63,9 @@ Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt de
 - **Daten im ECS.** Spielzustand lebt in ECS-Komponenten, damit Speichern, Netzwerk und Editor ihn
   einheitlich behandeln ([ADR 0003](adr/0003-ecs-flecs.md)).
 - **Plattformcode nur in der Plattformschicht.** Keine `#ifdef _WIN32` außerhalb von Adaptern.
+- **Große Module teilen.** Was nur das Modul selbst braucht, steht in internen Partitionen
+  (`module ngine.<system>:<teil>;` ohne `export`). CMake führt sie in einem privaten
+  `CXX_MODULES`-File-Set; außerhalb des Moduls sind sie unsichtbar. Eine Datei soll eine Aufgabe haben.
 
 ## Verzeichnisse
 
