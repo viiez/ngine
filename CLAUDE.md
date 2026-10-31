@@ -33,6 +33,7 @@ ctest --preset linux-clang-debug
 ./build/linux-clang-debug/apps/sandbox/ngine_sandbox --headless
 ```
 
+Job-System und Allokatoren prüft ThreadSanitizer (Preset `linux-clang-tsan`, Tests `[jobs],[memory]`).
 GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden sie übersprungen.
 `NGINE_WITH_WINDOW=OFF` baut ohne SDL3. Shader sind Slang-Dateien und werden beim Bauen mit
 `slangc` zu SPIR-V kompiliert (`ngine_compile_shader()` in `cmake/NgineShaders.cmake`).
@@ -50,6 +51,8 @@ GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden 
   Die primäre Schnittstelle exportiert alle Partitionen.
 - Header (Standardbibliothek, Fremdbibliotheken) nur im globalen Modulfragment (`module;` … ).
   Kein `import std;`, bis alle Zielcompiler es zuverlässig können.
+- Einzige eigene Header-Datei: `<ngine/profile.hpp>` mit den Profiling-Makros, weil Module keine
+  Makros exportieren (ADR 0016). Sie enthält nur Makros.
 - Fremdbibliotheken nur hinter einer Engine-Schnittstelle. Außerhalb des Adapters kennt kein Code die
   Bibliothek direkt, damit sie austauschbar bleibt.
 - Aktuelle Versionen von Werkzeugen und Bibliotheken nutzen, wenn nichts dagegen spricht

@@ -314,6 +314,25 @@ Ziel von A2 ist ein Fenster mit einem farbigen Dreieck auf beiden Rechnern ohne 
 
 Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder Sandbox am meisten.
 
+## A3 testen: Job-System und Tracy
+
+1. **Tests:** `ctest` meldet alle Tests als bestanden, auch `[jobs]` und `[memory]`.
+2. **Job-Demo:** `ngine_sandbox --jobs-demo` rechnet 120 Frames erst mit einem Thread, dann mit allen
+   Kernen, und meldet die Zeit pro Frame und die Beschleunigung. Mit `--frames <n>` läuft sie länger.
+   Im Release-Build sind die Zahlen aussagekräftiger als im Debug-Build.
+3. **Tracy:** Den Profiler in derselben Version wie der Client (0.14.1) von den
+   [Tracy-Releases](https://github.com/wolfpld/tracy/releases) holen und starten. Dann
+   `ngine_sandbox --jobs-demo --frames 2000` starten und im Profiler „Connect“ wählen. Zu sehen sind
+   „Hauptthread“ und „Worker 1“ bis „Worker n“ mit den Zonen „Job“, „Dichte erzeugen“ und
+   „Oberfläche suchen“, die Frames und der Plot „Frame-Speicher (Bytes)“. Auch die Sandbox mit
+   Fenster setzt Frame-Marken.
+4. **Ohne Tracy bauen:** `-DNGINE_WITH_TRACY=OFF` beim Konfigurieren; danach läuft alles wie vorher.
+
+Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
+sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf
+`build/<preset>/vcpkg_installed/<triplet>/share/vulkan/explicit_layer.d` setzen (unter Windows auf
+`.../bin`). Die CI macht das unter Linux so.
+
 ## Häufige Probleme
 
 | Meldung | Ursache und Lösung |

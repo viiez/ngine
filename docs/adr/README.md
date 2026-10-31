@@ -23,3 +23,5 @@ betroffene Code einreichen.
 | [0012](0012-64bit-world-coordinates.md) | 64-Bit-Weltkoordinaten, kamerarelatives Rendering | angenommen |
 | [0013](0013-rhi-design.md) | Aufbau der RHI: abstrakte Klassen, Backend-Fabrik, SurfaceDesc | angenommen |
 | [0014](0014-modern-gpu-baseline.md) | Moderne GPU als Mindestanforderung: Vulkan 1.4, Mesh Shader, Raytracing | angenommen |
+| [0015](0015-own-job-system.md) | Eigenes Job-System mit Work-Stealing, ohne Fibers | angenommen |
+| [0016](0016-profiling-macros.md) | Profiling mit Tracy über Makros in einem Header | vorgeschlagen |

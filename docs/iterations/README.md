@@ -7,6 +7,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | --- | --- | --- | --- |
 | [A1](A1-projektgeruest.md) | Ausarbeitung | Projektgerüst mit CMake, Modulen, Core und CI | abgeschlossen |
 | [A2](A2-fenster-und-dreieck.md) | Ausarbeitung | Fenster und Vulkan-Dreieck | abgeschlossen |
+| [A3](A3-jobs-und-speicher.md) | Ausarbeitung | Job-System und Speicher | in Arbeit |
 
 ## Vorlage
 
