@@ -3,7 +3,7 @@
 Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist ein Plan, kein
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
-**Aktuell:** Phase Konzeption ist mit diesem Stand abgeschlossen; nächste Iteration ist A2.
+**Aktuell:** Phase Ausarbeitung, Iteration A2 (Fenster und Vulkan-Dreieck) in Arbeit.
 
 ## Phasen und Iterationen
 

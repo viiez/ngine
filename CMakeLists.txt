@@ -17,9 +17,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(NGINE_BUILD_TESTS "Tests bauen" ON)
 option(NGINE_BUILD_SANDBOX "Sandbox-Anwendung bauen" ON)
 option(NGINE_WARNINGS_AS_ERRORS "Warnungen als Fehler behandeln" OFF)
+# Ohne Fenster entsteht ein Build ohne SDL3, z. B. für Server oder reine Tests.
+option(NGINE_WITH_WINDOW "Fenster-Unterstützung (SDL3) bauen" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(NgineCompilerOptions)
+include(NgineShaders)
 
 add_subdirectory(engine)
 

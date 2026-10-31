@@ -25,13 +25,13 @@ eine Komponente.
 | CORE-01 | Zahlentypen | `u32`, `f32` usw. aus `ngine.core:types` | A1 | fertig |
 | CORE-02 | Logging | Stufen, austauschbare Sinks, Konsole | A1 | fertig |
 | CORE-03 | Versionsinfo | Engine-Name und Version aus CMake | A1 | fertig |
-| CORE-04 | Asserts | Prüfungen mit Meldung, in Release abschaltbar | A2 | geplant |
+| CORE-04 | Prüfungen | `ngine::verify()` bricht mit Meldung, Datei und Zeile ab | A2 | fertig |
 | CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen | A3 | geplant |
 | CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking | A3 | geplant |
 | CORE-07 | Profiling | Tracy-Zonen für CPU und GPU | A3 | geplant |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C# | A4 | geplant |
 | CORE-09 | Serialisierung | Binär und lesbar (z. B. JSON) über Reflection | A4 | geplant |
-| CORE-10 | Mathematik | Vektoren, Matrizen, Quaternionen; zuerst GLM, später eigene SIMD-Typen | A2 | geplant |
+| CORE-10 | Mathematik | Vektoren, Matrizen, Quaternionen; zuerst GLM, später eigene SIMD-Typen | R1 | geplant |
 | CORE-11 | Ereignisse | Lose gekoppelte Nachrichten zwischen Systemen | R2 | geplant |
 | CORE-12 | Log-Datei | Sink, der in eine Datei schreibt | R2 | geplant |
 
@@ -39,9 +39,9 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | geplant |
-| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen | A2 / R2 | geplant |
-| PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests) | A1 / A2 | in Arbeit |
+| PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
+| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher nur Schließen und Escape | A2 / R2 | in Arbeit |
+| PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
 | PLAT-04 | Dateisystem | Pfade, Dateien lesen und schreiben, Benutzerordner | A3 | geplant |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
 | PLAT-06 | Hot Reload von Dateien | Änderungen an Shadern und Assets zur Laufzeit erkennen | R1 | geplant |
@@ -50,10 +50,10 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal | A2 | geplant |
-| REND-02 | Vulkan-Backend | Vulkan 1.3, Dynamic Rendering, Synchronization2, volk, VMA | A2 | geplant |
-| REND-03 | Feature-Stufen | Fähigkeiten der GPU erkennen; Basis auf Intel-Grafik, Extras auf RTX | A2 | geplant |
-| REND-04 | Shader mit Slang | Kompilieren zu SPIR-V, Reflection für Materialien | A2 | geplant |
+| REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)) | A2 | fertig |
+| REND-02 | Vulkan-Backend | Vulkan 1.3, Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
+| REND-03 | Feature-Stufen | Fähigkeiten der GPU erkennen (Mesh Shader, Raytracing); noch ohne Nutzung | A2 | fertig |
+| REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
 | REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren automatisch | R1 | geplant |
 | REND-06 | Bindless | Ressourcen über Indizes statt Descriptor-Sets pro Draw | R1 | geplant |
 | REND-07 | PBR-Materialien | Physikalisch basiertes Shading, Material-Instanzen | R1 | geplant |
@@ -64,7 +64,7 @@ eine Komponente.
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
 | REND-13 | Mesh Shader | Optionaler Pfad auf fähiger Hardware | später | Idee |
 | REND-14 | Raytracing | Optional für Schatten oder GI auf RTX | später | Idee |
-| REND-15 | Debug-Zeichnen | Linien, Boxen, Text in der Welt | A2 / R1 | geplant |
+| REND-15 | Debug-Zeichnen | Linien, Boxen, Text in der Welt | R1 | geplant |
 
 ## Welt und ECS
 
@@ -203,6 +203,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | TOOL-05 | Doku-Prüfung in CI | Kaputte Links und Formatierung prüfen | A2 | Idee |
 | TOOL-06 | Formatierung in CI | clang-format prüfen | A2 | geplant |
 | TOOL-07 | Pakete | Installierbare Builds für Linux und Windows | Übergabe | geplant |
+| TOOL-08 | GPU-Tests in CI | Vulkan-Tests und Sandbox mit Fenster über lavapipe und Xvfb | A2 | fertig |
 
 ## Ideen-Parkplatz
 

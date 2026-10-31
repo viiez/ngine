@@ -1,7 +1,7 @@
 # A2: Fenster und Vulkan-Dreieck
 
 - **Phase:** Ausarbeitung
-- **Status:** geplant
+- **Status:** in Arbeit
 - **Pull Requests:** –
 
 ## Plan
@@ -24,6 +24,15 @@ CORE-10
 - Validation Layers melden keine Fehler.
 - `--headless` startet weiterhin ohne GPU; CI bleibt grün.
 
+## Stand
+
+- Umgesetzt: `ngine.platform` (SDL3), `ngine.rhi`, `ngine.rhi.vulkan`, `ngine.shaders` (Slang),
+  `ngine::verify()`, Sandbox mit Dreieck.
+- In der CI: Offscreen-Test des Dreiecks und 60 Frames mit Fenster unter Xvfb, beides über lavapipe
+  mit Validation Layers.
+- Offen: Test auf echter Hardware (Intel unter Linux, RTX unter Windows).
+- Abweichung vom Plan: CORE-10 (Mathematik) ist für das Dreieck nicht nötig und wandert nach R1.
+
 ## Review
 
-Folgt nach Abschluss.
+Folgt nach dem Test auf echter Hardware.

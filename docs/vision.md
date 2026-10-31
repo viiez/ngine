@@ -34,6 +34,8 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
    Modul dazu, ohne Bestehendes umzubauen.
 5. **Austauschbar:** jede Fremdbibliothek steckt hinter einer Engine-Schnittstelle
    ([ADR 0009](adr/0009-third-party-behind-interfaces.md)).
+6. **Aktuelle Werkzeuge:** Compiler, Build-Werkzeuge und Bibliotheken in aktueller Version, solange
+   nichts dagegen spricht ([ADR 0008](adr/0008-linux-first-clang.md)).
 
 ## Ziele und Nicht-Ziele
 

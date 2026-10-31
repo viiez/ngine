@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux (Clang 18)
+          - name: Linux (Clang 23)
             os: ubuntu-24.04
             preset: linux-clang-debug
             vcpkg_cache: ~/.cache/vcpkg/archives
@@ -30,11 +30,19 @@ jobs:
             vcpkg_cache: ~\AppData\Local\vcpkg\archives
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Werkzeuge installieren (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-18 clang-tools-18
+        run: |
+          # Aktuelles Clang aus der LLVM-Paketquelle
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-23 clang-tools-23 libstdc++-14-dev \
+            mesa-vulkan-drivers vulkan-validationlayers xvfb \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
+            libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 
       - name: MSVC-Umgebung einrichten (Windows)
         if: runner.os == 'Windows'
@@ -52,7 +60,7 @@ jobs:
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
       - name: vcpkg-Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ matrix.vcpkg_cache }}
           key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
@@ -73,3 +81,9 @@ jobs:
           exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
           [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
           "$exe" --headless
+
+      # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
+      # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.
+      - name: Sandbox mit Fenster starten (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60
