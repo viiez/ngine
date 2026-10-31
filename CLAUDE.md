@@ -33,6 +33,7 @@ ctest --preset linux-clang-debug
 ./build/linux-clang-debug/apps/sandbox/ngine_sandbox --headless
 ```
 
+Job-System und Allokatoren prüft ThreadSanitizer (Preset `linux-clang-tsan`, Tests `[jobs],[memory]`).
 GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden sie übersprungen.
 `NGINE_WITH_WINDOW=OFF` baut ohne SDL3. Shader sind Slang-Dateien und werden beim Bauen mit
 `slangc` zu SPIR-V kompiliert (`ngine_compile_shader()` in `cmake/NgineShaders.cmake`).

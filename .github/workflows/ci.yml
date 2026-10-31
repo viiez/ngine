@@ -24,6 +24,12 @@ jobs:
             os: ubuntu-24.04
             preset: linux-clang-debug
             vcpkg_cache: ~/.cache/vcpkg/archives
+          # Prüft Job-System und Allokatoren auf Datenrennen.
+          - name: Linux (Clang 23, ThreadSanitizer)
+            os: ubuntu-24.04
+            preset: linux-clang-tsan
+            vcpkg_cache: ~/.cache/vcpkg/archives
+            tsan: true
           - name: Windows (MSVC)
             os: windows-latest
             preset: windows-msvc-debug
@@ -73,12 +79,27 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Testen
+        if: ${{ !matrix.tsan }}
         run: ctest --preset ${{ matrix.preset }}
         env:
           # Unter Linux steht lavapipe bereit: GPU-Tests dürfen dort nicht übersprungen werden.
           NGINE_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '' }}
 
+      # Nur die Tests ohne GPU: Treiber wie lavapipe sind nicht für ThreadSanitizer gebaut.
+      # Mehrere Durchläufe, weil Datenrennen nicht bei jedem Lauf auftreten.
+      - name: ThreadSanitizer
+        if: ${{ matrix.tsan }}
+        env:
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+        run: |
+          # Ältere TSan-Laufzeiten scheitern an der hohen ASLR-Entropie aktueller Kernel.
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          for run in 1 2 3 4 5; do
+            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory]"
+          done
+
       - name: Sandbox ohne Fenster starten
+        if: ${{ !matrix.tsan }}
         shell: bash
         run: |
           exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
@@ -88,5 +109,5 @@ jobs:
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.
       - name: Sandbox mit Fenster starten (Linux, Xvfb)
-        if: runner.os == 'Linux'
+        if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60
