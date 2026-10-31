@@ -1,6 +1,6 @@
 # 0015: Eigenes Job-System mit Work-Stealing, ohne Fibers
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-10-31
 
 ## Kontext
