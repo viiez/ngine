@@ -3,7 +3,8 @@
 Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist ein Plan, kein
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
-**Aktuell:** Phase Ausarbeitung, Iteration A2 (Fenster und Vulkan-Dreieck) in Arbeit.
+**Aktuell:** Phase Ausarbeitung. A2 ist abgeschlossen, als Nächstes kommt A3 (Job-System und Speicher).
+A3 beginnt mit dem Abbau von TD-01 aus dem [Schuldenregister](tech-debt.md).
 
 ## Phasen und Iterationen
 
@@ -13,7 +14,7 @@ flowchart TB
         K1["K1 Vision, Entscheidungen, Werkzeuge ✓"]
     end
     subgraph A["Ausarbeitung: Architektur-Baseline"]
-        A1["A1 Projektgerüst ✓"] --> A2["A2 Fenster und Vulkan-Dreieck"]
+        A1["A1 Projektgerüst ✓"] --> A2["A2 Fenster und Vulkan-Dreieck ✓"]
         A2 --> A3["A3 Job-System und Speicher"]
         A3 --> A4["A4 ECS und Reflection"]
         A2 --> D1["D1 Durchstich Voxel-Meshing"]
@@ -40,7 +41,7 @@ getestete Schicht, und die drei größten Risiken sind durch Durchstiche geklär
 | Iteration | Ziel | Abnahme |
 | --- | --- | --- |
 | A1 Projektgerüst | CMake, Module, Core mit Logging, CI | Erledigt, siehe [Iteration A1](iterations/A1-projektgeruest.md) |
-| A2 Fenster und Vulkan-Dreieck | SDL3-Fenster, Vulkan 1.4 über volk und VMA, erste RHI-Schnittstelle | Dreieck auf Windows (RTX) und Linux (CI mit lavapipe); `--headless` ohne GPU |
+| A2 Fenster und Vulkan-Dreieck | SDL3-Fenster, Vulkan 1.4 über volk und VMA, erste RHI-Schnittstelle | Erledigt, siehe [Iteration A2](iterations/A2-fenster-und-dreieck.md) |
 | A3 Job-System und Speicher | Task-System mit Abhängigkeiten, Frame- und Pool-Allokatoren | Parallele Jobs in Tests; Tracy zeigt die Threads |
 | A4 ECS und Reflection | flecs hinter `World`/`Entity`, Reflection-Grundlage, Szene speichern | Szene mit Entities speichern und laden |
 | D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | Glatter Hügel sichtbar und zur Laufzeit veränderbar |

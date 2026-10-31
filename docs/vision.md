@@ -2,8 +2,10 @@
 
 NGine (Arbeitstitel) ist eine moderne 3D-Engine in C++23 mit Vulkan, glattem Voxel-Terrain im Stil von
 Enshrouded, C#-Scripting, eigenem Editor und Multiplayer. Sie ist Lernprojekt und Grundlage für ein
-eigenes Spiel. Mit Unreal oder Unity konkurrieren will sie nicht; sie soll aber moderne und innovative
-Techniken nutzen und das Beste anderer Engines kombinieren, wo es Sinn ergibt.
+eigenes Spiel. Mit Unreal oder Unity können wir nicht konkurrieren, weil hinter ihnen viel mehr
+Menschen und Erfahrung stehen. Das ist eine realistische Einschätzung, keine Einschränkung des
+Anspruchs: NGine soll moderne und innovative Techniken nutzen, das Beste anderer Engines kombinieren
+und so schnell sein, wie wir es hinbekommen.
 
 Dieses Dokument ist lebendig: Wir prüfen es bei jedem Review (siehe [Prozess](process.md)) und passen es an.
 
@@ -35,16 +37,19 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
    Modul dazu, ohne Bestehendes umzubauen.
 5. **Austauschbar:** jede Fremdbibliothek steckt hinter einer Engine-Schnittstelle
    ([ADR 0009](adr/0009-third-party-behind-interfaces.md)).
-6. **Seriös und performant:** Mit den großen Engines konkurrieren wir nicht, aber die Engine soll
-   ernsthaft nutzbar und schnell sein. Leistung messen wir von Anfang an.
-7. **Aktuelle Werkzeuge:** Compiler, Build-Werkzeuge und Bibliotheken in aktueller Version, solange
+6. **Seriös und performant:** Wir tun alles, was wir können, um die Engine schnell zu machen:
+   datenorientiert, parallel, GPU-getrieben. Leistung messen wir von Anfang an, Optimierung ist kein
+   Nachgedanke.
+7. **Sauber statt schnell fertig:** Architektur und Design prüfen wir regelmäßig; technische Schulden
+   beseitigen wir, solange sie klein sind ([Prozess](process.md#technische-schulden)).
+8. **Aktuelle Werkzeuge:** Compiler, Build-Werkzeuge und Bibliotheken in aktueller Version, solange
    nichts dagegen spricht ([ADR 0008](adr/0008-linux-first-clang.md)).
 
 ## Ziele und Nicht-Ziele
 
 | Ziele | Nicht-Ziele |
 | --- | --- |
-| Verstehen, wie eine moderne Engine funktioniert, durch eigenes Bauen | Konkurrenz zu kommerziellen Engines |
+| Verstehen, wie eine moderne Engine funktioniert, durch eigenes Bauen | Funktionsumfang kommerzieller Engines: dafür fehlen uns Personal und Erfahrung, nicht der Anspruch |
 | Eine Engine, die das eigene Spiel tragen kann | Unterstützung aller Genres und Plattformen |
 | Saubere, erweiterbare Architektur mit guter Doku | Alles selbst schreiben: Physik, Audio u. Ä. kommen als Bibliothek |
 | Hohe Leistung auf moderner Hardware durch GPU-getriebenes Rendering | Fotorealismus um jeden Preis |
