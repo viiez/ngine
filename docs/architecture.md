@@ -27,12 +27,13 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version` | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
+| `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.4-Backend mit volk und VMA; interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.profile`, `ngine.world`,
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.world`,
 `ngine.voxel`, `ngine.script`, `ngine.net`.
 
 ```mermaid
@@ -40,6 +41,7 @@ flowchart BT
     core["ngine.core"]
     memory["ngine.memory"]
     jobs["ngine.jobs"]
+    profile["ngine.profile<br/>(Tracy)"]
     platform["ngine.platform<br/>(SDL3)"]
     rhi["ngine.rhi"]
     vulkan["ngine.rhi.vulkan<br/>(volk, VMA)"]
@@ -47,6 +49,8 @@ flowchart BT
     sandbox["Sandbox"]
     memory --> core
     jobs --> memory
+    jobs --> profile
+    profile --> core
     platform --> core
     rhi --> core
     vulkan --> rhi

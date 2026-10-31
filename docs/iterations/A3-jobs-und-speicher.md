@@ -2,7 +2,7 @@
 
 - **Phase:** Ausarbeitung
 - **Status:** in Arbeit
-- **Pull Requests:** #5 (TD-01 und Plan), weitere folgen
+- **Pull Requests:** #5
 
 ## Vorarbeit
 
@@ -82,13 +82,13 @@ Abhängigkeiten) auf alle Kerne und meldet die Zeit. In Tracy sind die Worker un
 **CI:** Ein zusätzlicher Lauf unter Linux mit ThreadSanitizer prüft Job-System und Allokatoren auf
 Datenrennen.
 
-### Pull Requests
+### Schritte
 
 1. TD-01 und dieser Plan.
 2. `ngine.memory` mit Tests.
 3. `ngine.jobs` mit Tests und ThreadSanitizer in der CI.
 4. `ngine.profile` mit Tracy, Sandbox-Demo.
-5. TD-04 und TD-05 (CI-Werkzeuge); kann in einen der vorigen PRs wandern.
+5. TD-04 und TD-05 (CI-Werkzeuge).
 
 **Risiken:**
 
@@ -104,6 +104,18 @@ Datenrennen.
 - Tracy zeigt beim Lauf von `--jobs-demo` die Worker-Threads mit ihren Zonen (Test auf dem PC).
 - `--headless` startet weiterhin; CI ist grün unter Linux und Windows.
 - TD-04 und TD-05 sind abgebaut.
+
+## Stand
+
+- Umgesetzt: `ngine.memory`, `ngine.jobs` ([ADR 0015](../adr/0015-own-job-system.md)),
+  `ngine.profile` mit Tracy ([ADR 0016](../adr/0016-profiling-macros.md)), `--jobs-demo` in der
+  Sandbox, ThreadSanitizer-Lauf in der CI, TD-04 und TD-05.
+- Lokal (4 Kerne, Debug-Build): Die Job-Demo ist mit allen Kernen etwa 4-mal so schnell wie mit
+  einem Thread. ThreadSanitizer und AddressSanitizer melden nichts, auch nicht in 100 Durchläufen
+  der Job-Tests.
+- Abweichung vom Plan: Alle Schritte stecken in PR #5, weil sie aufeinander aufbauen und die CI
+  sie so gemeinsam prüft.
+- Offen: Tracy auf dem PC ausprobieren (Abnahme), Skalierung auf der RTX-Maschine messen.
 
 ## Review
 

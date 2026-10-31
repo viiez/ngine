@@ -24,6 +24,7 @@ jobs:
             os: ubuntu-24.04
             preset: linux-clang-debug
             vcpkg_cache: ~/.cache/vcpkg/archives
+            validation: true
           # Prüft Job-System und Allokatoren auf Datenrennen.
           - name: Linux (Clang 23, ThreadSanitizer)
             os: ubuntu-24.04
@@ -46,13 +47,27 @@ jobs:
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
           sudo apt-get install -y ninja-build clang-23 clang-tools-23 libstdc++-14-dev \
-            mesa-vulkan-drivers vulkan-validationlayers xvfb \
+            mesa-vulkan-drivers xvfb \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
             libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 
+      # Entspricht einer Developer-Konsole: VsDevCmd.bat ausführen und ihre Umgebung übernehmen.
       - name: MSVC-Umgebung einrichten (Windows)
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Kein Visual Studio mit C++-Werkzeugen gefunden" }
+          $devcmd = Join-Path $vs "Common7\Tools\VsDevCmd.bat"
+          cmd /c "`"$devcmd`" -arch=amd64 -host_arch=amd64 -no_logo && set" | ForEach-Object {
+            # Nur geänderte Variablen übernehmen (PATH, INCLUDE, LIB usw.).
+            if ($_ -match '^([^=]+)=(.*)$' -and
+                [Environment]::GetEnvironmentVariable($Matches[1]) -ne $Matches[2]) {
+              "$($Matches[1])=$($Matches[2])" >> $env:GITHUB_ENV
+            }
+          }
 
       - name: vcpkg holen
         shell: bash
@@ -69,11 +84,19 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ matrix.vcpkg_cache }}
-          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ matrix.os }}-${{ matrix.preset }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ matrix.os }}-
 
+      # Unter Linux kommen die Validation Layers aus vcpkg (Feature "validation"), weil
+      # Ubuntu 24.04 nur 1.3 hat. Der Loader findet sie über VK_ADD_LAYER_PATH.
+      - name: Validation Layers aus vcpkg (Linux)
+        if: ${{ matrix.validation }}
+        run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/build/${{ matrix.preset }}/vcpkg_installed/x64-linux/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
       - name: Konfigurieren
-        run: cmake --preset ${{ matrix.preset }} -DNGINE_WARNINGS_AS_ERRORS=ON
+        run: >-
+          cmake --preset ${{ matrix.preset }} -DNGINE_WARNINGS_AS_ERRORS=ON
+          ${{ matrix.validation && '-DVCPKG_MANIFEST_FEATURES=validation' || '' }}
 
       - name: Bauen
         run: cmake --build --preset ${{ matrix.preset }}
@@ -105,6 +128,7 @@ jobs:
           exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
           [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
           "$exe" --headless
+          "$exe" --jobs-demo --frames 10
 
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.

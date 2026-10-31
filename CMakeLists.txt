@@ -19,6 +19,8 @@ option(NGINE_BUILD_SANDBOX "Sandbox-Anwendung bauen" ON)
 option(NGINE_WARNINGS_AS_ERRORS "Warnungen als Fehler behandeln" OFF)
 # Ohne Fenster entsteht ein Build ohne SDL3, z. B. für Server oder reine Tests.
 option(NGINE_WITH_WINDOW "Fenster-Unterstützung (SDL3) bauen" ON)
+# Profiling mit Tracy (ADR 0016). Der Client lauscht nur, bis sich der Profiler verbindet.
+option(NGINE_WITH_TRACY "Profiling mit Tracy" ON)
 # Sanitizer für alle Ziele (Clang und GCC), z. B. "thread" oder "address,undefined".
 set(NGINE_SANITIZER "" CACHE STRING "Sanitizer für alle Ziele (leer: keiner)")
 

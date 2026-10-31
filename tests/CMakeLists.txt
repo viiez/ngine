@@ -8,9 +8,10 @@ add_executable(ngine_tests
     jobs/task_graph_tests.cpp
     memory/allocator_tests.cpp
     memory/budget_tests.cpp
+    profile/profile_tests.cpp
     rhi/vulkan_triangle_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
-    ngine::core ngine::memory ngine::jobs ngine::rhi ngine::rhi_vulkan ngine::shaders Catch2::Catch2WithMain)
+    ngine::core ngine::memory ngine::jobs ngine::profile ngine::rhi ngine::rhi_vulkan ngine::shaders Catch2::Catch2WithMain)
 ngine_set_compiler_options(ngine_tests)
 
 include(Catch)

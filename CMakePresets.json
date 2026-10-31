@@ -36,6 +36,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "NGINE_SANITIZER": "thread",
+        "NGINE_WITH_TRACY": "OFF",
         "NGINE_WITH_WINDOW": "OFF",
         "NGINE_BUILD_SANDBOX": "OFF"
       }

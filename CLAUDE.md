@@ -51,6 +51,8 @@ GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden 
   Die primäre Schnittstelle exportiert alle Partitionen.
 - Header (Standardbibliothek, Fremdbibliotheken) nur im globalen Modulfragment (`module;` … ).
   Kein `import std;`, bis alle Zielcompiler es zuverlässig können.
+- Einzige eigene Header-Datei: `<ngine/profile.hpp>` mit den Profiling-Makros, weil Module keine
+  Makros exportieren (ADR 0016). Sie enthält nur Makros.
 - Fremdbibliotheken nur hinter einer Engine-Schnittstelle. Außerhalb des Adapters kennt kein Code die
   Bibliothek direkt, damit sie austauschbar bleibt.
 - Aktuelle Versionen von Werkzeugen und Bibliotheken nutzen, wenn nichts dagegen spricht

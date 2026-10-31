@@ -1,10 +1,14 @@
 module;
 
+#include <ngine/profile.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <deque>
+#include <format>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -12,6 +16,7 @@ module ngine.jobs;
 
 import ngine.core;
 import ngine.memory;
+import ngine.profile;
 
 namespace ngine::jobs {
 
@@ -152,7 +157,10 @@ void JobSystem::submit(detail::Job* job) {
 }
 
 void JobSystem::execute(detail::Job* job, u32 slot) noexcept {
-    job->function();
+    {
+        NGINE_PROFILE_ZONE("Job");
+        job->function();
+    }
     job->function.reset();
     Counter* counter = job->counter;
     free_job(job, slot);
@@ -209,6 +217,7 @@ void JobSystem::wait(const Counter& counter) {
 void JobSystem::worker_main(u32 slot) {
     tls_system = this;
     tls_slot = slot;
+    profile::set_thread_name(std::format("Worker {}", slot).c_str());
 
     int idle = 0;
     while (true) {
