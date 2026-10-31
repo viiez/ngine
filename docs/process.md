@@ -35,7 +35,7 @@ flowchart LR
 | Konzeption (Inception) | Ziel, Rahmen und große Entscheidungen klären | Vision, Feature-Katalog, erste ADRs, Werkzeugwahl | **M1 Vision steht:** Vision und Katalog abgestimmt, Projektgerüst baut auf Linux und Windows |
 | Ausarbeitung (Elaboration) | Ausführbare Architektur bauen und die größten Risiken ausräumen | Core, Plattform, RHI, Job-System, ECS, Durchstiche für Voxel, C# und Netzwerk | **M2 Architektur-Baseline:** jedes Kernsystem existiert als dünne, getestete Schicht; keine großen Unbekannten mehr |
 | Konstruktion (Construction) | Features in die Breite bauen | Rendering, Editor, Voxel-Terrain, Physik, Audio, Scripting, Multiplayer | **M3 Feature-komplett:** alles, was der Spiel-Prototyp braucht, ist da |
-| Übergabe (Transition) | Engine an einem echten Spiel erproben | Spiel-Prototyp, Leistung auf schwacher Hardware, Pakete für Linux und Windows | **M4 Prototyp spielbar:** danach beginnt ein neuer Zyklus mit neuer Vision |
+| Übergabe (Transition) | Engine an einem echten Spiel erproben | Spiel-Prototyp, Leistung auf der Ziel-Hardware, Pakete für Linux und Windows | **M4 Prototyp spielbar:** danach beginnt ein neuer Zyklus mit neuer Vision |
 
 Die Phasen überlappen: Auch in der Konstruktion entstehen noch ADRs, und schon in der Ausarbeitung
 wird getestet. Die Phase sagt nur, wo der Schwerpunkt liegt.
@@ -48,8 +48,8 @@ ist nicht an feste Wochen gebunden, soll aber in wenigen Abenden machbar sein.
 1. **Planen:** Iterationsplan unter `docs/iterations/` anlegen: Ziel, Features aus dem Katalog,
    Risiken, Abnahmekriterien. Den Plan stimmen wir im Projekt ab.
 2. **Umsetzen:** Pull Requests mit Code, Tests und Doku. CI baut auf Linux und Windows.
-3. **Prüfen:** viiez testet auf echter Hardware (Linux-Notebook mit Intel-Grafik, Windows mit RTX 3060 Ti)
-   und merged.
+3. **Prüfen:** viiez testet auf echter Hardware (RTX 3060 Ti, unter Windows und später auch unter
+   Linux) und merged.
 4. **Review:** Ergebnis und Erkenntnisse im Iterationsdokument festhalten. Dann Vision, Roadmap und
    Feature-Katalog anpassen und neue Entscheidungen als ADR aufschreiben.
 

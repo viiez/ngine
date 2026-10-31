@@ -72,9 +72,11 @@ vulkaninfo --summary
 vkcube
 ```
 
-`vulkaninfo --summary` sollte die Intel-Grafik mit `apiVersion` 1.3 oder höher zeigen (dazu oft
-„llvmpipe“, das ist der Software-Renderer; die Engine wählt die echte GPU). `vkcube` öffnet ein Fenster
-mit einem drehenden Würfel. Klappt das, funktioniert Vulkan.
+`vulkaninfo --summary` listet die GPUs mit ihrer `apiVersion`. NGine braucht eine moderne GPU mit
+Vulkan 1.4, Mesh Shadern und Raytracing ([ADR 0014](adr/0014-modern-gpu-baseline.md)). Die Intel-Grafik
+des Notebooks erfüllt das nicht. Die Engine überspringt sie dann (das Log nennt, was fehlt) und nimmt
+„llvmpipe“, den Software-Renderer aus `mesa-vulkan-drivers`, sofern dessen Mesa neu genug ist (in
+der CI ist es das). Das ist langsam, reicht aber zum Ausprobieren. `vkcube` öffnet ein Fenster mit einem drehenden Würfel. Klappt das, funktioniert Vulkan.
 
 ### 5. Bibliotheken für SDL3
 
@@ -321,7 +323,7 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
 | `clang-scan-deps` nicht gefunden | `clang-tools-23` installieren. |
 | Fehler in `<expected>` | `libstdc++-14-dev` fehlt. |
 | vcpkg: „builtin-baseline … requires a git clone“ | Das vcpkg von Visual Studio wird benutzt. `VCPKG_ROOT` auf `C:\dev\vcpkg` setzen. |
-| `Kein nutzbares Vulkan-Gerät` | Treiber fehlt oder ist zu alt (Vulkan 1.3 nötig). `vulkaninfo --summary` prüfen. |
+| `Keine GPU erfüllt die Mindestanforderung` | Treiber zu alt oder GPU ohne Mesh Shader und Raytracing. Das Log nennt pro GPU, was fehlt. Treiber aktualisieren; unter Linux nimmt die Engine sonst lavapipe. |
 | „Vulkan Validation Layers sind nicht installiert“ | Nur eine Warnung. Linux: `vulkan-validationlayers`; Windows: Vulkan SDK. |
 | clangd zeigt Fehler bei `import ngine.…` | Einmal bauen, damit die Moduldateien existieren, dann „clangd: Restart language server“. |
 | Nach einem Preset- oder Werkzeugwechsel seltsame Fehler | „CMake: Delete Cache and Reconfigure“ oder `build/<preset>` löschen. |

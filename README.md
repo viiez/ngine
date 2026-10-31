@@ -14,7 +14,9 @@ Voraussetzungen:
 - [vcpkg](https://github.com/microsoft/vcpkg), Umgebungsvariable `VCPKG_ROOT` gesetzt; vcpkg holt SDL3,
   volk, VMA, Slang und Catch2 selbst
 - Linux: Clang 23 (Mindestversion 20) · Windows: Visual Studio (MSVC), aktuelle Version
-- Ein Vulkan-1.3-Treiber; für Debug-Builds die Vulkan Validation Layers (optional)
+- Eine moderne GPU mit Vulkan 1.4, Mesh Shadern und Raytracing (ab RTX 20, RX 6000, Intel Arc,
+  siehe [ADR 0014](docs/adr/0014-modern-gpu-baseline.md)); für Debug-Builds die Vulkan Validation
+  Layers (optional)
 
 ### Linux Mint 22 / Ubuntu 24.04
 

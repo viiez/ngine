@@ -40,7 +40,7 @@ getestete Schicht, und die drei größten Risiken sind durch Durchstiche geklär
 | Iteration | Ziel | Abnahme |
 | --- | --- | --- |
 | A1 Projektgerüst | CMake, Module, Core mit Logging, CI | Erledigt, siehe [Iteration A1](iterations/A1-projektgeruest.md) |
-| A2 Fenster und Vulkan-Dreieck | SDL3-Fenster, Vulkan 1.3 über volk und VMA, erste RHI-Schnittstelle | Dreieck auf Linux (Intel) und Windows (RTX); `--headless` ohne GPU |
+| A2 Fenster und Vulkan-Dreieck | SDL3-Fenster, Vulkan 1.4 über volk und VMA, erste RHI-Schnittstelle | Dreieck auf Windows (RTX) und Linux (CI mit lavapipe); `--headless` ohne GPU |
 | A3 Job-System und Speicher | Task-System mit Abhängigkeiten, Frame- und Pool-Allokatoren | Parallele Jobs in Tests; Tracy zeigt die Threads |
 | A4 ECS und Reflection | flecs hinter `World`/`Entity`, Reflection-Grundlage, Szene speichern | Szene mit Entities speichern und laden |
 | D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | Glatter Hügel sichtbar und zur Laufzeit veränderbar |

@@ -41,7 +41,9 @@ TEST_CASE("Vulkan-Device meldet Capabilities", "[rhi][vulkan][gpu]") {
     const auto& caps = device->capabilities();
 
     CHECK_FALSE(caps.device_name.empty());
-    CHECK(caps.api_version.starts_with("1."));
+    // Mindestanforderung ist Vulkan 1.4 (ADR 0014).
+    REQUIRE(caps.api_version.starts_with("1."));
+    CHECK(std::stoi(caps.api_version.substr(2)) >= 4);
     CHECK(device->validation_errors() == 0);
 }
 
