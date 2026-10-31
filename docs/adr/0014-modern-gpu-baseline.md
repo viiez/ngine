@@ -42,6 +42,10 @@ entscheidet eine Qualitätseinstellung, nicht die Hardware.
 - Linux bleibt gleichwertig, braucht für echte Tests aber ebenfalls eine moderne GPU, z. B. Linux auf
   dem PC mit der RTX 3060 Ti.
 - Die CI läuft weiter mit lavapipe; Mesa bietet dort Vulkan 1.4, Mesh Shader und Raytracing.
+  Ist `NGINE_REQUIRE_GPU` gesetzt, schlagen GPU-Tests ohne passendes Gerät fehl, statt übersprungen
+  zu werden.
+- Der Vulkan-Loader muss nur Vulkan 1.3 kennen, weil Device-Funktionen direkt vom Treiber kommen.
+  Der Loader 1.3.275 aus Ubuntu 24.04 und Linux Mint 22 reicht also.
 - Spieler mit älteren GPUs (GTX 10/16, RX 5000 und älter) sind ausgeschlossen. Für das Ziel und den
   Zeitrahmen des Projekts nehmen wir das in Kauf.
 - Ein späteres D3D12-Backend setzt entsprechend DirectX 12 Ultimate voraus.

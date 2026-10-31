@@ -189,6 +189,9 @@ bool contains(const std::vector<VkExtensionProperties>& extensions, const char* 
 // Address, Mesh Shader und Raytracing. Es gibt keine Rückfallpfade für ältere Hardware.
 
 constexpr u32 required_api_version = VK_API_VERSION_1_4;
+// Der Loader muss nur die Instanz-Funktionen von 1.3 kennen; Device-Funktionen kommen direkt
+// vom Treiber. So reicht z. B. der Loader 1.3.275 aus Ubuntu 24.04 und Linux Mint 22.
+constexpr u32 required_loader_version = VK_API_VERSION_1_3;
 
 // Device-Extensions, die jede GPU mitbringen muss (die Swapchain kommt nur mit Fenster dazu).
 constexpr std::array required_extensions{
@@ -599,8 +602,8 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
 
 std::expected<void, std::string> VulkanDevice::create_instance(const DeviceDesc& desc) {
     u32 version = VK_API_VERSION_1_0;
-    if (vkEnumerateInstanceVersion(&version) != VK_SUCCESS || version < required_api_version) {
-        return std::unexpected("Der Vulkan-Loader unterstützt Vulkan 1.4 nicht");
+    if (vkEnumerateInstanceVersion(&version) != VK_SUCCESS || version < required_loader_version) {
+        return std::unexpected("Der Vulkan-Loader ist älter als Vulkan 1.3");
     }
 
     std::vector<const char*> layers;

@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,15 +12,28 @@ import ngine.shaders;
 
 // Diese Tests brauchen einen Vulkan-Treiber. In der CI unter Linux läuft dafür
 // lavapipe (Software-Rendering von Mesa); ohne Treiber werden sie übersprungen.
+// Ist NGINE_REQUIRE_GPU gesetzt (CI unter Linux), schlagen sie stattdessen fehl, damit
+// ein fehlendes Gerät nicht als grüner Lauf durchgeht.
 
 namespace {
 
 constexpr ngine::u32 size = 64;
 
+bool gpu_required() {
+#ifdef _MSC_VER
+#pragma warning(suppress : 4996) // getenv gilt bei MSVC als unsicher; hier nur gelesen.
+#endif
+    const char* value = std::getenv("NGINE_REQUIRE_GPU");
+    return value != nullptr && *value != '\0';
+}
+
 std::unique_ptr<ngine::rhi::Device> make_device() {
     auto device = ngine::rhi::vulkan::create_device(
         {.application_name = "NGine Tests", .enable_validation = true});
     if (!device) {
+        if (gpu_required()) {
+            FAIL("Kein nutzbares Vulkan-Gerät: " + device.error());
+        }
         SKIP("Kein nutzbares Vulkan-Gerät: " + device.error());
     }
     return std::move(*device);

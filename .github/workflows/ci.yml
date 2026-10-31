@@ -74,6 +74,9 @@ jobs:
 
       - name: Testen
         run: ctest --preset ${{ matrix.preset }}
+        env:
+          # Unter Linux steht lavapipe bereit: GPU-Tests dürfen dort nicht übersprungen werden.
+          NGINE_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '' }}
 
       - name: Sandbox ohne Fenster starten
         shell: bash
