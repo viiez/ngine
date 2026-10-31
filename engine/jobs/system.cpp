@@ -33,6 +33,14 @@ struct alignas(64) Slot {
     alignas(64) std::atomic<Job*> returned{nullptr};
 };
 
+struct Shared {
+    std::mutex injection_mutex;
+    std::deque<Job*> injection;
+    // Schützt das Anlegen von Jobs aus fremden Threads.
+    std::mutex external_mutex;
+    std::vector<std::thread> workers;
+};
+
 } // namespace detail
 
 namespace {
@@ -61,9 +69,10 @@ JobSystem::JobSystem(const JobSystemDesc& desc) {
     tls_system = this;
     tls_slot = 0;
 
-    workers_.reserve(worker_count_);
+    shared_ = std::make_unique<detail::Shared>();
+    shared_->workers.reserve(worker_count_);
     for (u32 i = 1; i <= worker_count_; ++i) {
-        workers_.emplace_back([this, i] { worker_main(i); });
+        shared_->workers.emplace_back([this, i] { worker_main(i); });
     }
     log::debug("Job-System: {} Worker-Threads", worker_count_);
 }
@@ -76,7 +85,10 @@ JobSystem::~JobSystem() {
     stop_.store(true, std::memory_order_seq_cst);
     epoch_.fetch_add(1, std::memory_order_seq_cst);
     epoch_.notify_all();
-    workers_.clear();
+    for (std::thread& worker : shared_->workers) {
+        worker.join();
+    }
+    shared_->workers.clear();
 
     // Alle Jobs zurück in ihre Pools, damit diese nichts als belegt melden.
     for (auto& slot : slots_) {
@@ -108,7 +120,7 @@ detail::Job* JobSystem::allocate_job() {
     const u32 index = current_slot();
     detail::Slot& slot = *slots_[index];
     // Fremde Threads teilen sich einen Slot und brauchen deshalb eine Sperre.
-    std::unique_lock lock{external_mutex_, std::defer_lock};
+    std::unique_lock lock{shared_->external_mutex, std::defer_lock};
     if (index == external_slot_) {
         lock.lock();
     }
@@ -145,8 +157,8 @@ void JobSystem::submit(detail::Job* job) {
     if (has_deque(slot)) {
         slots_[slot]->deque.push(job);
     } else {
-        const std::scoped_lock lock{injection_mutex_};
-        injection_.push_back(job);
+        const std::scoped_lock lock{shared_->injection_mutex};
+        shared_->injection.push_back(job);
         injection_size_.fetch_add(1, std::memory_order_release);
     }
     // Zusammen mit sleeping_ im Worker (beides seq_cst) geht kein Wecksignal verloren.
@@ -177,10 +189,10 @@ detail::Job* JobSystem::find_job(u32 slot) {
         }
     }
     if (injection_size_.load(std::memory_order_acquire) > 0) {
-        const std::scoped_lock lock{injection_mutex_};
-        if (!injection_.empty()) {
-            detail::Job* job = injection_.front();
-            injection_.pop_front();
+        const std::scoped_lock lock{shared_->injection_mutex};
+        if (!shared_->injection.empty()) {
+            detail::Job* job = shared_->injection.front();
+            shared_->injection.pop_front();
             injection_size_.fetch_sub(1, std::memory_order_relaxed);
             return job;
         }

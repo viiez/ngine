@@ -2,18 +2,14 @@ module;
 
 #include <algorithm>
 #include <atomic>
-#include <deque>
 #include <memory>
-#include <mutex>
 #include <optional>
-#include <thread>
 #include <utility>
 #include <vector>
 
 export module ngine.jobs:system;
 
 import ngine.core;
-import ngine.memory;
 import :deque;
 import :function;
 
@@ -33,6 +29,9 @@ struct alignas(64) Job {
 };
 
 struct Slot;
+// Sperren, gemeinsame Warteschlange und Threads. Liegt in system.cpp, damit die Schnittstelle
+// weder <thread> noch <mutex> braucht (kleinere Moduldateien, weniger MSVC-Probleme).
+struct Shared;
 
 } // namespace ngine::jobs::detail
 
@@ -142,18 +141,15 @@ private:
     // 0: erzeugender Thread, 1 bis worker_count_: Worker, external_slot_: alle anderen.
     std::vector<std::unique_ptr<detail::Slot>> slots_;
 
-    std::mutex injection_mutex_;
-    std::deque<detail::Job*> injection_;
+    std::unique_ptr<detail::Shared> shared_;
+    // Größe der gemeinsamen Warteschlange, damit find_job() ohne Sperre nachsehen kann.
     std::atomic<usize> injection_size_{0};
-    // Schützt das Anlegen von Jobs aus fremden Threads.
-    std::mutex external_mutex_;
 
     // Aufwecken: Jede neue Arbeit erhöht epoch_; schlafende Worker warten auf eine Änderung.
     std::atomic<u32> epoch_{0};
     std::atomic<u32> sleeping_{0};
     std::atomic<bool> stop_{false};
 
-    std::vector<std::jthread> workers_;
     // Zustand des erzeugenden Threads vor dem Konstruktor, wird im Destruktor wiederhergestellt.
     const JobSystem* previous_system_ = nullptr;
     u32 previous_slot_ = 0;
