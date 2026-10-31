@@ -27,7 +27,7 @@ eine Komponente.
 | CORE-03 | Versionsinfo | Engine-Name und Version aus CMake | A1 | fertig |
 | CORE-04 | Prüfungen | `ngine::verify()` bricht mit Meldung, Datei und Zeile ab | A2 | fertig |
 | CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen | A3 | geplant |
-| CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking | A3 | geplant |
+| CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking (`ngine.memory`, `std::pmr`) | A3 | fertig |
 | CORE-07 | Profiling | Tracy-Zonen für CPU und GPU | A3 | geplant |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C# | A4 | geplant |
 | CORE-09 | Serialisierung | Binär und lesbar (z. B. JSON) über Reflection | A4 | geplant |

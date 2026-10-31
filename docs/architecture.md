@@ -25,22 +25,25 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version` | vorhanden |
+| `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.4-Backend mit volk und VMA; interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.jobs`, `ngine.world`,
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.jobs`, `ngine.profile`, `ngine.world`,
 `ngine.voxel`, `ngine.script`, `ngine.net`.
 
 ```mermaid
 flowchart BT
     core["ngine.core"]
+    memory["ngine.memory"]
     platform["ngine.platform<br/>(SDL3)"]
     rhi["ngine.rhi"]
     vulkan["ngine.rhi.vulkan<br/>(volk, VMA)"]
     shaders["ngine.shaders<br/>(Slang)"]
     sandbox["Sandbox"]
+    memory --> core
     platform --> core
     rhi --> core
     vulkan --> rhi
@@ -77,3 +80,20 @@ Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt de
 | `tests/<system>/` | Catch2-Tests, gespiegelt zur Engine |
 | `cmake/` | Gemeinsame CMake-Funktionen |
 | `docs/` | Diese Dokumentation |
+
+## Speicher
+
+CPU-Speicher, der häufig oder in großen Mengen angefordert wird, kommt aus den Allokatoren von
+`ngine.memory`. Sie erben von `std::pmr::memory_resource`, damit Standardcontainer wie
+`std::pmr::vector` sie direkt nutzen können.
+
+| Allokator | Lebensdauer | Threads |
+| --- | --- | --- |
+| `LinearAllocator` | bis `reset()` oder `rewind()` | ein Thread |
+| `FrameAllocator` | ein Frame, ein Bereich pro Frame im Flug | Anfordern lock-frei aus allen Threads |
+| `PoolAllocator`, `ObjectPool<T>` | einzeln freigebbar, feste Blockgröße | ein Thread |
+| `TrackingResource` | wie der darunterliegende Allokator | wie der darunterliegende Allokator |
+
+Jeder Allokator verbucht seinen Speicher in einer `memory::Category`. Pro Kategorie gibt es
+aktuellen Verbrauch, Spitze und ein optionales Budget, dessen Überschreitung das Log meldet. GPU-Speicher
+verwaltet weiterhin VMA in der RHI.
