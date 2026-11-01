@@ -18,10 +18,6 @@ namespace ngine::rhi::vulkan {
 // Anzahl der Frames, die die CPU der GPU vorausrechnen darf.
 inline constexpr u32 frames_in_flight = 2;
 
-// NGine setzt eine moderne GPU voraus (ADR 0014): Vulkan 1.4, Bindless, Buffer Device
-// Address, Mesh Shader und Raytracing. Es gibt keine Rückfallpfade für ältere Hardware.
-inline constexpr u32 required_api_version = VK_API_VERSION_1_4;
-
 std::string_view result_name(VkResult result) {
     switch (result) {
     case VK_SUCCESS: return "VK_SUCCESS";

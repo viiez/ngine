@@ -20,13 +20,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux (Clang 23)
+          - name: Linux (Clang 20)
             os: ubuntu-24.04
             preset: linux-clang-debug
             vcpkg_cache: ~/.cache/vcpkg/archives
             validation: true
           # Prüft Job-System und Allokatoren auf Datenrennen.
-          - name: Linux (Clang 23, ThreadSanitizer)
+          - name: Linux (Clang 20, ThreadSanitizer)
             os: ubuntu-24.04
             preset: linux-clang-tsan
             vcpkg_cache: ~/.cache/vcpkg/archives
@@ -41,15 +41,16 @@ jobs:
 
       - name: Werkzeuge installieren (Linux)
         if: runner.os == 'Linux'
+        # Linux baut mit der Baseline (ADR 0017): nur Pakete aus Ubuntu 24.04 und dessen CMake 3.28.
+        # Der Runner bringt ein neueres CMake mit; die Baseline-Version kommt deshalb über pipx.
         run: |
-          # Aktuelles Clang aus der LLVM-Paketquelle
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y ninja-build clang-23 clang-tools-23 libstdc++-14-dev \
+          sudo apt-get install -y ninja-build clang-20 clang-tools-20 libstdc++-14-dev \
             mesa-vulkan-drivers xvfb \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
             libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          pipx install cmake==3.28.3
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # Entspricht einer Developer-Konsole: VsDevCmd.bat ausführen und ihre Umgebung übernehmen.
       - name: MSVC-Umgebung einrichten (Windows)
@@ -149,3 +150,9 @@ jobs:
       - name: Sandbox mit Fenster starten (Linux, Xvfb)
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60
+
+      # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
+      # GPUs laufen, die nur die Mindestanforderung erfüllen.
+      - name: Sandbox ohne optionale Stufen starten (Linux, Xvfb)
+        if: ${{ runner.os == 'Linux' && !matrix.tsan }}
+        run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60 --baseline

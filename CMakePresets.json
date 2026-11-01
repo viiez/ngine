@@ -1,6 +1,6 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 30, "patch": 0 },
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
   "configurePresets": [
     {
       "name": "base",
@@ -14,7 +14,7 @@
       "name": "linux-clang",
       "hidden": true,
       "inherits": "base",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "clang++-23" },
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "clang++-20" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {

@@ -1,70 +1,53 @@
 # Entwicklungsumgebung einrichten
 
-Schritt für Schritt von einem frischen System bis zur laufenden Sandbox in VS Code, für Linux Mint 22
-(gilt genauso für Ubuntu 24.04) und Windows 11. Die Kurzfassung steht in der [README](../README.md).
+Schritt für Schritt von einem frischen System bis zur laufenden Sandbox in VS Code, für Ubuntu 24.04
+(gilt genauso für Linux Mint 22) und Windows 11. Die Kurzfassung steht in der [README](../README.md).
+Unter Linux kommt alles aus den offiziellen Paketquellen von Ubuntu 24.04, der Baseline nach
+[ADR 0017](adr/0017-platform-baseline-feature-tiers.md).
 
 Was wir brauchen und woher es kommt:
 
 | Werkzeug | Linux | Windows |
 | --- | --- | --- |
-| C++-Compiler | Clang 23 aus apt.llvm.org (mindestens 20) | MSVC aus Visual Studio (aktuelle Version) |
-| CMake 3.30+ und Ninja | Kitware-Paketquelle, `ninja-build` | winget (oder in Visual Studio enthalten) |
+| C++-Compiler | Clang 20 (`clang-20`, neuere gehen auch) | MSVC aus Visual Studio (aktuelle Version) |
+| CMake 3.28+ und Ninja | `cmake`, `ninja-build` | winget (oder in Visual Studio enthalten) |
 | vcpkg | Git-Klon im Home-Verzeichnis | Git-Klon unter `C:\dev\vcpkg` |
-| SDL3, volk, VMA, Slang, Catch2 | holt vcpkg beim ersten Konfigurieren | holt vcpkg beim ersten Konfigurieren |
-| Vulkan-Treiber | Mesa (`mesa-vulkan-drivers`) | NVIDIA-Treiber |
+| SDL3, volk, Vulkan-Header, VMA, Slang, Tracy, Catch2 | holt vcpkg beim ersten Konfigurieren | holt vcpkg beim ersten Konfigurieren |
+| Vulkan-Treiber | Mesa 24 oder neuer (`mesa-vulkan-drivers`) | Grafiktreiber (NVIDIA, AMD, Intel) |
 | Validation Layers | `vulkan-validationlayers` | Vulkan SDK von LunarG |
 | Editor | VS Code mit CMake Tools und clangd | VS Code mit CMake Tools und C/C++ |
 
 Slang (`slangc`) muss nicht separat installiert werden; vcpkg bringt es mit.
 
-## Linux Mint 22
+## Ubuntu 24.04 und Linux Mint 22
 
-Alle Befehle im Terminal. Linux Mint hat eigene Codenamen (z. B. „wilma“), die Paketquellen von LLVM
-und Kitware brauchen aber den Ubuntu-Codenamen. Deshalb steht unten fest `noble` (Ubuntu 24.04, die
-Basis von Mint 22).
+Alle Befehle im Terminal. Linux Mint 22 basiert auf Ubuntu 24.04 und nutzt dieselben Pakete.
 
-### 1. Grundpakete
+### 1. Grundpakete und CMake
 
 ```sh
 sudo apt update
-sudo apt install git curl wget zip unzip tar pkg-config python3 gpg ninja-build gdb
+sudo apt install git curl zip unzip tar pkg-config python3 gdb cmake ninja-build
+cmake --version      # 3.28 oder neuer
 ```
 
 `curl`, `zip`, `unzip`, `tar` und `pkg-config` braucht vcpkg, `gdb` den Debugger in VS Code.
 
-### 2. CMake (aktuelle Version)
-
-Das CMake aus den Mint-Paketquellen (3.28) ist zu alt. Kitware bietet eine eigene Paketquelle:
+### 2. Clang 20
 
 ```sh
-wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc \
-  | gpg --dearmor | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main" \
-  | sudo tee /etc/apt/sources.list.d/kitware.list
-sudo apt update
-sudo apt install cmake
-cmake --version      # 3.30 oder neuer
+sudo apt install clang-20 clang-tools-20 clangd-20 libstdc++-14-dev
+clang++-20 --version
 ```
 
-Alternative ohne Paketquelle: `sudo apt install pipx && pipx install cmake` (danach `~/.local/bin` im
-`PATH`). `pip install --user cmake` lehnt Mint 22 ab („externally-managed-environment“).
+- `clang-tools-20` enthält `clang-scan-deps`, ohne das CMake keine C++-Module bauen kann.
+- `clangd-20` ist der Sprachserver für VS Code (Autovervollständigung, Fehler im Editor).
+- `libstdc++-14-dev` liefert die Standardbibliothek; die Version 13, die Ubuntu sonst nimmt, kann
+  Clang mit `std::expected` nicht übersetzen.
+- Das Standard-Clang von Ubuntu 24.04 (`clang`, Version 18) ist zu alt. CMake bricht dann mit einer
+  Meldung ab.
 
-### 3. Clang 23
-
-```sh
-wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-sudo apt update
-sudo apt install clang-23 clang-tools-23 clangd-23 libstdc++-14-dev
-clang++-23 --version
-```
-
-- `clang-tools-23` enthält `clang-scan-deps`, ohne das CMake keine C++-Module bauen kann.
-- `clangd-23` ist der Sprachserver für VS Code (Autovervollständigung, Fehler im Editor).
-- `libstdc++-14-dev` liefert die Standardbibliothek; die Version 13 aus Mint kann Clang mit
-  `std::expected` nicht übersetzen.
-
-### 4. Vulkan-Treiber und Werkzeuge
+### 3. Vulkan-Treiber und Werkzeuge
 
 ```sh
 sudo apt install mesa-vulkan-drivers vulkan-tools vulkan-validationlayers
@@ -72,13 +55,17 @@ vulkaninfo --summary
 vkcube
 ```
 
-`vulkaninfo --summary` listet die GPUs mit ihrer `apiVersion`. NGine braucht eine moderne GPU mit
-Vulkan 1.4, Mesh Shadern und Raytracing ([ADR 0014](adr/0014-modern-gpu-baseline.md)). Die Intel-Grafik
-des Notebooks erfüllt das nicht. Die Engine überspringt sie dann (das Log nennt, was fehlt) und nimmt
-„llvmpipe“, den Software-Renderer aus `mesa-vulkan-drivers`, sofern dessen Mesa neu genug ist (in
-der CI ist es das). Das ist langsam, reicht aber zum Ausprobieren. `vkcube` öffnet ein Fenster mit einem drehenden Würfel. Klappt das, funktioniert Vulkan.
+`vulkaninfo --summary` listet die GPUs mit ihrer `apiVersion` und der Mesa-Version (`driverInfo`).
+NGine braucht Vulkan 1.3 ([ADR 0017](adr/0017-platform-baseline-feature-tiers.md)); das liefert Mesa
+24 oder neuer auf Intel-Grafik ab Gen9 (z. B. UHD 620) und auf AMD-GPUs. Mesh Shader und Raytracing
+sind optional: Fehlen sie, wie bei der Intel-Grafik des Notebooks, läuft die Engine ohne sie. Im Log
+steht beim Start, welche Stufen aktiv sind („Optionale Stufen: …“).
 
-### 5. Bibliotheken für SDL3
+Neben der echten GPU zeigt `vulkaninfo` oft „llvmpipe“, den Software-Renderer aus
+`mesa-vulkan-drivers`. Die Engine nimmt ihn nur, wenn keine echte GPU passt. `vkcube` öffnet ein
+Fenster mit einem drehenden Würfel. Klappt das, funktioniert Vulkan.
+
+### 4. Bibliotheken für SDL3
 
 vcpkg baut SDL3 selbst und braucht dafür die Entwicklerpakete von X11 und Wayland:
 
@@ -87,7 +74,7 @@ sudo apt install libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev l
   libxss-dev libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 ```
 
-### 6. vcpkg
+### 5. vcpkg
 
 ```sh
 git clone https://github.com/microsoft/vcpkg ~/vcpkg
@@ -98,7 +85,7 @@ echo 'export VCPKG_ROOT="$HOME/vcpkg"' >> ~/.profile
 Danach **einmal ab- und wieder anmelden**, damit `VCPKG_ROOT` überall gesetzt ist, auch in VS Code,
 wenn es aus dem Startmenü kommt. Prüfen mit `echo $VCPKG_ROOT`.
 
-### 7. Repository und Pull Request holen
+### 6. Repository und Pull Request holen
 
 ```sh
 mkdir -p ~/dev && cd ~/dev
@@ -110,7 +97,7 @@ git switch claude/a2-window-triangle     # Branch von PR #3
 Mit der GitHub-CLI geht es auch so: `gh pr checkout 3`. Ein später aktualisierter PR kommt mit
 `git pull` nach.
 
-### 8. Einmal im Terminal bauen
+### 7. Einmal im Terminal bauen
 
 Bevor VS Code dazukommt, lohnt sich ein Lauf im Terminal: Fehlt etwas, ist die Meldung hier am
 klarsten.
@@ -158,7 +145,7 @@ winget install --id Kitware.CMake -e
 winget install --id Ninja-build.Ninja -e
 ```
 
-Neues Terminal öffnen und prüfen: `cmake --version` (3.30 oder neuer), `ninja --version`.
+Neues Terminal öffnen und prüfen: `cmake --version` (3.28 oder neuer), `ninja --version`.
 
 ### 4. Grafiktreiber und Vulkan SDK
 
@@ -246,7 +233,7 @@ Dann den Ordner `ngine` öffnen. VS Code schlägt die Erweiterungen aus `.vscode
 {
   "cmake.useCMakePresets": "always",
   "cmake.configureOnOpen": true,
-  "clangd.path": "clangd-23",
+  "clangd.path": "clangd-20",
   "clangd.arguments": [
     "--compile-commands-dir=${workspaceFolder}/build/linux-clang-debug",
     "--experimental-modules-support",
@@ -338,11 +325,13 @@ sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_
 | Meldung | Ursache und Lösung |
 | --- | --- |
 | `Could not find toolchain file: /scripts/buildsystems/vcpkg.cmake` | `VCPKG_ROOT` ist nicht gesetzt. Linux: ab- und anmelden; Windows: neues Terminal oder `cmake.configureEnvironment`. Danach das Build-Verzeichnis löschen. |
-| `CMAKE_CXX_COMPILER ... clang++-23 not found` | Clang 23 fehlt. Alternativ Clang 20 mit einem eigenen Preset in `CMakeUserPresets.json`. |
+| `CMAKE_CXX_COMPILER ... clang++-20 not found` | `clang-20` installieren. Anderes Clang (ab 20) über ein eigenes Preset in `CMakeUserPresets.json`. |
+| `NGine braucht Clang 20 oder neuer` | Ein zu altes Clang wurde gefunden, etwa das Standard-Clang 18 von Ubuntu. `clang-20` installieren, Build-Verzeichnis löschen. |
 | `clang-scan-deps` nicht gefunden | `clang-tools-23` installieren. |
 | Fehler in `<expected>` | `libstdc++-14-dev` fehlt. |
 | vcpkg: „builtin-baseline … requires a git clone“ | Das vcpkg von Visual Studio wird benutzt. `VCPKG_ROOT` auf `C:\dev\vcpkg` setzen. |
-| `Keine GPU erfüllt die Mindestanforderung` | Treiber zu alt oder GPU ohne Mesh Shader und Raytracing. Das Log nennt pro GPU, was fehlt. Treiber aktualisieren; unter Linux nimmt die Engine sonst lavapipe. |
+| `Keine GPU erfüllt die Mindestanforderung` | Treiber zu alt oder GPU ohne Vulkan 1.3. Das Log nennt pro GPU, was fehlt. Treiber aktualisieren (Linux: Mesa 24 oder neuer). |
+| `Layer VK_LAYER_KHRONOS_validation uses API version 1.3 which is older …` | Nur eine Warnung: Die Validation Layers von Ubuntu 24.04 kennen Vulkan 1.4 noch nicht. Sie prüfen trotzdem. |
 | „Vulkan Validation Layers sind nicht installiert“ | Nur eine Warnung. Linux: `vulkan-validationlayers`; Windows: Vulkan SDK. |
 | clangd zeigt Fehler bei `import ngine.…` | Einmal bauen, damit die Moduldateien existieren, dann „clangd: Restart language server“. |
 | Nach einem Preset- oder Werkzeugwechsel seltsame Fehler | „CMake: Delete Cache and Reconfigure“ oder `build/<preset>` löschen. |

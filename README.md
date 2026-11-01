@@ -10,32 +10,33 @@ Siehe [Roadmap](docs/roadmap.md).
 
 Voraussetzungen:
 
-- CMake 3.30 oder neuer und Ninja
+- CMake 3.28 oder neuer und Ninja
 - [vcpkg](https://github.com/microsoft/vcpkg), Umgebungsvariable `VCPKG_ROOT` gesetzt; vcpkg holt SDL3,
   volk, VMA, Slang und Catch2 selbst
-- Linux: Clang 23 (Mindestversion 20) · Windows: Visual Studio (MSVC), aktuelle Version
-- Eine moderne GPU mit Vulkan 1.4, Mesh Shadern und Raytracing (ab RTX 20, RX 6000, Intel Arc,
-  siehe [ADR 0014](docs/adr/0014-modern-gpu-baseline.md)); für Debug-Builds die Vulkan Validation
-  Layers (optional)
+- Linux: Clang 20 oder neuer · Windows: Visual Studio (MSVC), aktuelle Version
+- Eine GPU mit Vulkan 1.3 (unter Linux Mesa 24 oder neuer; z. B. Intel ab UHD 620, AMD ab RX 400,
+  NVIDIA ab GTX 900). Mesh Shader, Raytracing und Vulkan 1.4 nutzt die Engine, wenn die GPU sie kann
+  ([ADR 0017](docs/adr/0017-platform-baseline-feature-tiers.md)). Für Debug-Builds die Vulkan
+  Validation Layers (optional).
 
-### Linux Mint 22 / Ubuntu 24.04
+### Ubuntu 24.04 / Linux Mint 22
 
-Wir nutzen aktuelle Werkzeuge. Das mitgelieferte CMake ist zu alt (Kitware-Paketquelle oder
-`pipx install cmake`), und Clang 23 kommt aus der LLVM-Paketquelle ([apt.llvm.org](https://apt.llvm.org)).
-Die ausführliche Anleitung inklusive VS Code steht in [docs/setup.md](docs/setup.md).
+Baseline ist Ubuntu 24.04. Alles kommt aus den offiziellen Paketquellen, fremde Quellen braucht es
+nicht. Die ausführliche Anleitung inklusive VS Code steht in [docs/setup.md](docs/setup.md).
 
 ```sh
-wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" | sudo tee /etc/apt/sources.list.d/llvm.list
 sudo apt update
-sudo apt install ninja-build clang-23 clang-tools-23 libstdc++-14-dev \
+sudo apt install git curl zip unzip tar pkg-config cmake ninja-build \
+    clang-20 clang-tools-20 libstdc++-14-dev \
     mesa-vulkan-drivers vulkan-validationlayers \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
     libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 ```
 
-Die X11- und Wayland-Pakete braucht vcpkg, um SDL3 zu bauen. Clang 20 aus den normalen Paketquellen
-funktioniert ebenfalls; dann im eigenen `CMakeUserPresets.json` `clang++-20` eintragen.
+Die X11- und Wayland-Pakete braucht vcpkg, um SDL3 zu bauen. Ein neueres Clang (etwa aus
+[apt.llvm.org](https://apt.llvm.org)) funktioniert ebenfalls; dann im eigenen `CMakeUserPresets.json`
+den Compiler eintragen. Andere Distributionen (Fedora 40+, Debian 13, Arch) brauchen dieselben
+Werkzeuge in mindestens diesen Versionen.
 
 ### Bauen, testen, starten
 
@@ -50,7 +51,7 @@ Unter Windows dieselben Befehle mit `windows-msvc-debug` in einer Developer-Kons
 bringt der Grafiktreiber mit; die Validation Layers kommen mit dem Vulkan SDK.
 
 Optionen der Sandbox: `--headless` (ohne Fenster und GPU), `--frames <n>` (nach n Frames beenden),
-`--no-vsync`. Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3.
+`--no-vsync`, `--baseline` (ohne Mesh Shader und Raytracing, auch wenn die GPU sie kann). Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3.
 
 ## Dokumentation
 

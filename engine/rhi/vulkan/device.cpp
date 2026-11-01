@@ -127,7 +127,8 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
         }
     }
 
-    auto physical_device = pick_physical_device(instance_.handle(), instance_.surface());
+    auto physical_device =
+        pick_physical_device(instance_.handle(), instance_.surface(), desc.disabled_features);
     if (!physical_device) {
         return std::unexpected(std::move(physical_device).error());
     }
@@ -158,6 +159,7 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     const Capabilities& caps = physical_device_.capabilities;
     log::info("Vulkan-Gerät: {} ({}), Vulkan {}", caps.device_name, to_string(caps.device_type),
               caps.api_version);
+    log::info("Optionale Stufen: {}", describe(caps.features));
     return {};
 }
 
@@ -172,7 +174,7 @@ std::expected<void, std::string> VulkanDevice::create_allocator() {
         .device = device_,
         .pVulkanFunctions = &functions,
         .instance = instance_.handle(),
-        .vulkanApiVersion = required_api_version,
+        .vulkanApiVersion = physical_device_.api_version,
     };
     if (const VkResult result = vmaCreateAllocator(&allocator_info, &allocator_);
         result != VK_SUCCESS) {
