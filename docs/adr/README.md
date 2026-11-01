@@ -24,5 +24,5 @@ betroffene Code einreichen.
 | [0013](0013-rhi-design.md) | Aufbau der RHI: abstrakte Klassen, Backend-Fabrik, SurfaceDesc | angenommen |
 | [0014](0014-modern-gpu-baseline.md) | Moderne GPU als Mindestanforderung: Vulkan 1.4, Mesh Shader, Raytracing | ersetzt durch 0017 |
 | [0015](0015-own-job-system.md) | Eigenes Job-System mit Work-Stealing, ohne Fibers | angenommen |
-| [0016](0016-profiling-macros.md) | Profiling mit Tracy über Makros in einem Header | vorgeschlagen |
+| [0016](0016-profiling-macros.md) | Profiling mit Tracy über Makros in einem Header | angenommen |
 | [0017](0017-platform-baseline-feature-tiers.md) | Plattform-Baseline Ubuntu 24.04, Vulkan 1.3 mit optionalen Feature-Stufen | angenommen |

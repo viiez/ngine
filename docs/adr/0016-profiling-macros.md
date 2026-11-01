@@ -1,6 +1,6 @@
 # 0016: Profiling mit Tracy über Makros in einem Header
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-10-31
 
 ## Kontext

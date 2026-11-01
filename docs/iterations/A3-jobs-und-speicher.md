@@ -1,8 +1,8 @@
 # A3: Job-System und Speicher
 
 - **Phase:** Ausarbeitung
-- **Status:** abgeschlossen (Test auf dem PC mit Tracy steht noch aus)
-- **Pull Requests:** #5 (enthält #6), #7 (Review)
+- **Status:** abgeschlossen
+- **Pull Requests:** #5 (enthält #6), #7 (Review), #8 (Test auf dem PC)
 
 ## Vorarbeit
 
@@ -118,7 +118,7 @@ Datenrennen.
 - PR #6 (Plattform-Baseline, [ADR 0017](../adr/0017-platform-baseline-feature-tiers.md)) ist in den
   Branch von #5 gemergt und kommt mit ihm nach `main`. Seitdem ist Vulkan 1.3 Pflicht, 1.4 eine
   optionale Stufe; die CI baut mit Clang 20 aus Ubuntu 24.04.
-- Offen: Tracy auf dem PC ausprobieren (Abnahme), Skalierung auf der RTX-Maschine messen.
+- Tracy auf dem PC und die Skalierung auf der RTX-Maschine sind nach dem Merge geprüft (siehe Review).
 
 ## Review
 
@@ -130,11 +130,21 @@ Frame auf alle Kerne. TD-01, TD-04 und TD-05 sind abgebaut. Mit PR #6 kam die Pl
 Clang 20). Die CI ist unter Linux, mit ThreadSanitizer und unter Windows grün und braucht mit Cache
 rund 2 Minuten.
 
-Abnahme: Alle Kriterien sind erfüllt bis auf eines. Der Test auf dem PC mit Tracy (Worker-Threads
-und Zonen sichtbar) steht noch aus, weil der PC gerade nicht erreichbar ist. Wir holen ihn nach,
-zusammen mit der Messung der Skalierung auf der RTX-Maschine. Bis dahin bleibt
-[ADR 0016](../adr/0016-profiling-macros.md) „vorgeschlagen“. Dass Tracy unter Linux und Windows
-übersetzt und linkt, zeigt die CI.
+Abnahme: Alle Kriterien sind erfüllt. Der Test auf dem PC kam nach dem Merge von #7 (Windows,
+Debug-Build aus VS Code, `--jobs-demo --frames 2000`): Tracy zeigt den Hauptthread und die
+Worker-Threads. Damit ist [ADR 0016](../adr/0016-profiling-macros.md) angenommen.
+
+| Messung (PC, Windows, Debug) | Wert |
+| --- | --- |
+| Worker-Threads | 15 (plus Hauptthread) |
+| Ein Thread | 71,93 ms pro Frame |
+| Alle Kerne | 11,69 ms pro Frame, 6,2-mal so schnell |
+| Speicher Welt, Spitze | 16 512 KiB |
+
+Die Worker erschienen in Tracy erst spät. Das ist so gewollt: Die Demo rechnet zuerst alle Frames
+auf dem Hauptthread allein (bei 2000 Frames rund 2,5 Minuten) und startet die Worker erst für den
+zweiten Durchgang. Die Anleitung in [setup.md](../setup.md) empfiehlt deshalb jetzt 300 Frames und
+erklärt das, außerdem, was zu tun ist, wenn Windows den Profiler blockiert.
 
 **Erkenntnisse:**
 
@@ -151,7 +161,7 @@ zusammen mit der Messung der Skalierung auf der RTX-Maschine. Bis dahin bleibt
 - Die Validation Layers aus den Quellen zu bauen kostet in der CI rund 25 Minuten. Der vcpkg-Cache
   macht daraus 2 Minuten, solange sich die Pakete nicht ändern (TD-06).
 
-**Anpassungen:** [ADR 0015](../adr/0015-own-job-system.md) angenommen, ADR 0016 vorgeschlagen,
+**Anpassungen:** [ADR 0015](../adr/0015-own-job-system.md) und ADR 0016 angenommen,
 ADR 0017 aus PR #6. Feature-Katalog: CORE-05 und CORE-06 fertig; CORE-07 bleibt in Arbeit, weil die
 GPU-Zonen mit dem Render-Graph in R1 kommen. PLAT-04 (Dateisystem) wandert wie im Plan
 vorgeschlagen nach A4, wo „Szene speichern und laden“ es braucht. Schuldenregister: TD-06 und TD-07
@@ -174,5 +184,6 @@ neu. CLAUDE.md nennt den ThreadSanitizer-Lauf und die Ausnahme für `<ngine/prof
 - Neue Schuld: TD-07 (Budget-Verbrauch noch nicht in Tracy, Zähler ohne Cache-Line-Abstand).
 - Leistung: Die Job-Demo ist im Debug-Build auf 4 Kernen etwa 4-mal so schnell wie mit einem Thread.
   Jobs kommen aus einem Pool pro Thread und brauchen keinen Heap; die Allokatoren melden dem Budget
-  nur ganze Speicherblöcke, nicht jede Allokation. Offensichtliche Engpässe gibt es nicht, die
-  Skalierung auf mehr Kernen messen wir auf dem PC.
+  nur ganze Speicherblöcke, nicht jede Allokation. Offensichtliche Engpässe gibt es nicht. Auf
+  dem PC mit 16 Threads ist sie 6,2-mal so schnell; mehr ist mit SMT-Threads und im Debug-Build
+  nicht zu erwarten. Eine Messung im Release-Build holen wir bei Gelegenheit nach.
