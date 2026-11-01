@@ -29,8 +29,8 @@ eine Komponente.
 | CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen: Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | A3 | fertig |
 | CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking (`ngine.memory`, `std::pmr`) | A3 | fertig |
 | CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (mit dem Render-Graph in R1), Thread-Namen, Plots | A3 / R1 | in Arbeit |
-| CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C# | A4 | geplant |
-| CORE-09 | Serialisierung | Binär und lesbar (z. B. JSON) über Reflection | A4 | geplant |
+| CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C#: `ngine.reflect` mit Builder-API ([ADR 0018](adr/0018-own-reflection.md)); Enums, Arrays und Entity-Verweise folgen bei Bedarf | A4 | fertig |
+| CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
 | CORE-10 | Mathematik | Vektoren, Matrizen, Quaternionen; zuerst GLM, später eigene SIMD-Typen | R1 | geplant |
 | CORE-11 | Ereignisse | Lose gekoppelte Nachrichten zwischen Systemen | R2 | geplant |
 | CORE-12 | Log-Datei | Sink, der in eine Datei schreibt | R2 | geplant |
@@ -42,7 +42,7 @@ eine Komponente.
 | PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
 | PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher nur Schließen und Escape | A2 / R2 | in Arbeit |
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
-| PLAT-04 | Dateisystem | Pfade, Dateien lesen und schreiben, Benutzerordner | A4 | geplant |
+| PLAT-04 | Dateisystem | Dateien lesen und atomar schreiben, Benutzerordner, UTF-8-Pfade (`ngine.filesystem`, auch ohne Fenster) | A4 | fertig |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
 | PLAT-06 | Hot Reload von Dateien | Änderungen an Shadern und Assets zur Laufzeit erkennen | R1 | geplant |
 
@@ -70,14 +70,16 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| WORLD-01 | ECS | flecs hinter `World` und `Entity` | A4 | geplant |
-| WORLD-02 | Entity-API | Bequeme Schicht im Stil von GameObjects, auch für C# | A4 | geplant |
-| WORLD-03 | Hierarchie | Eltern-Kind-Beziehungen, Transform-Propagation | A4 | geplant |
+| WORLD-01 | ECS | flecs hinter `World`, `Entity` und `Query`; Systeme über `Schedule` auf dem Job-System ([ADR 0019](adr/0019-systems-on-job-system.md)) | A4 | fertig |
+| WORLD-02 | Entity-API | Bequeme Schicht im Stil von GameObjects (`entity.set(...)`, `get<T>()`, `name()`); die C#-Seite folgt mit D2 / R4 | A4 | in Arbeit |
+| WORLD-03 | Hierarchie | Eltern-Kind-Beziehungen (A4, fertig); Transform-Propagation mit Mathematik und 64-Bit-Positionen (R1) | A4 / R1 | in Arbeit |
 | WORLD-04 | Prefabs | Vorlagen für Entities, Instanzen mit Überschreibungen | R2 | geplant |
-| WORLD-05 | Szenen speichern und laden | Über Reflection und Serialisierung | A4 | geplant |
+| WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten; binär gekocht später mit der Asset-Pipeline | A4 | fertig |
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern | R1 | geplant |
 | WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming | R3 | geplant |
 | WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen | R3 | geplant |
+| WORLD-09 | Befehlspuffer | Strukturänderungen aus Systemen heraus sammeln und nach dem Schedule ausführen | R4 | geplant |
+| WORLD-10 | Phasen für Systeme | Systeme in Phasen (Eingabe, Simulation, Rendering) und mit expliziter Reihenfolge | R4 | geplant |
 
 ## Voxel-Terrain
 

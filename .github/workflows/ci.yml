@@ -25,7 +25,7 @@ jobs:
             preset: linux-clang-debug
             vcpkg_cache: ~/.cache/vcpkg/archives
             validation: true
-          # Prüft Job-System und Allokatoren auf Datenrennen.
+          # Prüft Job-System, Allokatoren und parallele Systeme der Welt auf Datenrennen.
           - name: Linux (Clang 20, ThreadSanitizer)
             os: ubuntu-24.04
             preset: linux-clang-tsan
@@ -133,7 +133,7 @@ jobs:
           # Ältere TSan-Laufzeiten scheitern an der hohen ASLR-Entropie aktueller Kernel.
           sudo sysctl -w vm.mmap_rnd_bits=28
           for run in 1 2 3 4 5; do
-            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory]"
+            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world]"
           done
 
       - name: Sandbox ohne Fenster starten
@@ -144,6 +144,7 @@ jobs:
           [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
           "$exe" --headless
           "$exe" --jobs-demo --frames 10
+          "$exe" --scene-demo --frames 10 --scene "build/${{ matrix.preset }}/scene-demo.json"
 
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.

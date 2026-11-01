@@ -17,6 +17,7 @@ import ngine.core;
 import ngine.memory;
 import ngine.jobs;
 import ngine.profile;
+import sandbox.frame_stats;
 
 namespace sandbox {
 
@@ -117,6 +118,7 @@ Result run(std::optional<u32> workers, u64 frames) {
         graph.run_and_wait(job_system);
         time += 0.016f;
         profile::plot("Frame-Speicher (Bytes)", static_cast<f64>(frame_memory.used()));
+        report_memory();
         profile::frame_mark();
     }
     const auto elapsed = std::chrono::steady_clock::now() - start;

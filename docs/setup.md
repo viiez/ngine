@@ -12,7 +12,7 @@ Was wir brauchen und woher es kommt:
 | C++-Compiler | Clang 20 (`clang-20`, neuere gehen auch) | MSVC aus Visual Studio (aktuelle Version) |
 | CMake 3.28+ und Ninja | `cmake`, `ninja-build` | winget (oder in Visual Studio enthalten) |
 | vcpkg | Git-Klon im Home-Verzeichnis | Git-Klon unter `C:\dev\vcpkg` |
-| SDL3, volk, Vulkan-Header, VMA, Slang, Tracy, Catch2 | holt vcpkg beim ersten Konfigurieren | holt vcpkg beim ersten Konfigurieren |
+| SDL3, volk, Vulkan-Header, VMA, Slang, Tracy, flecs, Catch2 | holt vcpkg beim ersten Konfigurieren | holt vcpkg beim ersten Konfigurieren |
 | Vulkan-Treiber | Mesa 24 oder neuer (`mesa-vulkan-drivers`) | Grafiktreiber (NVIDIA, AMD, Intel) |
 | Validation Layers | `vulkan-validationlayers` | Vulkan SDK von LunarG |
 | Editor | VS Code mit CMake Tools und clangd | VS Code mit CMake Tools und C/C++ |
@@ -318,6 +318,20 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    „Oberfläche suchen“, die Frames und der Plot „Frame-Speicher (Bytes)“. Auch die Sandbox mit
    Fenster setzt Frame-Marken.
 4. **Ohne Tracy bauen:** `-DNGINE_WITH_TRACY=OFF` beim Konfigurieren; danach läuft alles wie vorher.
+
+## A4 testen: Welt, Szenen und Speicher in Tracy
+
+1. **Tests:** `ctest` meldet alle Tests als bestanden, auch `[reflect]`, `[serialize]`,
+   `[filesystem]` und `[world]`.
+2. **Szenen-Demo:** `ngine_sandbox --scene-demo` baut ein Sonnensystem mit gut 2000 Entities
+   (Planeten, Monde, Asteroiden als Kinder), lässt zwei Systeme 120 Frames lang parallel laufen,
+   speichert die Szene und lädt sie in eine neue Welt. Am Ende steht „Szene geladen: … gleich dem
+   Original“. Die Datei liegt unter `~/.local/share/NGine/sandbox.scene.json` bzw.
+   `%APPDATA%\NGine\sandbox.scene.json`; mit `--scene <pfad>` an einer anderen Stelle. Ein Blick
+   hinein zeigt das Format.
+3. **Tracy:** `ngine_sandbox --scene-demo --frames 2000` und im Profiler verbinden. Zu sehen sind
+   die Zonen „Schedule“ und „System“ auf mehreren Threads und die Plots „Speicher Welt (Bytes)“ usw.
+   für jede Kategorie, auch bei `--jobs-demo` und der Sandbox mit Fenster.
 
 Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
 sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf

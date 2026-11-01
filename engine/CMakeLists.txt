@@ -1,7 +1,11 @@
 add_subdirectory(core)
+add_subdirectory(filesystem)
 add_subdirectory(memory)
 add_subdirectory(profile)
 add_subdirectory(jobs)
+add_subdirectory(reflect)
+add_subdirectory(serialize)
+add_subdirectory(world)
 add_subdirectory(rhi)
 add_subdirectory(shaders)
 

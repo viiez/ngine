@@ -26,3 +26,6 @@ betroffene Code einreichen.
 | [0015](0015-own-job-system.md) | Eigenes Job-System mit Work-Stealing, ohne Fibers | angenommen |
 | [0016](0016-profiling-macros.md) | Profiling mit Tracy über Makros in einem Header | angenommen |
 | [0017](0017-platform-baseline-feature-tiers.md) | Plattform-Baseline Ubuntu 24.04, Vulkan 1.3 mit optionalen Feature-Stufen | angenommen |
+| [0018](0018-own-reflection.md) | Eigene Reflection mit Builder-API, flecs nur als Speicher | vorgeschlagen |
+| [0019](0019-systems-on-job-system.md) | Systeme auf dem eigenen Job-System statt der Pipeline von flecs | vorgeschlagen |
+| [0020](0020-scene-format-json.md) | Szenen als JSON mit eigenem Parser | vorgeschlagen |
