@@ -11,7 +11,8 @@ Abbauen. Der Rest der Welt (Figuren, Objekte, Gebäudeteile) besteht aus klassis
 ## Entscheidung
 
 - Terrain als Dichtefeld mit Material pro Voxel, in Chunks gespeichert.
-- Meshing über Surface Nets oder Dual Contouring; die Wahl fällt im Durchstich D1.
+- Meshing über Surface Nets oder Dual Contouring; die Wahl fällt im Durchstich D1
+  (entschieden in [ADR 0021](0021-surface-nets-8bit-density.md): Surface Nets).
 - LOD für die Ferne, prozedurale Grundwelt, Änderungen als Deltas.
 - Voxel-Terrain ist ein eigenes System neben normalen Meshes.
 

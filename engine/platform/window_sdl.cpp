@@ -62,8 +62,31 @@ Window::Window(Window&&) noexcept = default;
 Window& Window::operator=(Window&&) noexcept = default;
 Window::~Window() = default;
 
+namespace {
+
+Key to_key(SDL_Keycode key) {
+    switch (key) {
+    case SDLK_ESCAPE: return Key::Escape;
+    case SDLK_SPACE: return Key::Space;
+    default: return Key::Unknown;
+    }
+}
+
+MouseButton to_button(Uint8 button) {
+    switch (button) {
+    case SDL_BUTTON_LEFT: return MouseButton::Left;
+    case SDL_BUTTON_MIDDLE: return MouseButton::Middle;
+    case SDL_BUTTON_RIGHT: return MouseButton::Right;
+    default: return MouseButton::Other;
+    }
+}
+
+} // namespace
+
 std::vector<Event> Window::poll_events() {
     std::vector<Event> events;
+    // SDL meldet Mauspositionen in Fensterkoordinaten; bei hoher Pixeldichte sind Pixel kleiner.
+    const float density = SDL_GetWindowPixelDensity(impl_->window);
     SDL_Event sdl_event;
     while (SDL_PollEvent(&sdl_event)) {
         switch (sdl_event.type) {
@@ -74,8 +97,26 @@ std::vector<Event> Window::poll_events() {
                                                 static_cast<u32>(sdl_event.window.data2)}});
             break;
         case SDL_EVENT_KEY_DOWN:
+            if (!sdl_event.key.repeat) {
+                events.emplace_back(event::KeyPressed{to_key(sdl_event.key.key)});
+            }
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
             events.emplace_back(
-                event::KeyPressed{sdl_event.key.key == SDLK_ESCAPE ? Key::Escape : Key::Unknown});
+                event::MouseMoved{sdl_event.motion.x * density, sdl_event.motion.y * density});
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            events.emplace_back(event::MouseButtonPressed{to_button(sdl_event.button.button),
+                                                          sdl_event.button.x * density,
+                                                          sdl_event.button.y * density});
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            events.emplace_back(event::MouseButtonReleased{to_button(sdl_event.button.button),
+                                                           sdl_event.button.x * density,
+                                                           sdl_event.button.y * density});
+            break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            events.emplace_back(event::MouseWheel{sdl_event.wheel.y});
             break;
         default: break;
         }

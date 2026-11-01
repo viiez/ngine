@@ -51,7 +51,9 @@ Unter Windows dieselben Befehle mit `windows-msvc-debug` in einer Developer-Kons
 bringt der Grafiktreiber mit; die Validation Layers kommen mit dem Vulkan SDK.
 
 Optionen der Sandbox: `--headless` (ohne Fenster und GPU), `--frames <n>` (nach n Frames beenden),
-`--no-vsync`, `--baseline` (ohne Mesh Shader und Raytracing, auch wenn die GPU sie kann). Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3.
+`--no-vsync`, `--baseline` (ohne Mesh Shader und Raytracing, auch wenn die GPU sie kann). Demos:
+`--jobs-demo`, `--scene-demo` und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit
+`--headless` ohne GPU, mit `--image <pfad>` offscreen als Bild). Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3.
 
 ## Dokumentation
 

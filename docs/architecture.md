@@ -32,13 +32,13 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
 | `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden | vorhanden |
-| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
+| `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU: Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
+| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tastatur, Maus; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Farbe und Tiefe), Buffer (mit Geräteadresse), Shader, Pipeline, CommandList mit Push Constants und indiziertem Zeichnen; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
-| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
+| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain) | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.voxel`, `ngine.script`,
-`ngine.net`.
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.script`, `ngine.net`.
 
 ```mermaid
 flowchart BT
@@ -54,6 +54,7 @@ flowchart BT
     reflect["ngine.reflect"]
     serialize["ngine.serialize"]
     world["ngine.world<br/>(flecs)"]
+    voxel["ngine.voxel"]
     sandbox["Sandbox"]
     fs --> core
     reflect --> core
@@ -73,6 +74,8 @@ flowchart BT
     sandbox --> vulkan
     sandbox --> shaders
     sandbox --> world
+    voxel --> core
+    sandbox --> voxel
 ```
 
 Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
@@ -95,6 +98,26 @@ flowchart LR
 
 `DeviceDesc::disabled_features` schaltet Stufen ab, auch wenn die GPU sie kann. So laufen Tests und
 die Sandbox (`--baseline`) auf jeder Hardware auch über die Rückfallpfade.
+
+### Geometrie und Puffer
+
+Pipelines haben keine Vertex-Attribute. Der Vertex-Shader liest seine Eckpunkte selbst über die
+Geräteadresse eines `Buffer` (Vertex Pulling, [ADR 0022](adr/0022-vertex-pulling-bda.md)); die
+Adresse und kleine Daten pro Draw kommen über Push Constants (128 Bytes pro Pipeline). Indizes
+bleiben ein gebundener Indexpuffer mit 32 Bit.
+
+```mermaid
+flowchart LR
+    cpu["CPU: Netz<br/>voxel::Mesh"] -->|"write()"| vb["Buffer<br/>Eckpunkte"]
+    cpu -->|"write()"| ib["Buffer<br/>Indizes"]
+    vb -->|"device_address()"| push["Push Constants<br/>Matrix, Licht, Adresse"]
+    push --> vs["Vertex-Shader<br/>vertices[SV_VertexID]"]
+    ib -->|"bind_index_buffer"| vs
+```
+
+Puffer liegen vorerst im CPU-sichtbaren Speicher (TD-11). Wer einen Puffer ändert, während die GPU
+ihn noch lesen kann, hält einen pro Frame im Flug: `Frame::index` nennt den Platz, und Ressourcen
+desselben Platzes sind beim Beginn des Frames wieder frei.
 
 ## Regeln
 
@@ -203,3 +226,26 @@ flowchart LR
 
 Eine Welt gehört einem Thread. Die Registry muss die Welt überleben und darf nach dem Start nicht
 mehr wachsen.
+
+## Voxel-Terrain
+
+`ngine.voxel` hält das Terrain als Dichtefeld und erzeugt daraus Netze
+([ADR 0005](adr/0005-smooth-voxel-terrain.md), [ADR 0021](adr/0021-surface-nets-8bit-density.md)).
+Es kennt weder GPU noch Welt, damit der Server Terrain halten und bearbeiten kann.
+
+```mermaid
+flowchart LR
+    fill["fill() / fill_hill()<br/>Abstandsfunktion"] --> grid["Grid<br/>2 Bytes pro Sample"]
+    brush["apply(Brush)<br/>Abtragen, Auftragen, Glätten"] --> grid
+    grid --> mesher["Mesher<br/>Surface Nets"]
+    mesher --> mesh["Mesh<br/>Vertex (32 Bytes), Indizes"]
+    grid --> ray["raycast()<br/>Maus, Werkzeuge"]
+    mesh --> renderer["Renderer<br/>(D1: Sandbox)"]
+```
+
+- Ein `Sample` speichert den Abstand zur Oberfläche in 8 Bit (positiv innen, 1/32 Voxel pro
+  Schritt) und ein Material (0 ist Luft). Koordinaten sind Sample-Indizes; ein Chunk mit 32 Voxeln
+  hat 33 Samples pro Achse.
+- `Grid::version()` steigt mit jeder Änderung; der Aufrufer meshet neu, wenn sie sich ändert.
+- Der `Mesher` behält seine Zwischenspeicher und gehört einem Thread. Am Rand des Gitters bleibt
+  das Netz offen; nahtlose Chunks, Meshing in Jobs und LOD kommen in R3.

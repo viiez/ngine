@@ -127,7 +127,7 @@ std::expected<void, std::string> Swapchain::rebuild() {
 
     const VkSemaphoreCreateInfo semaphore_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     for (VkImage image : images) {
-        auto view = create_color_view(device_, image, surface_format.format);
+        auto view = create_view(device_, image, surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT);
         if (!view) {
             return std::unexpected(std::move(view).error());
         }

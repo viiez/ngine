@@ -56,9 +56,15 @@ public:
     create_pipeline(const GraphicsPipelineDesc& desc) override {
         return vulkan::create_pipeline(device_, desc);
     }
+    [[nodiscard]] Result<std::unique_ptr<Buffer>> create_buffer(const BufferDesc& desc) override {
+        return vulkan::create_buffer(device_, allocator_, desc);
+    }
 
     [[nodiscard]] Format swapchain_format() const override {
         return swapchain_ ? swapchain_->format() : Format::Unknown;
+    }
+    [[nodiscard]] u32 frames_in_flight() const override {
+        return vulkan::frames_in_flight;
     }
     [[nodiscard]] std::optional<Frame> begin_frame() override;
     void end_frame() override;
@@ -103,7 +109,7 @@ private:
     // Nur mit Fenster vorhanden.
     std::unique_ptr<Swapchain> swapchain_;
 
-    std::array<FrameData, frames_in_flight> frames_{};
+    std::array<FrameData, vulkan::frames_in_flight> frames_{};
     u32 frame_index_ = 0;
     u32 image_index_ = 0;
     VulkanCommandList frame_commands_;
@@ -280,7 +286,7 @@ std::optional<Frame> VulkanDevice::begin_frame() {
     VulkanTexture& backbuffer = swapchain_->backbuffer(image_index_);
     // Der alte Inhalt wird nicht gebraucht; das spart einen Übergang mit Kopie.
     backbuffer.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    return Frame{frame_commands_, backbuffer};
+    return Frame{frame_commands_, backbuffer, frame_index_};
 }
 
 void VulkanDevice::end_frame() {
@@ -315,7 +321,7 @@ void VulkanDevice::end_frame() {
     check(vkQueueSubmit2(queue_, 1, &submit, frame.in_flight), "vkQueueSubmit2");
     swapchain_->present(queue_, image_index_);
 
-    frame_index_ = (frame_index_ + 1) % frames_in_flight;
+    frame_index_ = (frame_index_ + 1) % vulkan::frames_in_flight;
 }
 
 void VulkanDevice::execute(const std::function<void(CommandList&)>& record) {
@@ -349,6 +355,7 @@ void VulkanDevice::execute(const std::function<void(CommandList&)>& record) {
 
 std::vector<u8> VulkanDevice::read_texture(Texture& texture) {
     auto& source = static_cast<VulkanTexture&>(texture);
+    verify(!is_depth(source.format()), "Tiefenpuffer lassen sich nicht auslesen");
     const Extent2D extent = source.extent();
     const VkDeviceSize size =
         VkDeviceSize{extent.width} * extent.height * bytes_per_pixel(source.format());

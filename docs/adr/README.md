@@ -29,3 +29,5 @@ betroffene Code einreichen.
 | [0018](0018-own-reflection.md) | Eigene Reflection mit Builder-API, flecs nur als Speicher | angenommen |
 | [0019](0019-systems-on-job-system.md) | Systeme auf dem eigenen Job-System statt der Pipeline von flecs | angenommen |
 | [0020](0020-scene-format-json.md) | Szenen als JSON mit eigenem Parser | angenommen |
+| [0021](0021-surface-nets-8bit-density.md) | Surface Nets und 8-Bit-Dichte für das Voxel-Terrain | vorgeschlagen |
+| [0022](0022-vertex-pulling-bda.md) | Geometrie per Vertex Pulling über Buffer Device Address | vorgeschlagen |

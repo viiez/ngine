@@ -18,6 +18,14 @@ constexpr u32 triangle_fragment[] = {
 #include "triangle_fragment.spv.inc"
 };
 
+constexpr u32 voxel_vertex[] = {
+#include "voxel_vertex.spv.inc"
+};
+
+constexpr u32 voxel_fragment[] = {
+#include "voxel_fragment.spv.inc"
+};
+
 } // namespace ngine::shaders::detail
 
 export namespace ngine::shaders {
@@ -28,6 +36,16 @@ rhi::ShaderDesc triangle_vertex() {
 
 rhi::ShaderDesc triangle_fragment() {
     return {rhi::ShaderStage::Fragment, detail::triangle_fragment, "fragment_main"};
+}
+
+// Voxel-Terrain (Durchstich D1). Erwartet Push Constants wie voxel.slang: Matrix in Zeilen
+// (64 Bytes), Licht (16), Kamera mit Nebel (16) und die Adresse der Eckpunkte (8).
+rhi::ShaderDesc voxel_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::voxel_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc voxel_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::voxel_fragment, "fragment_main"};
 }
 
 } // namespace ngine::shaders

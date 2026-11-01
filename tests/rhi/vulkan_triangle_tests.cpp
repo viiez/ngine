@@ -1,7 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -120,6 +124,111 @@ TEST_CASE("Vulkan zeichnet ein Dreieck offscreen", "[rhi][vulkan][gpu]") {
     CHECK(pixel_at(pixels, size / 2, 16).a == 255);
     CHECK(pixel_at(pixels, size / 2, 16).r + pixel_at(pixels, size / 2, 16).g > 0);
     CHECK(pixel_at(pixels, size / 2, 8).r == 0);
+
+    CHECK(device->validation_errors() == 0);
+}
+
+namespace {
+
+// Gleicher Aufbau wie in voxel.slang (32 Bytes pro Eckpunkt, 104 Bytes Push Constants).
+struct TestVertex {
+    float x, y, z;
+    ngine::u32 material;
+    float nx, ny, nz, reserved;
+};
+
+struct TestPushConstants {
+    std::array<float, 16> view_projection;
+    std::array<float, 4> light;
+    std::array<float, 4> camera;
+    ngine::u64 vertices;
+};
+
+} // namespace
+
+TEST_CASE("Vulkan zeichnet indiziert mit Tiefe, Puffern und Push Constants", "[rhi][vulkan][gpu]") {
+    const auto device = make_device();
+    using ngine::rhi::Format;
+
+    auto target = device->create_texture({.extent = {size, size}, .format = Format::RGBA8Unorm});
+    auto depth = device->create_texture({.extent = {size, size}, .format = Format::D32Float});
+    REQUIRE(target);
+    REQUIRE(depth);
+    auto vertex = device->create_shader(ngine::shaders::voxel_vertex());
+    auto fragment = device->create_shader(ngine::shaders::voxel_fragment());
+    REQUIRE(vertex);
+    REQUIRE(fragment);
+    auto pipeline = device->create_pipeline({
+        .vertex = vertex->get(),
+        .fragment = fragment->get(),
+        .color_format = Format::RGBA8Unorm,
+        .depth_format = Format::D32Float,
+        .cull_mode = ngine::rhi::CullMode::Back,
+    });
+    REQUIRE(pipeline);
+
+    // Ein nahes Viereck in der Mitte (Material 2, Fels), ein fernes über alles (Material 3, Erde)
+    // und ein ganz nahes oben links mit falschem Umlaufsinn, das wegfallen muss.
+    auto quad = [](float x0, float y0, float x1, float y1, float z, ngine::u32 material) {
+        return std::array{TestVertex{x0, y0, z, material, 0, 0, 1, 0},
+                          TestVertex{x1, y0, z, material, 0, 0, 1, 0},
+                          TestVertex{x1, y1, z, material, 0, 0, 1, 0},
+                          TestVertex{x0, y1, z, material, 0, 0, 1, 0}};
+    };
+    std::array<TestVertex, 12> vertices{};
+    const auto near_quad = quad(-0.5f, -0.5f, 0.5f, 0.5f, 0.25f, 2);
+    const auto far_quad = quad(-1.0f, -1.0f, 1.0f, 1.0f, 0.75f, 3);
+    const auto culled_quad = quad(-1.0f, 0.5f, -0.5f, 1.0f, 0.0f, 2);
+    std::ranges::copy(near_quad, vertices.begin());
+    std::ranges::copy(far_quad, vertices.begin() + 4);
+    std::ranges::copy(culled_quad, vertices.begin() + 8);
+    // Nahes Viereck zuerst: Ohne Tiefentest würde das ferne es überdecken.
+    const std::array<ngine::u32, 18> indices{0, 1, 2, 0, 2,  3, 4, 5,  6,
+                                             4, 6, 7, 8, 10, 9, 8, 11, 10};
+
+    auto vertex_buffer = device->create_buffer({.size = sizeof(vertices)});
+    auto index_buffer = device->create_buffer(
+        {.size = sizeof(indices),
+         .usage = ngine::rhi::BufferUsage::Storage | ngine::rhi::BufferUsage::Index});
+    REQUIRE(vertex_buffer);
+    REQUIRE(index_buffer);
+    CHECK((*vertex_buffer)->device_address() != 0);
+    (*vertex_buffer)->write(0, std::as_bytes(std::span{vertices}));
+    (*index_buffer)->write(0, std::as_bytes(std::span{indices}));
+
+    const TestPushConstants push{
+        .view_projection = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
+        .light = {0, 0, 1, 0},
+        .camera = {0, 0, 0, 0},
+        .vertices = (*vertex_buffer)->device_address(),
+    };
+    static_assert(sizeof(push) <= ngine::rhi::max_push_constant_size);
+
+    device->execute([&](ngine::rhi::CommandList& commands) {
+        commands.begin_rendering({.color = target->get(),
+                                  .clear_color = ngine::rhi::Color{0, 0, 0, 1},
+                                  .depth = depth->get(),
+                                  .clear_depth = 1.0f});
+        commands.bind_pipeline(**pipeline);
+        commands.push_constants(std::as_bytes(std::span{&push, 1}));
+        commands.bind_index_buffer(**index_buffer);
+        commands.draw_indexed(static_cast<ngine::u32>(indices.size()));
+        commands.end_rendering();
+    });
+    const auto pixels = device->read_texture(**target);
+
+    // Mitte: Fels (Blauanteil 0.28), Rand: Erde (Blauanteil 0.12).
+    const Pixel center = pixel_at(pixels, size / 2, size / 2);
+    const Pixel edge = pixel_at(pixels, size / 2, size - 2);
+    INFO("Mitte " << int(center.r) << "," << int(center.g) << "," << int(center.b) << " Rand "
+                  << int(edge.r) << "," << int(edge.g) << "," << int(edge.b));
+    CHECK(center.b > 60);
+    CHECK(edge.b < 40);
+    CHECK(edge.r > 80);
+    // Oben links liegt das verworfene Viereck; dort ist das ferne zu sehen (Zeile 0 ist oben).
+    const Pixel corner = pixel_at(pixels, 2, 2);
+    CHECK(corner.b < 40);
+    CHECK(corner.r > 80);
 
     CHECK(device->validation_errors() == 0);
 }

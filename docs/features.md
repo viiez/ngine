@@ -40,7 +40,7 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
-| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher nur Schließen und Escape | A2 / R2 | in Arbeit |
+| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher Schließen, Escape, Leertaste und Maus (Bewegung, Tasten, Rad) | A2 / D1 / R2 | in Arbeit |
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
 | PLAT-04 | Dateisystem | Dateien lesen und atomar schreiben, Benutzerordner, UTF-8-Pfade (`ngine.filesystem`, auch ohne Fenster) | A4 | fertig |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
@@ -50,7 +50,8 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)) | A2 | fertig |
+| REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)); Puffer, Tiefe, Push Constants und indiziertes Zeichnen seit D1 | A2 / D1 | fertig |
+| REND-16 | Vertex Pulling | Geometrie über Buffer Device Address statt Vertex-Attribute ([ADR 0022](adr/0022-vertex-pulling-bda.md)); Puffer bisher nur CPU-sichtbar (TD-11) | D1 / R1 | in Arbeit |
 | REND-02 | Vulkan-Backend | Vulkan 1.3 (1.4, wo vorhanden), Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
 | REND-03 | Mindestanforderung und Feature-Stufen | GPU beim Start gegen [ADR 0017](adr/0017-platform-baseline-feature-tiers.md) prüfen, Fehlendes protokollieren; Mesh Shader und Raytracing erkennen, einschalten und in `Capabilities::features` melden, abschaltbar für Tests | A2 / A3 | fertig |
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
@@ -85,9 +86,9 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| VOX-01 | Dichtefeld | Dichte und Material pro Voxel, in Chunks | D1 / R3 | geplant |
-| VOX-02 | Meshing | Surface Nets oder Dual Contouring | D1 / R3 | geplant |
-| VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler | D1 / R3 | geplant |
+| VOX-01 | Dichtefeld | Dichte (8 Bit, Abstand) und Material pro Sample ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Gitter, Chunks folgen in R3 | D1 / R3 | in Arbeit |
+| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk, nahtlose Chunk-Grenzen und Jobs in R3 | D1 / R3 | in Arbeit |
+| VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler; D1: Kugel-Pinsel und Strahltest, Neu-Meshing im selben Frame | D1 / R3 | in Arbeit |
 | VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse | R3 | geplant |
 | VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln | R3 | geplant |
 | VOX-06 | Deltas | Nur Änderungen speichern und übertragen | R3 / R5 | geplant |
