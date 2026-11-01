@@ -1,8 +1,8 @@
 # A4: ECS und Reflection
 
 - **Phase:** Ausarbeitung
-- **Status:** in Arbeit
-- **Pull Requests:** …
+- **Status:** abgeschlossen
+- **Pull Requests:** #10, #11 (Review)
 
 ## Vorarbeit
 
@@ -150,7 +150,7 @@ Verbrauch aller Kategorien (`profile::plot`).
   vergleicht beide Welten.
 - Abweichung vom Plan: Kein `World::defer()`. Strukturänderungen aus Systemen heraus sind verboten,
   bis ein Feature einen Befehlspuffer braucht (WORLD-09 im Katalog).
-- Erkenntnisse bisher (für das Review):
+- Erkenntnisse während der Umsetzung (siehe Review):
   - Clang 20 scheitert an `std::format` mit `std::string_view` in einer Implementierungsdatei, wenn
     eine importierte Partition `<filesystem>` im globalen Modulfragment hat. Abhilfe: Die interne
     Partition von `ngine.filesystem` gibt UTF-8-Text statt `std::filesystem::path` zurück.
@@ -159,5 +159,66 @@ Verbrauch aller Kategorien (`profile::plot`).
     der Vergleich ist von Hand geschrieben.
   - Eine Überladung `find(const void*)` neben `find(std::string_view)` nimmt Textliterale: Der
     Zeiger gewinnt gegen die benutzerdefinierte Umwandlung. Deshalb heißt sie `find_key()`.
-- Offen: CI unter Linux und Windows, Test auf dem PC (Tracy-Plots pro Speicherkategorie, Zonen der
-  Systeme).
+- CI und Test auf dem PC kamen nach dem Abschluss des Codes (siehe Review).
+
+## Review
+
+**Ergebnis:** Spielzustand lebt jetzt in `ngine.world`: flecs (nur der Kern) hinter `World`,
+`Entity` und `Query`, Hierarchie über `ChildOf`, Systeme über `Schedule` auf dem eigenen
+Job-System. Komponenten beschreibt die eigene Reflection (`ngine.reflect`), JSON und Binärformat
+kommen aus `ngine.serialize`, Dateien aus `ngine.filesystem` (PLAT-04). Szenen lassen sich
+speichern und laden; die Hierarchie bleibt erhalten, und dieselbe Welt ergibt immer denselben
+Text. TD-07 ist abgebaut. Die CI war in PR #10 im ersten Anlauf grün unter Linux, mit
+ThreadSanitizer und unter Windows; unter Windows lud die Szenen-Demo 2018 Entities zurück und fand
+sie gleich dem Original.
+
+Abnahme: Alle Kriterien sind erfüllt. Der Test auf dem PC (Windows 11, RTX 3060 Ti, Tracy) zeigte
+die Plots „Speicher … (Bytes)“ für jede Kategorie. In der Szenen-Demo trägt nur „Speicher Jobs“
+einen Wert (512 KiB: 16 Threads mit je 256 Jobs zu 128 Bytes); die übrigen stehen auf 0. Tracy
+zeigt einen konstanten Plot mit einer um 1 höheren Skala an (524 289 statt 524 288, 1 statt 0).
+Dass „Speicher Welt“ leer bleibt, liegt an TD-08: flecs fordert seinen Speicher selbst an.
+
+**Erkenntnisse:**
+
+- Clang 20 scheitert an `std::format` mit `std::string_view` in einer Implementierungsdatei, wenn
+  eine importierte Partition `<filesystem>` im globalen Modulfragment hat. Faustregel wie in A3:
+  Modulschnittstellen, auch interne Partitionen, frei von schweren Standard-Headern halten.
+- Rekursive Datentypen mit `std::variant` (JSON) brauchen Sorgfalt: Konstruktoren und
+  Standardkonstruktor gehören in die `.cpp`-Datei, solange ein Element noch unvollständig ist, und
+  implizite Konstruktoren aus Containern führen beim Vergleich zu endloser Rekursion.
+- Eine Überladung mit `const void*` schlägt `std::string_view` bei Textliteralen. Überladungen mit
+  Zeigern auf `void` vermeiden.
+- flecs ruft Hooks für ganze Bereiche auf und leitet fehlende Kombinationen (`ctor_move_dtor`,
+  `move_dtor`) selbst aus Konstruktor, Verschieben und Destruktor ab. Die `TypeOps` der Reflection
+  reichen dafür.
+- Die Amalgamation `flecs.c`/`flecs.h` lässt sich ohne vcpkg bauen; so war ein lokaler Test im
+  Cloud-Container möglich, obwohl vcpkg dort nicht laden kann.
+- `f32` über `f64` nach JSON zu schreiben ergibt unlesbare Zahlen (`0.10000000149011612`). Der Umweg
+  über die kürzeste Darstellung als `f32` hält Dateien lesbar und bleibt verlustfrei.
+
+**Anpassungen:** ADR 0018, 0019 und 0020 angenommen. Feature-Katalog: CORE-08, CORE-09, PLAT-04,
+WORLD-01 und WORLD-05 fertig; WORLD-02 (C#-Seite) und WORLD-03 (Transform-Propagation, R1) bleiben
+in Arbeit; WORLD-09 (Befehlspuffer) und WORLD-10 (Phasen für Systeme) neu für R4. Roadmap: R1 nimmt
+Mathematik, 64-Bit-Positionen und Transform-Propagation auf. Schuldenregister: TD-07 abgebaut,
+TD-08 und TD-09 neu. CLAUDE.md nennt die Regeln für Komponenten und Systeme.
+
+**Architektur-Review:**
+
+- Abhängigkeiten zeigen nur nach unten: `ngine.filesystem` und `ngine.reflect` hängen nur an
+  `ngine.core`, `ngine.serialize` an `ngine.reflect`, `ngine.world` an Reflection und Job-System
+  und privat an Serialisierung, Dateisystem und Profiling. Plattform und RHI kennen die Welt nicht.
+- flecs steckt nur in `engine/world/world.cpp`; Szene und Schedule arbeiten über die Schnittstelle
+  ohne Templates (`ensure`, `for_each_component`, `QueryBase::collect`). Plattformcode steckt in
+  `user_dir_linux.cpp` und `user_dir_windows.cpp`.
+- Die Schnittstellen passen zu den nächsten Iterationen: D2 (C#) kann über `TypeInfo` und die
+  Zugriffe ohne Templates auf Komponenten zugreifen, D3 (Netzwerk) über das Binärformat und
+  `TypeId`. Es fehlen Entity-Verweise in Komponenten und ein Befehlspuffer; beide sind geplant
+  (ADR 0018, WORLD-09), keine Schuld.
+- Keine Datei ist zu groß: die größten neuen sind `world.cpp` (420 Zeilen, nur der flecs-Adapter)
+  und `json_parse.cpp` (370).
+- Neue Schulden: TD-08 (Speicher von flecs nicht im Budget) und TD-09 (Hash-Suchen pro
+  Komponentenzugriff).
+- Leistung: Die Systeme der Szenen-Demo brauchen im Debug-Build rund 0,02 ms pro Frame für 2000
+  Entities (lokal, 4 Kerne) bzw. 0,15 ms (CI unter Windows). Laden einer Szene mit 2000 Entities
+  aus JSON dauert etwa 0,1 bis 0,4 s im Debug-Build; für große Welten ist ein gekochtes
+  Binärformat vorgesehen (ADR 0020). Offensichtliche Engpässe gibt es nicht.

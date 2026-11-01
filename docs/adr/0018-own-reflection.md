@@ -1,6 +1,6 @@
 # 0018: Eigene Reflection mit Builder-API, flecs nur als Speicher
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-01
 
 ## Kontext
