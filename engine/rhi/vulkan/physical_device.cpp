@@ -3,12 +3,11 @@ module;
 #include "vk.hpp"
 
 #include <algorithm>
-#include <array>
-#include <cstring>
 #include <expected>
 #include <format>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 module ngine.rhi.vulkan;
@@ -22,17 +21,13 @@ namespace ngine::rhi::vulkan {
 
 namespace {
 
-// Device-Extensions, die jede GPU mitbringen muss (die Swapchain kommt nur mit Fenster dazu).
-constexpr std::array required_extensions{
-    VK_EXT_MESH_SHADER_EXTENSION_NAME,
-    VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-    VK_KHR_RAY_QUERY_EXTENSION_NAME,
-    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-};
+static_assert(minimum_api_version == VK_API_VERSION_1_3);
+static_assert(newest_api_version == VK_API_VERSION_1_4);
 
 // Verkettete Feature-Strukturen. Dieselbe Kette dient zum Abfragen und zum Einschalten;
 // die Zeiger zeigen in das Objekt selbst, deshalb ist es weder kopier- noch verschiebbar.
+// Die Strukturen optionaler Stufen hängen nur in der Kette, wenn die GPU deren Extensions
+// hat: Strukturen unbekannter Extensions darf man weder abfragen noch übergeben.
 struct FeatureChain {
     VkPhysicalDeviceFeatures2 root{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     VkPhysicalDeviceVulkan11Features v11{.sType =
@@ -47,24 +42,29 @@ struct FeatureChain {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_pipeline{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
 
-    FeatureChain() {
+    FeatureChain(bool with_mesh_shader, bool with_ray_tracing) {
         root.pNext = &v11;
         v11.pNext = &v12;
         v12.pNext = &v13;
-        v13.pNext = &mesh;
-        mesh.pNext = &acceleration;
-        acceleration.pNext = &ray_query;
-        ray_query.pNext = &ray_pipeline;
+        void** tail = &v13.pNext;
+        if (with_mesh_shader) {
+            *tail = &mesh;
+            tail = &mesh.pNext;
+        }
+        if (with_ray_tracing) {
+            *tail = &acceleration;
+            acceleration.pNext = &ray_query;
+            tail = &ray_query.pNext;
+        }
     }
     FeatureChain(const FeatureChain&) = delete;
     FeatureChain& operator=(const FeatureChain&) = delete;
 };
 
 // Liefert die Felder aller Pflicht-Features einer Kette, damit Abfrage und Einschalten
-// dieselbe Liste benutzen.
+// dieselbe Liste benutzen. Die Liste entspricht ADR 0017; Intel-, AMD- und NVIDIA-Treiber
+// erfüllen sie ab Vulkan 1.3.
 template <typename Visitor>
 void for_each_required_feature(FeatureChain& chain, Visitor&& visit) {
     // Slang übersetzt SV_VertexID mit der SPIR-V-Fähigkeit DrawParameters.
@@ -81,60 +81,52 @@ void for_each_required_feature(FeatureChain& chain, Visitor&& visit) {
     visit("Dynamic Rendering", chain.v13.dynamicRendering);
     visit("Synchronization2", chain.v13.synchronization2);
     visit("Maintenance4", chain.v13.maintenance4);
-    visit("Task Shader", chain.mesh.taskShader);
-    visit("Mesh Shader", chain.mesh.meshShader);
-    visit("Acceleration Structures", chain.acceleration.accelerationStructure);
-    visit("Ray Query", chain.ray_query.rayQuery);
-    visit("Raytracing-Pipeline", chain.ray_pipeline.rayTracingPipeline);
 }
 
-std::vector<VkExtensionProperties> device_extensions(VkPhysicalDevice device) {
+std::vector<std::string> device_extensions(VkPhysicalDevice device) {
     u32 count = 0;
     vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
-    std::vector<VkExtensionProperties> extensions(count);
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &count, extensions.data());
-    return extensions;
+    std::vector<VkExtensionProperties> properties(count);
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &count, properties.data());
+    std::vector<std::string> names;
+    names.reserve(count);
+    for (const VkExtensionProperties& extension : properties) {
+        names.emplace_back(extension.extensionName);
+    }
+    return names;
 }
 
-bool contains(const std::vector<VkExtensionProperties>& extensions, const char* name) {
-    return std::ranges::any_of(extensions, [&](const VkExtensionProperties& extension) {
-        return std::strcmp(extension.extensionName, name) == 0;
-    });
+bool contains(const std::vector<std::string>& extensions, std::string_view name) {
+    return std::ranges::find(extensions, name) != extensions.end();
 }
 
-// Was einer GPU zur Mindestanforderung fehlt; leer, wenn sie genügt.
-std::vector<std::string> missing_requirements(VkPhysicalDevice device,
-                                              const VkPhysicalDeviceProperties& properties,
-                                              bool needs_swapchain) {
-    std::vector<std::string> missing;
-    if (properties.apiVersion < required_api_version) {
-        missing.push_back(
-            std::format("Vulkan 1.4 (hat {})", format_version(properties.apiVersion)));
-        return missing;
+// Fragt alles ab, was evaluate_device braucht.
+DeviceSupport query_support(VkPhysicalDevice device, const VkPhysicalDeviceProperties& properties) {
+    DeviceSupport support{
+        .api_version = properties.apiVersion,
+        .extensions = device_extensions(device),
+    };
+    // Die Strukturen von Vulkan 1.3 darf nur eine GPU mit Vulkan 1.3 bekommen.
+    if (properties.apiVersion < minimum_api_version) {
+        return support;
     }
 
-    const auto extensions = device_extensions(device);
-    for (const char* name : required_extensions) {
-        if (!contains(extensions, name)) {
-            missing.emplace_back(name);
-        }
-    }
-    if (needs_swapchain && !contains(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
-        missing.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    }
-    if (!missing.empty()) {
-        // Feature-Strukturen fehlender Extensions dürfen nicht abgefragt werden.
-        return missing;
-    }
-
-    FeatureChain chain;
+    const bool has_mesh = contains(support.extensions, mesh_shader_extension);
+    const bool has_ray_tracing = contains(support.extensions, acceleration_structure_extension) &&
+                                 contains(support.extensions, deferred_host_operations_extension) &&
+                                 contains(support.extensions, ray_query_extension);
+    FeatureChain chain{has_mesh, has_ray_tracing};
     vkGetPhysicalDeviceFeatures2(device, &chain.root);
-    for_each_required_feature(chain, [&](const char* name, const VkBool32& value) {
-        if (value != VK_TRUE) {
-            missing.emplace_back(name);
-        }
+
+    for_each_required_feature(chain, [&](std::string_view name, const VkBool32& value) {
+        support.required_features.push_back({.name = name, .supported = value == VK_TRUE});
     });
-    return missing;
+    support.task_shader = has_mesh && chain.mesh.taskShader == VK_TRUE;
+    support.mesh_shader = has_mesh && chain.mesh.meshShader == VK_TRUE;
+    support.acceleration_structure =
+        has_ray_tracing && chain.acceleration.accelerationStructure == VK_TRUE;
+    support.ray_query = has_ray_tracing && chain.ray_query.rayQuery == VK_TRUE;
+    return support;
 }
 
 // Erste Queue-Familie mit Grafik und, falls verlangt, Präsentation auf surface.
@@ -159,21 +151,10 @@ std::optional<u32> find_queue_family(VkPhysicalDevice device, VkSurfaceKHR surfa
     return std::nullopt;
 }
 
-int score(DeviceType type) {
-    switch (type) {
-    case DeviceType::Discrete: return 4;
-    case DeviceType::Integrated: return 3;
-    case DeviceType::Virtual: return 2;
-    case DeviceType::Cpu:
-    case DeviceType::Other: break;
-    }
-    return 1;
-}
-
 } // namespace
 
-std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance instance,
-                                                                VkSurfaceKHR surface) {
+std::expected<PhysicalDevice, std::string>
+pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled) {
     u32 count = 0;
     vkEnumeratePhysicalDevices(instance, &count, nullptr);
     std::vector<VkPhysicalDevice> devices(count);
@@ -184,11 +165,11 @@ std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance insta
     for (VkPhysicalDevice candidate : devices) {
         VkPhysicalDeviceProperties properties;
         vkGetPhysicalDeviceProperties(candidate, &properties);
-        if (const auto missing =
-                missing_requirements(candidate, properties, surface != VK_NULL_HANDLE);
-            !missing.empty()) {
+        const DeviceEvaluation evaluation = evaluate_device(query_support(candidate, properties),
+                                                            surface != VK_NULL_HANDLE, disabled);
+        if (!evaluation.suitable()) {
             std::string list;
-            for (const auto& name : missing) {
+            for (const auto& name : evaluation.missing) {
                 list += list.empty() ? name : ", " + name;
             }
             log::info("GPU {} übersprungen, es fehlt: {}", properties.deviceName, list);
@@ -201,25 +182,28 @@ std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance insta
         }
 
         const DeviceType type = from_vk(properties.deviceType);
-        if (score(type) <= best_score) {
+        const int score = device_score(type, evaluation.features);
+        if (score <= best_score) {
             continue;
         }
-        best_score = score(type);
+        best_score = score;
         best = PhysicalDevice{
             .handle = candidate,
             .queue_family = *family,
+            .api_version = evaluation.api_version,
             .capabilities =
                 Capabilities{
                     .device_name = properties.deviceName,
                     .api_version = format_version(properties.apiVersion),
                     .device_type = type,
+                    .features = evaluation.features,
                 },
         };
     }
 
     if (!best) {
-        return std::unexpected("Keine GPU erfüllt die Mindestanforderung (Vulkan 1.4, Bindless, "
-                               "Mesh Shader, Raytracing); Details stehen im Log");
+        return std::unexpected("Keine GPU erfüllt die Mindestanforderung (Vulkan 1.3 mit Dynamic "
+                               "Rendering, Synchronization2 und Bindless); Details stehen im Log");
     }
     return *std::move(best);
 }
@@ -234,10 +218,23 @@ std::expected<VkDevice, std::string> create_logical_device(const PhysicalDevice&
         .pQueuePriorities = &priority,
     };
 
-    FeatureChain features;
-    for_each_required_feature(features, [](const char*, VkBool32& value) { value = VK_TRUE; });
+    const Features& enabled = physical_device.capabilities.features;
+    FeatureChain features{enabled.mesh_shader, enabled.ray_tracing};
+    for_each_required_feature(features, [](std::string_view, VkBool32& value) { value = VK_TRUE; });
 
-    std::vector<const char*> extensions(required_extensions.begin(), required_extensions.end());
+    std::vector<const char*> extensions;
+    if (enabled.mesh_shader) {
+        features.mesh.taskShader = VK_TRUE;
+        features.mesh.meshShader = VK_TRUE;
+        extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    }
+    if (enabled.ray_tracing) {
+        features.acceleration.accelerationStructure = VK_TRUE;
+        features.ray_query.rayQuery = VK_TRUE;
+        extensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+    }
     if (with_swapchain) {
         extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }

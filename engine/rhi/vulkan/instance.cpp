@@ -112,7 +112,9 @@ std::expected<void, std::string> Instance::init(const DeviceDesc& desc,
         .pEngineName = engine_name.data(),
         .engineVersion = VK_MAKE_API_VERSION(0, engine_version.major, engine_version.minor,
                                              engine_version.patch),
-        .apiVersion = required_api_version,
+        // Höchste Version, die NGine nutzt. Der Treiber bietet dem Device trotzdem nur seine
+        // eigene Version an; welche benutzt wird, entscheidet die GPU-Auswahl.
+        .apiVersion = newest_api_version,
     };
     const VkInstanceCreateInfo instance_info{
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,

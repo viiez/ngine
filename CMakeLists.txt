@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.28)
 
 project(NGine
     VERSION 0.1.0
@@ -7,6 +7,15 @@ project(NGine
 
 if(NOT CMAKE_GENERATOR MATCHES "Ninja|Visual Studio")
     message(FATAL_ERROR "NGine nutzt C++-Module und braucht Ninja oder Visual Studio als Generator.")
+endif()
+
+# Mindestversionen der Compiler (ADR 0017). Ältere scheitern an C++-Modulen oder std::expected;
+# besser hier mit klarer Meldung als später mit unverständlichen Fehlern.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 20)
+    message(FATAL_ERROR "NGine braucht Clang 20 oder neuer (gefunden: ${CMAKE_CXX_COMPILER_VERSION}). "
+        "Unter Ubuntu 24.04: sudo apt install clang-20 clang-tools-20")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+    message(FATAL_ERROR "NGine braucht GCC 14 oder neuer (gefunden: ${CMAKE_CXX_COMPILER_VERSION}).")
 endif()
 
 set(CMAKE_CXX_STANDARD 23)

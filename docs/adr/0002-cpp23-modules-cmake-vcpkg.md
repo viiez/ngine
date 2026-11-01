@@ -1,6 +1,7 @@
 # 0002: C++23 mit Modulen, CMake und vcpkg
 
-- **Status:** angenommen
+- **Status:** angenommen; CMake-Version ersetzt durch [0017](0017-platform-baseline-feature-tiers.md)
+  (CMake 3.28)
 - **Datum:** 2026-10-27
 
 ## Kontext

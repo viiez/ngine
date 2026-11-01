@@ -25,9 +25,10 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
 
 ## Leitprinzipien
 
-1. **Modern statt historisch:** aktuelle Techniken (Vulkan 1.4 mit Bindless, Mesh Shadern und Raytracing,
-   Render-Graph, Job-System, datenorientiertes Design), keine Altlasten und keine Rückfallpfade für
-   alte Hardware.
+1. **Modern statt historisch:** aktuelle Techniken (Vulkan 1.3 mit Dynamic Rendering und Bindless,
+   Render-Graph, Job-System, datenorientiertes Design), keine Altlasten wie Render Passes. Mesh Shader,
+   Raytracing und Vulkan 1.4 nutzen wir, wo die GPU sie kann; ohne sie bleibt die Engine lauffähig
+   ([ADR 0017](adr/0017-platform-baseline-feature-tiers.md)).
 2. **Das Beste kombinieren:** bewährte Ideen gezielt übernehmen, z. B. Reflection und RHI von Unreal,
    die C#-Trennung von Unity, 64-Bit-Weltkoordinaten von Unigine und die veränderbare Voxel-Welt von
    Enshrouded.
@@ -43,7 +44,8 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
 7. **Sauber statt schnell fertig:** Architektur und Design prüfen wir regelmäßig; technische Schulden
    beseitigen wir, solange sie klein sind ([Prozess](process.md#technische-schulden)).
 8. **Aktuelle Werkzeuge:** Compiler, Build-Werkzeuge und Bibliotheken in aktueller Version, solange
-   nichts dagegen spricht ([ADR 0008](adr/0008-linux-first-clang.md)).
+   nichts dagegen spricht. Unter Linux muss alles mit den Paketen von Ubuntu 24.04 bauen
+   ([ADR 0017](adr/0017-platform-baseline-feature-tiers.md)).
 
 ## Ziele und Nicht-Ziele
 
@@ -53,7 +55,8 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
 | Eine Engine, die das eigene Spiel tragen kann | Unterstützung aller Genres und Plattformen |
 | Saubere, erweiterbare Architektur mit guter Doku | Alles selbst schreiben: Physik, Audio u. Ä. kommen als Bibliothek |
 | Hohe Leistung auf moderner Hardware durch GPU-getriebenes Rendering | Fotorealismus um jeden Preis |
-| Linux und Windows gleichwertig | Unterstützung älterer GPUs ohne Mesh Shader und Raytracing |
+| Linux und Windows gleichwertig | Unterstützung von GPUs ohne Vulkan 1.3 |
+| Läuft auch auf integrierter Grafik, mit weniger Effekten | Für jede optionale Stufe denselben Funktionsumfang auf schwacher Hardware |
 
 ## Rahmenbedingungen
 
@@ -62,7 +65,8 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
 | Sprache und Build | C++23 mit Modulen, CMake, vcpkg | [ADR 0002](adr/0002-cpp23-modules-cmake-vcpkg.md) |
 | Plattformen | Linux zuerst (Linux Mint), Windows gleichwertig | [ADR 0008](adr/0008-linux-first-clang.md) |
 | Grafik-API | Vulkan hinter einer RHI, später weitere APIs | [ADR 0004](adr/0004-vulkan-rhi-feature-tiers.md) |
-| Mindest-GPU | Vulkan 1.4 mit Mesh Shadern und Raytracing (ab RTX 20, RX 6000, Intel Arc) | [ADR 0014](adr/0014-modern-gpu-baseline.md) |
+| Linux-Baseline | Ubuntu 24.04 LTS (auch Linux Mint 22), Mesa 24 oder neuer | [ADR 0017](adr/0017-platform-baseline-feature-tiers.md) |
+| Mindest-GPU | Vulkan 1.3 mit Bindless; Mesh Shader, Raytracing und Vulkan 1.4 optional | [ADR 0017](adr/0017-platform-baseline-feature-tiers.md) |
 | Objektmodell | ECS mit flecs, Entity-API darüber | [ADR 0003](adr/0003-ecs-flecs.md) |
 | Terrain | Glattes Voxel-Terrain, alles andere Meshes | [ADR 0005](adr/0005-smooth-voxel-terrain.md) |
 | Welten | 64-Bit-Weltpositionen, Rendering relativ zur Kamera | [ADR 0012](adr/0012-64bit-world-coordinates.md) |
@@ -74,9 +78,10 @@ Daraus folgen Anforderungen an die Engine, die früh wichtig werden:
 
 | Gerät | Rolle | Grafik |
 | --- | --- | --- |
-| PC mit Windows 11 | Tests auf echter Hardware, Leistung, Nsight | NVIDIA RTX 3060 Ti: erfüllt die Mindestanforderung |
-| Notebook mit Linux Mint 22 | Programmieren und Bauen | Intel-UHD-Grafik: erfüllt die Mindestanforderung nicht, die Sandbox läuft dort nur über lavapipe |
-| CI (GitHub Actions) | Automatische Tests unter Linux | lavapipe: Vulkan 1.4, Mesh Shader und Raytracing in Software |
+| PC mit Windows 11 | Tests auf echter Hardware, Leistung, Nsight | NVIDIA RTX 3060 Ti: alle optionalen Stufen |
+| Notebook mit Linux Mint 22 | Programmieren, Bauen, Tests der Mindestanforderung | Intel-UHD-Grafik: Mindestanforderung ohne optionale Stufen |
+| CI (GitHub Actions) | Automatische Tests unter Linux | lavapipe: Vulkan 1.4, Mesh Shader und Raytracing in Software; zusätzlich ein Lauf ohne Stufen |
 
-Maßstab ist eine moderne GPU ([ADR 0014](adr/0014-modern-gpu-baseline.md)). Damit Linux auch auf echter
-Hardware gleichwertig getestet wird, ist mittelfristig Linux auf dem PC mit der RTX 3060 Ti geplant.
+Die RTX 3060 Ti zeigt, was mit allen Stufen möglich ist; das Notebook prüft, dass die Engine auf der
+Mindestanforderung läuft ([ADR 0017](adr/0017-platform-baseline-feature-tiers.md)). Damit Linux auch
+auf starker Hardware getestet wird, ist mittelfristig Linux auf dem PC mit der RTX 3060 Ti geplant.

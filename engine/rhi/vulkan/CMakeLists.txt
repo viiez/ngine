@@ -6,6 +6,7 @@ target_sources(ngine_rhi_vulkan
         FILE_SET CXX_MODULES
         FILES
             vulkan.cppm
+            requirements.cppm
     # Interne Partitionen: Teil des Moduls, aber außerhalb nicht sichtbar.
     PRIVATE
         FILE_SET internal_partitions TYPE CXX_MODULES
@@ -20,6 +21,7 @@ target_sources(ngine_rhi_vulkan
         device.cpp
         instance.cpp
         physical_device.cpp
+        requirements.cpp
         resources.cpp
         swapchain.cpp
         vma.cpp)

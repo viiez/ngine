@@ -4,6 +4,8 @@
 //   --headless      ohne Fenster und GPU starten (wie später der dedizierte Server)
 //   --frames <n>    nach n Frames beenden (für automatische Tests)
 //   --no-vsync      ohne vertikale Synchronisation präsentieren
+//   --baseline      optionale GPU-Stufen (Mesh Shader, Raytracing) abschalten, um die
+//                   Rückfallpfade auf starker Hardware zu prüfen
 //   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
 
 #include <algorithm>
@@ -33,6 +35,7 @@ struct Options {
     bool headless = false;
     bool vsync = true;
     bool jobs_demo = false;
+    bool baseline = false;
     std::optional<ngine::u64> frames;
 };
 
@@ -46,6 +49,8 @@ Options parse_options(std::span<char*> args) {
             options.jobs_demo = true;
         } else if (arg == "--no-vsync") {
             options.vsync = false;
+        } else if (arg == "--baseline") {
+            options.baseline = true;
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u64 frames = 0;
@@ -85,6 +90,7 @@ int run_windowed(const Options& options) {
                     [&](void* instance) { return window->create_vulkan_surface(instance); },
                 .extent = {size.width, size.height},
             },
+        .disabled_features = {.mesh_shader = options.baseline, .ray_tracing = options.baseline},
     };
     auto device = ngine::rhi::vulkan::create_device(device_desc);
     if (!device) {

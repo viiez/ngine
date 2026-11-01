@@ -49,6 +49,15 @@ struct SurfaceDesc {
     Extent2D extent;
 };
 
+// Optionale Fähigkeiten der GPU (ADR 0017). Fehlt eine, nimmt der Renderer einen
+// Rückfallpfad; die Engine bleibt in jedem Fall lauffähig.
+struct Features {
+    // Task- und Mesh-Shader für GPU-getriebene Geometrie.
+    bool mesh_shader = false;
+    // Beschleunigungsstrukturen und Ray Queries.
+    bool ray_tracing = false;
+};
+
 struct DeviceDesc {
     std::string application_name = "NGine";
     // Debug-Schicht der API (bei Vulkan die Validation Layers), falls installiert.
@@ -56,14 +65,17 @@ struct DeviceDesc {
     bool vsync = true;
     // Ohne Surface arbeitet das Device nur offscreen (Tests, Werkzeuge).
     std::optional<SurfaceDesc> surface;
+    // Optionale Stufen, die nicht genutzt werden, auch wenn die GPU sie kann. So lassen sich
+    // die Rückfallpfade auf starker Hardware testen.
+    Features disabled_features;
 };
 
-// Beschreibung der gewählten GPU. Mesh Shader und Raytracing sind Mindestanforderung
-// (ADR 0014) und stehen deshalb immer zur Verfügung.
+// Beschreibung der gewählten GPU und der optionalen Stufen, die das Device eingeschaltet hat.
 struct Capabilities {
     std::string device_name;
     std::string api_version;
     DeviceType device_type = DeviceType::Other;
+    Features features;
 };
 
 class Resource {

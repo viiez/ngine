@@ -32,9 +32,10 @@ bool gpu_required() {
     return value != nullptr && *value != '\0';
 }
 
-std::unique_ptr<ngine::rhi::Device> make_device() {
-    auto device = ngine::rhi::vulkan::create_device(
-        {.application_name = "NGine Tests", .enable_validation = true});
+std::unique_ptr<ngine::rhi::Device> make_device(ngine::rhi::Features disabled = {}) {
+    auto device = ngine::rhi::vulkan::create_device({.application_name = "NGine Tests",
+                                                     .enable_validation = true,
+                                                     .disabled_features = disabled});
     if (!device) {
         if (gpu_required()) {
             FAIL("Kein nutzbares Vulkan-Gerät: " + device.error());
@@ -60,9 +61,18 @@ TEST_CASE("Vulkan-Device meldet Capabilities", "[rhi][vulkan][gpu]") {
     const auto& caps = device->capabilities();
 
     CHECK_FALSE(caps.device_name.empty());
-    // Mindestanforderung ist Vulkan 1.4 (ADR 0014).
+    // Mindestanforderung ist Vulkan 1.3 (ADR 0017).
     REQUIRE(caps.api_version.starts_with("1."));
-    CHECK(std::stoi(caps.api_version.substr(2)) >= 4);
+    CHECK(std::stoi(caps.api_version.substr(2)) >= 3);
+    CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Vulkan-Device laesst abgeschaltete Stufen aus", "[rhi][vulkan][gpu]") {
+    const auto device = make_device({.mesh_shader = true, .ray_tracing = true});
+    const auto& features = device->capabilities().features;
+
+    CHECK_FALSE(features.mesh_shader);
+    CHECK_FALSE(features.ray_tracing);
     CHECK(device->validation_errors() == 0);
 }
 

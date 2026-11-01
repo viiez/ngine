@@ -1,6 +1,7 @@
 # 0008: Linux als Hauptplattform, Clang als Hauptcompiler
 
-- **Status:** angenommen
+- **Status:** angenommen; Compiler-Version ersetzt durch [0017](0017-platform-baseline-feature-tiers.md)
+  (Clang 20 aus Ubuntu 24.04)
 - **Datum:** 2026-10-27
 
 ## Kontext
