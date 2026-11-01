@@ -132,7 +132,7 @@ rund 2 Minuten.
 
 Abnahme: Alle Kriterien sind erfüllt. Der Test auf dem PC kam nach dem Merge von #7 (Windows,
 Debug-Build aus VS Code, `--jobs-demo --frames 2000`): Tracy zeigt den Hauptthread und die
-Worker-Threads. Damit ist [ADR 0016](../adr/0016-profiling-macros.md) angenommen.
+Worker-Threads mit allen Zonen. Damit ist [ADR 0016](../adr/0016-profiling-macros.md) angenommen.
 
 | Messung (PC, Windows, Debug) | Wert |
 | --- | --- |
