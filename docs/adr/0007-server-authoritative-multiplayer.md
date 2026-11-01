@@ -18,7 +18,8 @@ gilt als einer der teuersten Umbauten einer Engine.
 ## Konsequenzen
 
 - Alles unterhalb des Renderings muss headless laufen; das prüft das CI.
-- Der Durchstich D3 klärt Transport und Replikation früh.
+- Der Durchstich D3 klärt Transport und Replikation früh. Ergebnis:
+  [ADR 0024](0024-networking-gns-snapshots.md).
 
 ## Erwogene Alternativen
 

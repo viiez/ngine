@@ -11,6 +11,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [A4](A4-ecs-und-reflection.md) | Ausarbeitung | ECS und Reflection | abgeschlossen |
 | [D1](D1-voxel-meshing.md) | Ausarbeitung | Durchstich Voxel-Meshing | in Arbeit |
 | [D2](D2-csharp-hosting.md) | Ausarbeitung | Durchstich C#-Hosting | in Arbeit |
+| [D3](D3-netzwerk.md) | Ausarbeitung | Durchstich Netzwerk | in Arbeit |
 
 ## Vorlage
 

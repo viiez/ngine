@@ -156,6 +156,19 @@ jobs:
           "$exe" --scene-demo --frames 10 --scene "build/${{ matrix.preset }}/scene-demo.json"
           "$exe" --voxel-demo --headless --frames 60
           "$exe" --script-demo --frames 60
+          "$exe" --net-demo --frames 120
+
+      # Netzwerk (D3) mit zwei Prozessen: dedizierter Server und Client über localhost.
+      - name: Server und Client starten
+        if: ${{ !matrix.tsan }}
+        shell: bash
+        run: |
+          exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
+          [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
+          "$exe" --server --port 27020 --frames 600 &
+          server=$!
+          "$exe" --client 127.0.0.1:27020 --frames 240
+          wait "$server"
 
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.

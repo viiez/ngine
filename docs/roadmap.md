@@ -4,8 +4,9 @@ Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
 **Aktuell:** Phase Ausarbeitung. [Iteration A4](iterations/A4-ecs-und-reflection.md) (ECS und
-Reflection) ist abgeschlossen. Die Durchstiche [D1](iterations/D1-voxel-meshing.md) (Voxel-Meshing)
-und [D2](iterations/D2-csharp-hosting.md) (C#-Hosting) sind in Arbeit; danach folgt D3 (Netzwerk).
+Reflection) ist abgeschlossen. Die Durchstiche [D1](iterations/D1-voxel-meshing.md)
+(Voxel-Meshing), [D2](iterations/D2-csharp-hosting.md) (C#-Hosting) und [D3](iterations/D3-netzwerk.md) (Netzwerk)
+sind in Arbeit.
 
 ## Phasen und Iterationen
 
@@ -47,7 +48,7 @@ getestete Schicht, und die drei größten Risiken sind durch Durchstiche geklär
 | A4 ECS und Reflection | flecs hinter `World`/`Entity`, Reflection-Grundlage, Dateisystem, Szene speichern | Erledigt, siehe [Iteration A4](iterations/A4-ecs-und-reflection.md) |
 | D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | In Arbeit, siehe [Durchstich D1](iterations/D1-voxel-meshing.md) |
 | D2 Durchstich C#-Hosting | .NET über hostfxr starten, C#-Methode aus C++ aufrufen und zurück | In Arbeit, siehe [Durchstich D2](iterations/D2-csharp-hosting.md) |
-| D3 Durchstich Netzwerk | Headless-Server und Client über GameNetworkingSockets | Eine Komponente wird zum Client repliziert |
+| D3 Durchstich Netzwerk | Headless-Server und Client über GameNetworkingSockets, eine Komponente wird zum Client repliziert | In Arbeit, siehe [Durchstich D3](iterations/D3-netzwerk.md) |
 
 Die Durchstiche sind bewusst klein und dürfen Wegwerf-Code enthalten. Ihr Ergebnis ist vor allem
 Wissen: ein ADR oder eine Anpassung der Architektur.

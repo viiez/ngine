@@ -34,12 +34,15 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden | vorhanden |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU: Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
+| `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
+| `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tastatur, Maus; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Farbe und Tiefe), Buffer (mit Geräteadresse), Shader, Pipeline, CommandList mit Push Constants und indiziertem Zeichnen; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain) | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.net`.
+Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. Neue Module
+entstehen ab R1 (Renderer, Mathematik).
 
 ```mermaid
 flowchart BT
@@ -57,6 +60,8 @@ flowchart BT
     world["ngine.world<br/>(flecs)"]
     voxel["ngine.voxel"]
     script["ngine.script<br/>(.NET über hostfxr)"]
+    net["ngine.net<br/>(GameNetworkingSockets)"]
+    replication["ngine.replication"]
     sandbox["Sandbox"]
     fs --> core
     reflect --> core
@@ -80,6 +85,10 @@ flowchart BT
     sandbox --> voxel
     script --> core
     sandbox --> script
+    net --> core
+    replication --> net
+    replication --> world
+    sandbox --> replication
 ```
 
 Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
@@ -284,3 +293,38 @@ sequenceDiagram
   Marshalling: Texte sind UTF-8 mit Länge, gemeinsame Daten blittable Structs.
 - Die Assemblies baut `cmake/NgineDotnet.cmake` mit dem .NET-SDK nach `build/<preset>/dotnet/`.
   Ohne SDK baut der C++-Teil weiter, und `ScriptRuntime::create()` meldet die fehlende Assembly.
+
+## Netzwerk
+
+`ngine.net` und `ngine.replication` laufen ohne Fenster und GPU, damit der dedizierte Server
+dieselbe Engine nutzt ([ADR 0007](adr/0007-server-authoritative-multiplayer.md),
+[ADR 0024](adr/0024-networking-gns-snapshots.md)). Nur `engine/net/transport_gns.cpp` kennt
+GameNetworkingSockets.
+
+```mermaid
+sequenceDiagram
+    participant C as Client (replication::Client)
+    participant T as Transport (UDP)
+    participant S as Server (replication::Server)
+    C->>T: connect("host:27020")
+    T->>S: event::Connected
+    S->>C: Welcome (zuverlässig): Protokoll, Namen der Komponenten
+    C->>C: Komponentenliste prüfen, sonst trennen
+    loop jeder Tick (30 Hz)
+        S->>C: Snapshot (unzuverlässig): Tick, Entities mit Replicated und ihre Komponenten
+        C->>C: Mirror::apply: anlegen, setzen, entfernen, zerstören
+        C->>S: Application (Eingaben)
+    end
+```
+
+- Ein `Transport` ist Server (`listen`), Client (`connect`) oder beides. `poll()` liefert
+  Verbindungs- und Nachrichtenereignisse; Rückrufe der Bibliothek laufen nur darin, im Thread des
+  Aufrufers. Port 0 wählt einen zufälligen freien Port.
+- Repliziert werden Entities mit der Komponente `Replicated`, und von ihnen nur die Komponenten der
+  Liste, die Server und Client gleich festlegen. Die Felder schreibt `serialize::write_binary`
+  über die Reflection; neue Komponenten brauchen keinen Netzwerkcode.
+- Der Client hält eine Zuordnung von Server-Kennungen zu eigenen Entities (`Mirror`). Eigene
+  Entities des Clients (Kamera, UI) bleiben unberührt; gespiegelte tragen
+  `Replicated::server_id`.
+- Jeder Schnappschuss enthält den vollen Zustand. Geht einer verloren, korrigiert ihn der nächste;
+  ältere, die zu spät kommen, werden verworfen. Deltas, Relevanz und Vorhersage kommen in R5.

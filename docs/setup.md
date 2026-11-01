@@ -379,6 +379,20 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
 3. **Eigenes Skript (optional):** In `apps/sandbox/scripts/Orbit.cs` die Logzeile in `Start()`
    ändern, neu bauen und die Demo starten.
 
+## D3 testen: Server und Client
+
+1. **Tests:** `ctest` meldet die `[net]`- und `[replication]`-Tests als bestanden. Sie nutzen nur
+   localhost.
+2. **Demo in einem Prozess:** `ngine_sandbox --net-demo` startet Server und Client, lässt sie drei
+   Sekunden laufen und meldet am Ende „Server und Client stimmen überein“, dazu die Größe eines
+   Schnappschusses.
+3. **Zwei Prozesse:** In einem Terminal `ngine_sandbox --server`, in einem zweiten
+   `ngine_sandbox --client 127.0.0.1`. Der Client meldet jede Sekunde, wie viele Entities er
+   spiegelt; der Server alle fünf Sekunden Ping und Datenrate. Server mit Strg+C beenden.
+4. **Zwei Rechner (optional):** Auf dem einen `--server`, auf dem anderen
+   `--client <IP des Servers>`. Die Firewall muss UDP-Port 27020 durchlassen (Linux z. B.
+   `sudo ufw allow 27020/udp`; Windows fragt beim ersten Start).
+
 Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
 sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf
 `build/<preset>/vcpkg_installed/<triplet>/share/vulkan/explicit_layer.d` setzen (unter Windows auf

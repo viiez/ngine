@@ -37,6 +37,7 @@ ctest --preset linux-clang-debug
 
 Job-System, Allokatoren und Systeme der Welt prüft ThreadSanitizer (Preset `linux-clang-tsan`, Tests
 `[jobs],[memory],[world]`).
+Netzwerktests (`[net]`) nutzen nur localhost mit zufälligen Ports.
 GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden sie übersprungen.
 Vulkan: Pflicht ist 1.3 mit Bindless; Mesh Shader und Raytracing sind optionale Stufen
 (`Capabilities::features`). Wer eine Stufe nutzt, baut einen Rückfallpfad und testet ihn mit

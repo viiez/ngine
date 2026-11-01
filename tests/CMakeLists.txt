@@ -19,10 +19,12 @@ add_executable(ngine_tests
     world/schedule_tests.cpp
     world/scene_tests.cpp
     voxel/voxel_tests.cpp
-    script/script_tests.cpp)
+    script/script_tests.cpp
+    net/transport_tests.cpp
+    replication/replication_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
     ngine::core ngine::filesystem ngine::memory ngine::jobs ngine::profile ngine::reflect
-    ngine::serialize ngine::world ngine::voxel ngine::script ngine::rhi ngine::rhi_vulkan ngine::shaders
+    ngine::serialize ngine::world ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::shaders
     Catch2::Catch2WithMain)
 ngine_set_compiler_options(ngine_tests)
 
