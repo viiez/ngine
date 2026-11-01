@@ -1,8 +1,8 @@
 # A3: Job-System und Speicher
 
 - **Phase:** Ausarbeitung
-- **Status:** in Arbeit
-- **Pull Requests:** #5 (enthält #6)
+- **Status:** abgeschlossen (Test auf dem PC mit Tracy steht noch aus)
+- **Pull Requests:** #5 (enthält #6), #7 (Review)
 
 ## Vorarbeit
 
@@ -122,4 +122,57 @@ Datenrennen.
 
 ## Review
 
-Folgt nach dem letzten Merge.
+**Ergebnis:** Die Engine hat ein eigenes Job-System (`ngine.jobs`) mit Work-Stealing, `Counter`,
+`TaskGraph` und `parallel_for`, eigene Allokatoren mit Budget pro Kategorie (`ngine.memory`) und
+Tracy hinter `ngine.profile`. `ngine_sandbox --jobs-demo` verteilt einen Graphen aus 129 Aufgaben pro
+Frame auf alle Kerne. TD-01, TD-04 und TD-05 sind abgebaut. Mit PR #6 kam die Plattform-Baseline aus
+[ADR 0017](../adr/0017-platform-baseline-feature-tiers.md) dazu (Vulkan 1.3 Pflicht, Ubuntu 24.04,
+Clang 20). Die CI ist unter Linux, mit ThreadSanitizer und unter Windows grün und braucht mit Cache
+rund 2 Minuten.
+
+Abnahme: Alle Kriterien sind erfüllt bis auf eines. Der Test auf dem PC mit Tracy (Worker-Threads
+und Zonen sichtbar) steht noch aus, weil der PC gerade nicht erreichbar ist. Wir holen ihn nach,
+zusammen mit der Messung der Skalierung auf der RTX-Maschine. Bis dahin bleibt
+[ADR 0016](../adr/0016-profiling-macros.md) „vorgeschlagen“. Dass Tracy unter Linux und Windows
+übersetzt und linkt, zeigt die CI.
+
+**Erkenntnisse:**
+
+- Interne Partitionen (`module ngine.rhi.vulkan:foo;` in einem privaten `CXX_MODULES`-File-Set)
+  funktionieren mit Clang und MSVC. Anonyme Namespaces gelten nur in einer Datei; was mehrere
+  Partitionen teilen, braucht Modul-Linkage, Konstanten `inline constexpr`.
+- MSVC stürzte mit C1116 ab, als eine Modulschnittstelle `<thread>` (wegen `std::stop_token`)
+  einband und zugleich ein anderes Engine-Modul importierte. Abhilfe war ein Pimpl. Daraus folgt eine
+  Faustregel: Modulschnittstellen halten wir frei von schweren Standard-Headern.
+- ThreadSanitizer versteht alleinstehende `atomic_thread_fence` nicht. Die Deque nutzt deshalb
+  `seq_cst`-Operationen statt Fences, was auf x86 kaum etwas kostet.
+- ThreadSanitizer braucht auf neuen Kerneln `vm.mmap_rnd_bits=28`, sonst bricht er beim Start ab.
+- Tracy 0.14 hat seine C-API umbenannt; Nachrichten gehen über das Makro `TracyCMessage`.
+- Die Validation Layers aus den Quellen zu bauen kostet in der CI rund 25 Minuten. Der vcpkg-Cache
+  macht daraus 2 Minuten, solange sich die Pakete nicht ändern (TD-06).
+
+**Anpassungen:** [ADR 0015](../adr/0015-own-job-system.md) angenommen, ADR 0016 vorgeschlagen,
+ADR 0017 aus PR #6. Feature-Katalog: CORE-05 und CORE-06 fertig; CORE-07 bleibt in Arbeit, weil die
+GPU-Zonen mit dem Render-Graph in R1 kommen. PLAT-04 (Dateisystem) wandert wie im Plan
+vorgeschlagen nach A4, wo „Szene speichern und laden“ es braucht. Schuldenregister: TD-06 und TD-07
+neu. CLAUDE.md nennt den ThreadSanitizer-Lauf und die Ausnahme für `<ngine/profile.hpp>`.
+
+**Architektur-Review:**
+
+- Abhängigkeiten zeigen nur nach unten: `ngine.memory` und `ngine.profile` hängen nur an
+  `ngine.core`, `ngine.jobs` an `ngine.core` und intern an Speicher und Profiling. Weil die
+  Schnittstelle von `ngine.jobs` den Speicher nicht mehr importiert, ist `ngine::memory` jetzt eine
+  private Abhängigkeit (in diesem Review umgestellt).
+- Tracy steckt nur in `profile_tracy.cpp`; Sandbox und Engine kennen nur `ngine.profile`. Die
+  Makro-Header-Datei ist die in ADR 0016 begründete Ausnahme und enthält nur Makros.
+- Die Schnittstellen sind schmal: `run`, `wait`, `parallel_for`, `TaskGraph`. Das ECS in A4 kann
+  Systeme als `TaskGraph` planen, das Voxel-Meshing in D1 nutzt `parallel_for`. Prioritäten und
+  Jobs, die blockieren (Datei-I/O), fehlen noch. Sie kommen mit dem Dateisystem bzw. dem
+  Asset-Laden und sind geplant, keine Schuld.
+- Keine Datei ist zu groß: Die größte ist `engine/rhi/vulkan/device.cpp` mit gut 400 Zeilen, im
+  Job-System `system.cpp` mit gut 260.
+- Neue Schuld: TD-07 (Budget-Verbrauch noch nicht in Tracy, Zähler ohne Cache-Line-Abstand).
+- Leistung: Die Job-Demo ist im Debug-Build auf 4 Kernen etwa 4-mal so schnell wie mit einem Thread.
+  Jobs kommen aus einem Pool pro Thread und brauchen keinen Heap; die Allokatoren melden dem Budget
+  nur ganze Speicherblöcke, nicht jede Allokation. Offensichtliche Engpässe gibt es nicht, die
+  Skalierung auf mehr Kernen messen wir auf dem PC.

@@ -16,7 +16,6 @@ target_sources(ngine_jobs
 
 find_package(Threads REQUIRED)
 target_link_libraries(ngine_jobs
-    PUBLIC ngine::core ngine::memory
-    PRIVATE ngine::profile
-    PRIVATE Threads::Threads)
+    PUBLIC ngine::core
+    PRIVATE ngine::memory ngine::profile Threads::Threads)
 ngine_set_compiler_options(ngine_jobs)

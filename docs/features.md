@@ -42,7 +42,7 @@ eine Komponente.
 | PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
 | PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher nur Schließen und Escape | A2 / R2 | in Arbeit |
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
-| PLAT-04 | Dateisystem | Pfade, Dateien lesen und schreiben, Benutzerordner | A3 | geplant |
+| PLAT-04 | Dateisystem | Pfade, Dateien lesen und schreiben, Benutzerordner | A4 | geplant |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
 | PLAT-06 | Hot Reload von Dateien | Änderungen an Shadern und Assets zur Laufzeit erkennen | R1 | geplant |
 
