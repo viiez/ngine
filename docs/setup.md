@@ -308,8 +308,12 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    Kernen, und meldet die Zeit pro Frame und die Beschleunigung. Mit `--frames <n>` läuft sie länger.
    Im Release-Build sind die Zahlen aussagekräftiger als im Debug-Build.
 3. **Tracy:** Den Profiler in derselben Version wie der Client (0.14.1) von den
-   [Tracy-Releases](https://github.com/wolfpld/tracy/releases) holen und starten. Dann
-   `ngine_sandbox --jobs-demo --frames 2000` starten und im Profiler „Connect“ wählen. Zu sehen sind
+   [Tracy-Releases](https://github.com/wolfpld/tracy/releases) holen und starten. Die Datei ist
+   nicht signiert, deshalb blockiert Windows sie oft: im SmartScreen-Dialog „Weitere Informationen“
+   und „Trotzdem ausführen“ wählen oder den Profiler mit `vcpkg install tracy[gui-tools]` selbst
+   bauen. Dann `ngine_sandbox --jobs-demo --frames 300` starten und im Profiler „Connect“ wählen.
+   Die Demo rechnet zuerst nur auf dem Hauptthread; die Worker erscheinen erst in der zweiten Hälfte
+   des Laufs. Zu sehen sind
    „Hauptthread“ und „Worker 1“ bis „Worker n“ mit den Zonen „Job“, „Dichte erzeugen“ und
    „Oberfläche suchen“, die Frames und der Plot „Frame-Speicher (Bytes)“. Auch die Sandbox mit
    Fenster setzt Frame-Marken.
