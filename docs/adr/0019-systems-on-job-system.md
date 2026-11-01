@@ -1,6 +1,6 @@
 # 0019: Systeme auf dem eigenen Job-System statt der Pipeline von flecs
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-01
 
 ## Kontext

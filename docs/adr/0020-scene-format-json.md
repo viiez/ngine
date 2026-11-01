@@ -1,6 +1,6 @@
 # 0020: Szenen als JSON mit eigenem Parser
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-01
 
 ## Kontext
