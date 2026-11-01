@@ -7,6 +7,8 @@
 //   --baseline      optionale GPU-Stufen (Mesh Shader, Raytracing) abschalten, um die
 //                   Rückfallpfade auf starker Hardware zu prüfen
 //   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
+//   --scene-demo    ECS, Systeme und Szenen vorführen: bewegen, speichern, laden, vergleichen
+//   --scene <pfad>  Szenendatei für --scene-demo (sonst im Benutzerordner)
 
 #include <algorithm>
 #include <charconv>
@@ -14,6 +16,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <type_traits>
@@ -25,6 +28,8 @@ import ngine.rhi.vulkan;
 import ngine.shaders;
 import ngine.profile;
 import sandbox.jobs_demo;
+import sandbox.scene_demo;
+import sandbox.frame_stats;
 #if NGINE_WITH_WINDOW
 import ngine.platform;
 #endif
@@ -35,6 +40,8 @@ struct Options {
     bool headless = false;
     bool vsync = true;
     bool jobs_demo = false;
+    bool scene_demo = false;
+    std::optional<std::string> scene_path;
     bool baseline = false;
     std::optional<ngine::u64> frames;
 };
@@ -47,6 +54,10 @@ Options parse_options(std::span<char*> args) {
             options.headless = true;
         } else if (arg == "--jobs-demo") {
             options.jobs_demo = true;
+        } else if (arg == "--scene-demo") {
+            options.scene_demo = true;
+        } else if (arg == "--scene" && i + 1 < args.size()) {
+            options.scene_path = std::string{args[++i]};
         } else if (arg == "--no-vsync") {
             options.vsync = false;
         } else if (arg == "--baseline") {
@@ -151,6 +162,7 @@ int run_windowed(const Options& options) {
                 std::this_thread::sleep_for(std::chrono::milliseconds{16});
             }
 
+            sandbox::report_memory();
             ngine::profile::frame_mark();
             if (options.frames && frame_count >= *options.frames) {
                 running = false;
@@ -182,6 +194,8 @@ int main(int argc, char** argv) {
     int exit_code = 0;
     if (options.jobs_demo) {
         exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
+    } else if (options.scene_demo) {
+        exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {
         ngine::log::info("Modus: ohne Fenster (Server)");
     } else {

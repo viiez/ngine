@@ -28,13 +28,17 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
 | `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
+| `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner; Pfade als UTF-8, Plattformcode in `user_dir_linux.cpp`/`user_dir_windows.cpp` | vorhanden |
+| `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
+| `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
+| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden | vorhanden |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.world`,
-`ngine.voxel`, `ngine.script`, `ngine.net`.
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.voxel`, `ngine.script`,
+`ngine.net`.
 
 ```mermaid
 flowchart BT
@@ -46,7 +50,17 @@ flowchart BT
     rhi["ngine.rhi"]
     vulkan["ngine.rhi.vulkan<br/>(volk, VMA)"]
     shaders["ngine.shaders<br/>(Slang)"]
+    fs["ngine.filesystem"]
+    reflect["ngine.reflect"]
+    serialize["ngine.serialize"]
+    world["ngine.world<br/>(flecs)"]
     sandbox["Sandbox"]
+    fs --> core
+    reflect --> core
+    serialize --> reflect
+    world --> serialize
+    world --> jobs
+    world --> fs
     memory --> core
     jobs --> memory
     jobs --> profile
@@ -58,6 +72,7 @@ flowchart BT
     sandbox --> platform
     sandbox --> vulkan
     sandbox --> shaders
+    sandbox --> world
 ```
 
 Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
@@ -153,3 +168,38 @@ flowchart LR
 - `parallel_for(count, grain, f)` teilt einen Bereich auf.
 - Jobs sollen kurz sein und nicht auf E/A warten. Ein Funktionsobjekt darf höchstens 80 Bytes groß
   sein; größere Daten übergibt man per Zeiger.
+
+## Welt
+
+Spielzustand lebt in `ngine.world` ([ADR 0003](adr/0003-ecs-flecs.md)). Dahinter steckt flecs;
+nur `engine/world/world.cpp` bindet die Bibliothek ein.
+
+```mermaid
+flowchart LR
+    types["reflect::TypeRegistry<br/>beim Start gefüllt"] --> world["World<br/>(flecs-Welt)"]
+    world --> entity["Entity<br/>set, get, set_parent"]
+    world --> query["Query&lt;const A, B&gt;<br/>each()"]
+    world --> schedule["Schedule<br/>Systeme als TaskGraph"]
+    world --> scene["save_scene / load_scene<br/>JSON über ngine.serialize"]
+    schedule --> jobs["ngine.jobs"]
+```
+
+- **Komponenten** sind Structs, die in der Reflection registriert sind
+  ([ADR 0018](adr/0018-own-reflection.md)). Die Welt meldet sie beim ersten Gebrauch bei flecs an
+  und gibt flecs die Konstruktoren, Kopier- und Verschiebefunktionen aus dem `TypeInfo`.
+  Anzeigenamen sind die Komponente `world::Name`; `world::register_types()` registriert sie.
+- **Entities** sind Griffe aus Welt und 64-Bit-Kennung. Kennungen tragen eine Generation, alte
+  Griffe werden nach `destroy()` nicht wieder lebendig.
+- **Hierarchie** über die `ChildOf`-Beziehung von flecs: ein Elternteil pro Entity, Kinder
+  verschwinden mit dem Elternteil. Die Transform-Propagation kommt mit der Mathematik in R1.
+- **Abfragen** (`world.query<const A, B>()`) merken sich ihre Tabellen. Strukturänderungen in
+  `each()` werden aufgeschoben und nach der Schleife ausgeführt.
+- **Systeme** plant `Schedule` ([ADR 0019](adr/0019-systems-on-job-system.md)): Aus `const`
+  ergeben sich Lese- und Schreibzugriffe, Systeme ohne Konflikt laufen parallel. Vor dem Lauf
+  sammelt der Hauptthread die Chunks; in Jobs ruft niemand flecs auf. Während der Systeme sind
+  Änderungen über die Welt verboten.
+- **Szenen** sind JSON ([ADR 0020](adr/0020-scene-format-json.md)) mit Datei-IDs, Eltern und
+  Komponenten nach Namen. Unbekannte Komponenten und Felder werden übersprungen.
+
+Eine Welt gehört einem Thread. Die Registry muss die Welt überleben und darf nach dem Start nicht
+mehr wachsen.

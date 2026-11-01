@@ -35,7 +35,8 @@ ctest --preset linux-clang-debug
 ./build/linux-clang-debug/apps/sandbox/ngine_sandbox --headless
 ```
 
-Job-System und Allokatoren prüft ThreadSanitizer (Preset `linux-clang-tsan`, Tests `[jobs],[memory]`).
+Job-System, Allokatoren und Systeme der Welt prüft ThreadSanitizer (Preset `linux-clang-tsan`, Tests
+`[jobs],[memory],[world]`).
 GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden sie übersprungen.
 Vulkan: Pflicht ist 1.3 mit Bindless; Mesh Shader und Raytracing sind optionale Stufen
 (`Capabilities::features`). Wer eine Stufe nutzt, baut einen Rückfallpfad und testet ihn mit
@@ -58,6 +59,8 @@ Vulkan: Pflicht ist 1.3 mit Bindless; Mesh Shader und Raytracing sind optionale 
   Kein `import std;`, bis alle Zielcompiler es zuverlässig können.
 - Einzige eigene Header-Datei: `<ngine/profile.hpp>` mit den Profiling-Makros, weil Module keine
   Makros exportieren (ADR 0016). Sie enthält nur Makros.
+- Komponenten sind Structs, die in der Reflection registriert sind (`types.add<T>("T").field(...)`,
+  ADR 0018). Systeme ändern nur ihre Komponenten; Strukturänderungen kommen nach `Schedule::run()`.
 - Fremdbibliotheken nur hinter einer Engine-Schnittstelle. Außerhalb des Adapters kennt kein Code die
   Bibliothek direkt, damit sie austauschbar bleibt.
 - Aktuelle Versionen von Werkzeugen und Bibliotheken nutzen, wenn nichts dagegen spricht

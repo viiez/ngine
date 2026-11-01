@@ -12,7 +12,10 @@ namespace ngine::memory {
 
 namespace {
 
-struct Counters {
+// Jede Kategorie liegt auf einer eigenen Cache-Line. Sonst teilen sich benachbarte Kategorien eine
+// Zeile, und Threads, die in verschiedenen Kategorien zählen, verdrängen sich gegenseitig die Zeile
+// aus dem Cache (False Sharing).
+struct alignas(64) Counters {
     std::atomic<usize> current{0};
     std::atomic<usize> peak{0};
     std::atomic<usize> budget{0};
@@ -20,6 +23,8 @@ struct Counters {
     // Verhindert, dass jede weitere Allokation über dem Budget erneut warnt.
     std::atomic<bool> over_budget{false};
 };
+
+static_assert(alignof(Counters) == 64 && sizeof(Counters) == 64);
 
 std::array<Counters, category_count> counters;
 

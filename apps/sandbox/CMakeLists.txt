@@ -1,7 +1,9 @@
 add_executable(ngine_sandbox main.cpp)
-target_sources(ngine_sandbox PRIVATE FILE_SET CXX_MODULES FILES jobs_demo.cppm)
+target_sources(ngine_sandbox PRIVATE FILE_SET CXX_MODULES FILES
+    frame_stats.cppm jobs_demo.cppm scene_demo.cppm)
 target_link_libraries(ngine_sandbox PRIVATE
-    ngine::core ngine::memory ngine::jobs ngine::profile ngine::rhi ngine::rhi_vulkan ngine::shaders)
+    ngine::core ngine::filesystem ngine::memory ngine::jobs ngine::profile ngine::reflect
+    ngine::world ngine::rhi ngine::rhi_vulkan ngine::shaders)
 if(NGINE_WITH_WINDOW)
     target_link_libraries(ngine_sandbox PRIVATE ngine::platform)
     target_compile_definitions(ngine_sandbox PRIVATE NGINE_WITH_WINDOW=1)
