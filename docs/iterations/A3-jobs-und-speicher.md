@@ -2,7 +2,7 @@
 
 - **Phase:** Ausarbeitung
 - **Status:** in Arbeit
-- **Pull Requests:** #5
+- **Pull Requests:** #5 (enthält #6)
 
 ## Vorarbeit
 
@@ -115,6 +115,9 @@ Datenrennen.
   der Job-Tests.
 - Abweichung vom Plan: Alle Schritte stecken in PR #5, weil sie aufeinander aufbauen und die CI
   sie so gemeinsam prüft.
+- PR #6 (Plattform-Baseline, [ADR 0017](../adr/0017-platform-baseline-feature-tiers.md)) ist in den
+  Branch von #5 gemergt und kommt mit ihm nach `main`. Seitdem ist Vulkan 1.3 Pflicht, 1.4 eine
+  optionale Stufe; die CI baut mit Clang 20 aus Ubuntu 24.04.
 - Offen: Tracy auf dem PC ausprobieren (Abnahme), Skalierung auf der RTX-Maschine messen.
 
 ## Review
