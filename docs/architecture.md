@@ -33,12 +33,13 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
 | `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden | vorhanden |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU: Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
+| `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tastatur, Maus; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Farbe und Tiefe), Buffer (mit Geräteadresse), Shader, Pipeline, CommandList mit Push Constants und indiziertem Zeichnen; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain) | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.script`, `ngine.net`.
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.net`.
 
 ```mermaid
 flowchart BT
@@ -55,6 +56,7 @@ flowchart BT
     serialize["ngine.serialize"]
     world["ngine.world<br/>(flecs)"]
     voxel["ngine.voxel"]
+    script["ngine.script<br/>(.NET über hostfxr)"]
     sandbox["Sandbox"]
     fs --> core
     reflect --> core
@@ -76,6 +78,8 @@ flowchart BT
     sandbox --> world
     voxel --> core
     sandbox --> voxel
+    script --> core
+    sandbox --> script
 ```
 
 Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
@@ -249,3 +253,34 @@ flowchart LR
 - `Grid::version()` steigt mit jeder Änderung; der Aufrufer meshet neu, wenn sie sich ändert.
 - Der `Mesher` behält seine Zwischenspeicher und gehört einem Thread. Am Rand des Gitters bleibt
   das Netz offen; nahtlose Chunks, Meshing in Jobs und LOD kommen in R3.
+
+## Scripting
+
+`ngine.script` bettet .NET 10 ein ([ADR 0006](adr/0006-csharp-scripting-dotnet.md),
+[ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)). Nur `engine/script/runtime.cpp` kennt hostfxr.
+
+```mermaid
+sequenceDiagram
+    participant E as Engine (C++)
+    participant F as hostfxr
+    participant H as NGine.Host (C#)
+    participant S as Skripte (entladbarer Kontext)
+    E->>F: initialize_for_runtime_config
+    E->>F: load_assembly(NGine.Scripting)
+    E->>F: get_function_pointer(Initialize, LoadScripts, ...)
+    E->>H: Initialize(NativeApi)
+    E->>H: LoadScripts(pfad)
+    H->>S: aus Speicherstrom laden, IScript erzeugen
+    E->>H: Update(dt, Positionen)
+    H->>S: Update(Frame)
+    S->>E: Log über NativeApi
+    E->>H: UnloadScripts
+    H-->>E: 1 = Kontext freigegeben
+```
+
+- Es gibt höchstens eine Laufzeit pro Prozess; .NET lässt sich nicht entladen. Neu geladen werden
+  nur die Skripte.
+- Aufrufe laufen über Funktionszeiger (`[UnmanagedCallersOnly]` bzw. `delegate* unmanaged`), ohne
+  Marshalling: Texte sind UTF-8 mit Länge, gemeinsame Daten blittable Structs.
+- Die Assemblies baut `cmake/NgineDotnet.cmake` mit dem .NET-SDK nach `build/<preset>/dotnet/`.
+  Ohne SDK baut der C++-Teil weiter, und `ScriptRuntime::create()` meldet die fehlende Assembly.

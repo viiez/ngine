@@ -140,10 +140,10 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| SCR-01 | .NET-Hosting | Eingebettetes .NET über hostfxr | D2 / R4 | geplant |
+| SCR-01 | .NET-Hosting | Eingebettetes .NET 10 über hostfxr, Aufrufe in beide Richtungen über Funktionszeiger ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)) | D2 / R4 | in Arbeit |
 | SCR-02 | Bindings | Aus der Reflection erzeugte C#-API | R4 | geplant |
 | SCR-03 | Skript-Komponenten | Gameplay-Logik als C#-Komponenten | R4 | geplant |
-| SCR-04 | Hot Reload | Skripte zur Laufzeit neu laden | R4 | geplant |
+| SCR-04 | Hot Reload | Skripte zur Laufzeit neu laden; D2: Entladen und Neuladen über einen entladbaren Kontext funktioniert, Dateiüberwachung fehlt | D2 / R4 | in Arbeit |
 
 ## Netzwerk
 

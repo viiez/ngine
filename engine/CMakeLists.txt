@@ -7,6 +7,7 @@ add_subdirectory(reflect)
 add_subdirectory(serialize)
 add_subdirectory(world)
 add_subdirectory(voxel)
+add_subdirectory(script)
 add_subdirectory(rhi)
 add_subdirectory(shaders)
 

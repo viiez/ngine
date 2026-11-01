@@ -41,7 +41,9 @@ GPU-Tests (`[gpu]`) laufen in der CI über lavapipe; ohne Vulkan-Treiber werden 
 Vulkan: Pflicht ist 1.3 mit Bindless; Mesh Shader und Raytracing sind optionale Stufen
 (`Capabilities::features`). Wer eine Stufe nutzt, baut einen Rückfallpfad und testet ihn mit
 `disabled_features` bzw. `ngine_sandbox --baseline`.
-`NGINE_WITH_WINDOW=OFF` baut ohne SDL3. Shader sind Slang-Dateien und werden beim Bauen mit
+`NGINE_WITH_WINDOW=OFF` baut ohne SDL3. C#-Scripting braucht zum Bauen das .NET-SDK 10
+(`dotnet-sdk-10.0` aus Ubuntu 24.04); ohne SDK schaltet sich `NGINE_WITH_DOTNET` ab und `[script]`-Tests
+werden übersprungen (in der CI mit `NGINE_REQUIRE_DOTNET` nicht). Shader sind Slang-Dateien und werden beim Bauen mit
 `slangc` zu SPIR-V kompiliert (`ngine_compile_shader()` in `cmake/NgineShaders.cmake`).
 
 ## Aufbau

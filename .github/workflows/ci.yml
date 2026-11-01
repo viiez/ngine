@@ -46,7 +46,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang-20 clang-tools-20 libstdc++-14-dev \
-            mesa-vulkan-drivers xvfb \
+            mesa-vulkan-drivers xvfb dotnet-sdk-10.0 \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
             libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
           pipx install cmake==3.28.3
@@ -69,6 +69,13 @@ jobs:
               "$($Matches[1])=$($Matches[2])" >> $env:GITHUB_ENV
             }
           }
+
+      # Unter Linux kommt .NET 10 aus den Paketquellen von Ubuntu 24.04 (siehe oben).
+      - name: .NET 10 installieren (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
 
       - name: vcpkg holen
         shell: bash
@@ -122,6 +129,8 @@ jobs:
         env:
           # Unter Linux steht lavapipe bereit: GPU-Tests dürfen dort nicht übersprungen werden.
           NGINE_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '' }}
+          # .NET ist überall installiert: Skript-Tests dürfen nicht übersprungen werden.
+          NGINE_REQUIRE_DOTNET: '1'
 
       # Nur die Tests ohne GPU: Treiber wie lavapipe sind nicht für ThreadSanitizer gebaut.
       # Mehrere Durchläufe, weil Datenrennen nicht bei jedem Lauf auftreten.
@@ -146,6 +155,7 @@ jobs:
           "$exe" --jobs-demo --frames 10
           "$exe" --scene-demo --frames 10 --scene "build/${{ matrix.preset }}/scene-demo.json"
           "$exe" --voxel-demo --headless --frames 60
+          "$exe" --script-demo --frames 60
 
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.

@@ -27,7 +27,7 @@ nicht. Die ausführliche Anleitung inklusive VS Code steht in [docs/setup.md](do
 ```sh
 sudo apt update
 sudo apt install git curl zip unzip tar pkg-config cmake ninja-build \
-    clang-20 clang-tools-20 libstdc++-14-dev \
+    clang-20 clang-tools-20 libstdc++-14-dev dotnet-sdk-10.0 \
     mesa-vulkan-drivers vulkan-validationlayers \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
     libxft-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev
@@ -52,8 +52,9 @@ bringt der Grafiktreiber mit; die Validation Layers kommen mit dem Vulkan SDK.
 
 Optionen der Sandbox: `--headless` (ohne Fenster und GPU), `--frames <n>` (nach n Frames beenden),
 `--no-vsync`, `--baseline` (ohne Mesh Shader und Raytracing, auch wenn die GPU sie kann). Demos:
-`--jobs-demo`, `--scene-demo` und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit
-`--headless` ohne GPU, mit `--image <pfad>` offscreen als Bild). Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3.
+`--jobs-demo`, `--scene-demo`, `--script-demo` (C#-Skripte) und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit
+`--headless` ohne GPU, mit `--image <pfad>` offscreen als Bild). Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3, mit `-DNGINE_WITH_DOTNET=OFF` einer ohne
+C#-Assemblies.
 
 ## Dokumentation
 

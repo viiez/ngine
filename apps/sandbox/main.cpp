@@ -13,6 +13,7 @@
 //                   (links abtragen, rechts auftragen, Mitte glätten, Rad zoomt, Leertaste hält
 //                   die Kamera an). Mit --frames ändert sich das Terrain automatisch; mit
 //                   --headless ohne GPU, mit --image <pfad> offscreen als PPM-Bild.
+//   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
 
 #include <algorithm>
 #include <charconv>
@@ -35,6 +36,7 @@ import sandbox.jobs_demo;
 import sandbox.scene_demo;
 import sandbox.frame_stats;
 import sandbox.voxel_demo;
+import sandbox.script_demo;
 import ngine.voxel;
 #if NGINE_WITH_WINDOW
 import ngine.platform;
@@ -49,6 +51,7 @@ struct Options {
     bool scene_demo = false;
     std::optional<std::string> scene_path;
     bool voxel_demo = false;
+    bool script_demo = false;
     std::optional<std::string> image_path;
     bool baseline = false;
     std::optional<ngine::u64> frames;
@@ -66,6 +69,8 @@ Options parse_options(std::span<char*> args) {
             options.scene_demo = true;
         } else if (arg == "--scene" && i + 1 < args.size()) {
             options.scene_path = std::string{args[++i]};
+        } else if (arg == "--script-demo") {
+            options.script_demo = true;
         } else if (arg == "--voxel-demo") {
             options.voxel_demo = true;
         } else if (arg == "--image" && i + 1 < args.size()) {
@@ -268,6 +273,8 @@ int main(int argc, char** argv) {
     int exit_code = 0;
     if (options.jobs_demo) {
         exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
+    } else if (options.script_demo) {
+        exit_code = sandbox::run_script_demo(options.frames.value_or(120), NGINE_DOTNET_DIR);
     } else if (options.voxel_demo && options.headless) {
         exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120));
     } else if (options.voxel_demo && options.image_path) {

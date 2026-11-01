@@ -18,12 +18,23 @@ add_executable(ngine_tests
     world/world_tests.cpp
     world/schedule_tests.cpp
     world/scene_tests.cpp
-    voxel/voxel_tests.cpp)
+    voxel/voxel_tests.cpp
+    script/script_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
     ngine::core ngine::filesystem ngine::memory ngine::jobs ngine::profile ngine::reflect
-    ngine::serialize ngine::world ngine::voxel ngine::rhi ngine::rhi_vulkan ngine::shaders
+    ngine::serialize ngine::world ngine::voxel ngine::script ngine::rhi ngine::rhi_vulkan ngine::shaders
     Catch2::Catch2WithMain)
 ngine_set_compiler_options(ngine_tests)
+
+# Skripte für die Tests von ngine.script; ohne .NET-SDK werden diese Tests übersprungen.
+if(NGINE_WITH_DOTNET)
+    ngine_add_dotnet_project(ngine_test_scripts
+        PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/script/scripts/Tests.Scripts.csproj"
+        SOURCES script/scripts/TestScripts.cs
+        DEPENDS ngine_script_managed)
+    add_dependencies(ngine_tests ngine_test_scripts)
+    target_compile_definitions(ngine_tests PRIVATE NGINE_DOTNET_DIR="${NGINE_DOTNET_DIR}")
+endif()
 
 include(Catch)
 catch_discover_tests(ngine_tests)

@@ -4,8 +4,8 @@ Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
 **Aktuell:** Phase Ausarbeitung. [Iteration A4](iterations/A4-ecs-und-reflection.md) (ECS und
-Reflection) ist abgeschlossen. Der [Durchstich D1](iterations/D1-voxel-meshing.md) (Voxel-Meshing)
-ist in Arbeit; danach folgen D2 (C#-Hosting) und D3 (Netzwerk).
+Reflection) ist abgeschlossen. Die Durchstiche [D1](iterations/D1-voxel-meshing.md) (Voxel-Meshing)
+und [D2](iterations/D2-csharp-hosting.md) (C#-Hosting) sind in Arbeit; danach folgt D3 (Netzwerk).
 
 ## Phasen und Iterationen
 
@@ -46,7 +46,7 @@ getestete Schicht, und die drei größten Risiken sind durch Durchstiche geklär
 | A3 Job-System und Speicher | Task-System mit Abhängigkeiten, Frame- und Pool-Allokatoren, Tracy | Erledigt, siehe [Iteration A3](iterations/A3-jobs-und-speicher.md) |
 | A4 ECS und Reflection | flecs hinter `World`/`Entity`, Reflection-Grundlage, Dateisystem, Szene speichern | Erledigt, siehe [Iteration A4](iterations/A4-ecs-und-reflection.md) |
 | D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | In Arbeit, siehe [Durchstich D1](iterations/D1-voxel-meshing.md) |
-| D2 Durchstich C#-Hosting | .NET über hostfxr starten, C#-Methode aus C++ aufrufen und zurück | C#-Skript loggt über die Engine |
+| D2 Durchstich C#-Hosting | .NET über hostfxr starten, C#-Methode aus C++ aufrufen und zurück | In Arbeit, siehe [Durchstich D2](iterations/D2-csharp-hosting.md) |
 | D3 Durchstich Netzwerk | Headless-Server und Client über GameNetworkingSockets | Eine Komponente wird zum Client repliziert |
 
 Die Durchstiche sind bewusst klein und dürfen Wegwerf-Code enthalten. Ihr Ergebnis ist vor allem

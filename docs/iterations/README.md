@@ -10,6 +10,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [A3](A3-jobs-und-speicher.md) | Ausarbeitung | Job-System und Speicher | abgeschlossen |
 | [A4](A4-ecs-und-reflection.md) | Ausarbeitung | ECS und Reflection | abgeschlossen |
 | [D1](D1-voxel-meshing.md) | Ausarbeitung | Durchstich Voxel-Meshing | in Arbeit |
+| [D2](D2-csharp-hosting.md) | Ausarbeitung | Durchstich C#-Hosting | in Arbeit |
 
 ## Vorlage
 

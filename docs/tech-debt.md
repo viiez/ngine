@@ -14,6 +14,7 @@ Bekannte Abkürzungen und Probleme mit Grund und Plan. Regeln und Ablauf stehen 
 | TD-09 | `Entity::set/get<T>()` sucht Typ und Komponente jedes Mal in zwei Hashtabellen (Reflection und Welt) | Einfach und für A4 schnell genug; vor Optimierung erst messen | Index pro Typ in der Registry vergeben und die Komponenten-ID der Welt in einem Array danach ablegen; mit einem Benchmark in Tracy prüfen | R2 |
 | TD-10 | `ngine.voxel` hat einen eigenen kleinen `Vec3`, die Sandbox eigene Matrizen und eine Kamera | Die Mathematik-Bibliothek (CORE-10) kommt erst in R1; D1 durfte Wegwerf-Code enthalten | Auf die Typen aus CORE-10 umstellen, Kamera in den Renderer (REND-08) | R1 |
 | TD-11 | GPU-Puffer liegen immer im CPU-sichtbaren Speicher (ohne Resizable BAR im Systemspeicher) | Einfachster Weg für D1; Hochladen über Staging braucht eine Transfer-Queue und Synchronisation | Puffer für statische Geometrie im GPU-Speicher, Upload über Staging-Puffer und Timeline Semaphores (zusammen mit TD-03) | R1 |
+| TD-12 | Sandbox und Tests finden die C#-Assemblies über einen fest einkompilierten Pfad ins Build-Verzeichnis (`NGINE_DOTNET_DIR`) | Für den Durchstich der kürzeste Weg; es gibt noch kein Paket und keine Asset-Pipeline | Assemblies neben die ausführbare Datei kopieren und relativ zu ihr suchen; später über die Asset-Pipeline (R2) | R2 |
 
 ## Abgebaut
 
