@@ -202,8 +202,8 @@ int run_windowed(const Options& options) {
             const auto dt = std::chrono::duration<float>(now - last_time).count();
             last_time = now;
             if (voxels) {
-                const auto size = window->framebuffer_size();
-                voxels->update(dt, {size.width, size.height});
+                const auto extent = window->framebuffer_size();
+                voxels->update(dt, {extent.width, extent.height});
                 // Automatische Änderungen, wenn die Laufzeit begrenzt ist (CI).
                 if (options.frames && frame_count % 10 == 0) {
                     voxels->scripted_edit(frame_count / 10);
