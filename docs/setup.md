@@ -333,6 +333,22 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    die Zonen „Schedule“ und „System“ auf mehreren Threads und die Plots „Speicher Welt (Bytes)“ usw.
    für jede Kategorie, auch bei `--jobs-demo` und der Sandbox mit Fenster.
 
+## D1 testen: Voxel-Terrain
+
+1. **Tests:** `ctest` meldet alle Tests als bestanden, auch `[voxel]` und den neuen GPU-Test
+   „Vulkan zeichnet indiziert mit Tiefe, Puffern und Push Constants“.
+2. **Voxel-Demo:** `ngine_sandbox --voxel-demo` zeigt einen grünen Hügel auf einer Ebene, um den
+   die Kamera kreist. Linke Maustaste gedrückt halten trägt an der Mausposition ab (darunter
+   kommt braune Erde zum Vorschein), rechte trägt grauen Fels auf, die mittlere glättet. Das
+   Mausrad zoomt, die Leertaste hält die Kamera an. Alle drei Sekunden steht im Log, wie viele
+   Dreiecke das Netz hat und wie lange das Meshing dauert.
+3. **Ohne optionale Stufen:** `ngine_sandbox --voxel-demo --baseline` sieht genauso aus.
+4. **Ohne GPU und offscreen:** `ngine_sandbox --voxel-demo --headless` misst das Meshing für 32³,
+   64³ und 128³ Voxel; `ngine_sandbox --voxel-demo --image hügel.ppm` speichert ein Bild nach 60
+   automatischen Änderungen.
+5. **Tracy (optional):** Die Zonen „VoxelScene::remesh“, „voxel::Mesher::build“ und
+   „VoxelScene::upload“ zeigen, wie viel Zeit eine Änderung kostet.
+
 Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
 sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf
 `build/<preset>/vcpkg_installed/<triplet>/share/vulkan/explicit_layer.d` setzen (unter Windows auf
