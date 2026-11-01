@@ -1,7 +1,8 @@
 # 0004: Vulkan 1.3 hinter einer RHI, Feature-Stufen, Slang
 
-- **Status:** angenommen; Vulkan-Version und Feature-Stufen ersetzt durch
-  [0014](0014-modern-gpu-baseline.md)
+- **Status:** angenommen; Vulkan-Version und Feature-Stufen erst durch
+  [0014](0014-modern-gpu-baseline.md), dann durch [0017](0017-platform-baseline-feature-tiers.md)
+  ersetzt (wieder Vulkan 1.3 mit optionalen Stufen)
 - **Datum:** 2026-10-27
 
 ## Kontext

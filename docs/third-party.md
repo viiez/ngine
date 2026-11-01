@@ -16,7 +16,7 @@ und Windows, freie Lizenz ohne Gebühren, aktiv gepflegt, schmale API.
 | GPU-Speicher | Vulkan Memory Allocator | Vulkan-RHI | im Einsatz | De-facto-Standard | Eigener Allokator (später) |
 | Shader | Slang (`slangc` beim Bauen) | `ngine.shaders`; später `ShaderCompiler` zur Laufzeit | im Einsatz | Eine Sprache für SPIR-V, DXIL, Metal; Module, Reflection | HLSL mit DXC, GLSL mit glslang |
 | Mathematik | GLM | eigene Typen | geplant (R1) | Schneller Start, Shader-Schreibweise | DirectXMath, eigene SIMD-Bibliothek |
-| Profiling | Tracy | Profiler-Makros | geplant (A3) | CPU- und GPU-Zeiten inkl. Vulkan, live | Optick, Superluminal |
+| Profiling | Tracy (On-Demand) | `ngine.profile`, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | im Einsatz | CPU- und GPU-Zeiten inkl. Vulkan, live | Optick, Superluminal |
 | ECS | flecs | `World`, `Entity` | geplant (A4) | Hierarchien, Prefabs, Reflection, C-API für C# ([ADR 0003](adr/0003-ecs-flecs.md)) | EnTT, eigenes ECS |
 | C#-Laufzeit | .NET über hostfxr | `ScriptRuntime` | geplant (D2) | Offizieller Weg für aktuelles .NET, Hot Reload ([ADR 0006](adr/0006-csharp-scripting-dotnet.md)) | Mono, NativeAOT, Coral als Vorlage |
 | Netzwerk | GameNetworkingSockets | `Transport` | geplant (D3) | UDP mit Zuverlässigkeit und Verschlüsselung, BSD | ENet, yojimbo |

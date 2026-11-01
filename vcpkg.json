@@ -15,7 +15,18 @@
       ]
     },
     "shader-slang",
+    {
+      "name": "tracy",
+      "default-features": false,
+      "features": ["on-demand"]
+    },
     "volk",
     "vulkan-memory-allocator"
-  ]
+  ],
+  "features": {
+    "validation": {
+      "description": "Aktuelle Vulkan Validation Layers (für die CI und Systeme mit älteren Paketen)",
+      "dependencies": ["vulkan-validationlayers"]
+    }
+  }
 }

@@ -26,9 +26,9 @@ eine Komponente.
 | CORE-02 | Logging | Stufen, austauschbare Sinks, Konsole | A1 | fertig |
 | CORE-03 | Versionsinfo | Engine-Name und Version aus CMake | A1 | fertig |
 | CORE-04 | Prüfungen | `ngine::verify()` bricht mit Meldung, Datei und Zeile ab | A2 | fertig |
-| CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen | A3 | geplant |
-| CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking | A3 | geplant |
-| CORE-07 | Profiling | Tracy-Zonen für CPU und GPU | A3 | geplant |
+| CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen: Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | A3 | fertig |
+| CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking (`ngine.memory`, `std::pmr`) | A3 | fertig |
+| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (mit dem Render-Graph in R1), Thread-Namen, Plots | A3 / R1 | in Arbeit |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C# | A4 | geplant |
 | CORE-09 | Serialisierung | Binär und lesbar (z. B. JSON) über Reflection | A4 | geplant |
 | CORE-10 | Mathematik | Vektoren, Matrizen, Quaternionen; zuerst GLM, später eigene SIMD-Typen | R1 | geplant |
@@ -51,8 +51,8 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)) | A2 | fertig |
-| REND-02 | Vulkan-Backend | Vulkan 1.4, Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
-| REND-03 | Mindestanforderung prüfen | GPU beim Start gegen [ADR 0014](adr/0014-modern-gpu-baseline.md) prüfen, Fehlendes protokollieren, alles einschalten | A2 | fertig |
+| REND-02 | Vulkan-Backend | Vulkan 1.3 (1.4, wo vorhanden), Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
+| REND-03 | Mindestanforderung und Feature-Stufen | GPU beim Start gegen [ADR 0017](adr/0017-platform-baseline-feature-tiers.md) prüfen, Fehlendes protokollieren; Mesh Shader und Raytracing erkennen, einschalten und in `Capabilities::features` melden, abschaltbar für Tests | A2 / A3 | fertig |
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
 | REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren automatisch | R1 | geplant |
 | REND-06 | Bindless | Ressourcen über Indizes statt Descriptor-Sets pro Draw | R1 | geplant |
@@ -62,8 +62,8 @@ eine Komponente.
 | REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU | R1 | Idee |
 | REND-11 | Post-Processing | Tone Mapping, Bloom, Farbkorrektur | R1 | geplant |
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
-| REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU; einziger Geometriepfad | R1 | geplant |
-| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries; Nutzung pro Effekt als Qualitätseinstellung | R2 | geplant |
+| REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling | R1 | geplant |
+| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren | R2 | geplant |
 | REND-15 | Debug-Zeichnen | Linien, Boxen, Text in der Welt | R1 | geplant |
 
 ## Welt und ECS
@@ -203,7 +203,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | TOOL-05 | Doku-Prüfung in CI | Kaputte Links und Formatierung prüfen | A2 | Idee |
 | TOOL-06 | Formatierung in CI | clang-format prüfen | A2 | geplant |
 | TOOL-07 | Pakete | Installierbare Builds für Linux und Windows | Übergabe | geplant |
-| TOOL-08 | GPU-Tests in CI | Vulkan-Tests und Sandbox mit Fenster über lavapipe und Xvfb | A2 | fertig |
+| TOOL-08 | GPU-Tests in CI | Vulkan-Tests und Sandbox mit Fenster über lavapipe und Xvfb, auch ohne optionale Stufen (`--baseline`) | A2 | fertig |
 
 ## Ideen-Parkplatz
 

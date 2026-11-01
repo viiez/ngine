@@ -4,6 +4,9 @@
 //   --headless      ohne Fenster und GPU starten (wie später der dedizierte Server)
 //   --frames <n>    nach n Frames beenden (für automatische Tests)
 //   --no-vsync      ohne vertikale Synchronisation präsentieren
+//   --baseline      optionale GPU-Stufen (Mesh Shader, Raytracing) abschalten, um die
+//                   Rückfallpfade auf starker Hardware zu prüfen
+//   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
 
 #include <algorithm>
 #include <charconv>
@@ -20,6 +23,8 @@ import ngine.core;
 import ngine.rhi;
 import ngine.rhi.vulkan;
 import ngine.shaders;
+import ngine.profile;
+import sandbox.jobs_demo;
 #if NGINE_WITH_WINDOW
 import ngine.platform;
 #endif
@@ -29,6 +34,8 @@ namespace {
 struct Options {
     bool headless = false;
     bool vsync = true;
+    bool jobs_demo = false;
+    bool baseline = false;
     std::optional<ngine::u64> frames;
 };
 
@@ -38,8 +45,12 @@ Options parse_options(std::span<char*> args) {
         const std::string_view arg{args[i]};
         if (arg == "--headless") {
             options.headless = true;
+        } else if (arg == "--jobs-demo") {
+            options.jobs_demo = true;
         } else if (arg == "--no-vsync") {
             options.vsync = false;
+        } else if (arg == "--baseline") {
+            options.baseline = true;
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u64 frames = 0;
@@ -79,6 +90,7 @@ int run_windowed(const Options& options) {
                     [&](void* instance) { return window->create_vulkan_surface(instance); },
                 .extent = {size.width, size.height},
             },
+        .disabled_features = {.mesh_shader = options.baseline, .ray_tracing = options.baseline},
     };
     auto device = ngine::rhi::vulkan::create_device(device_desc);
     if (!device) {
@@ -139,6 +151,7 @@ int run_windowed(const Options& options) {
                 std::this_thread::sleep_for(std::chrono::milliseconds{16});
             }
 
+            ngine::profile::frame_mark();
             if (options.frames && frame_count >= *options.frames) {
                 running = false;
             }
@@ -167,7 +180,9 @@ int main(int argc, char** argv) {
                      version.patch);
 
     int exit_code = 0;
-    if (options.headless) {
+    if (options.jobs_demo) {
+        exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
+    } else if (options.headless) {
         ngine::log::info("Modus: ohne Fenster (Server)");
     } else {
 #if NGINE_WITH_WINDOW

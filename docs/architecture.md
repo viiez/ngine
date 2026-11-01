@@ -25,22 +25,32 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version` | vorhanden |
+| `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
+| `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
+| `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList | vorhanden |
-| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-1.4-Backend mit volk und VMA | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture, Shader, Pipeline, CommandList; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
+| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V | vorhanden |
 
-Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.jobs`, `ngine.world`,
+Geplante Module, in der Reihenfolge der [Roadmap](roadmap.md): `ngine.world`,
 `ngine.voxel`, `ngine.script`, `ngine.net`.
 
 ```mermaid
 flowchart BT
     core["ngine.core"]
+    memory["ngine.memory"]
+    jobs["ngine.jobs"]
+    profile["ngine.profile<br/>(Tracy)"]
     platform["ngine.platform<br/>(SDL3)"]
     rhi["ngine.rhi"]
     vulkan["ngine.rhi.vulkan<br/>(volk, VMA)"]
     shaders["ngine.shaders<br/>(Slang)"]
     sandbox["Sandbox"]
+    memory --> core
+    jobs --> memory
+    jobs --> profile
+    profile --> core
     platform --> core
     rhi --> core
     vulkan --> rhi
@@ -53,6 +63,24 @@ flowchart BT
 Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
 `SurfaceDesc`, deren Funktionen das Fenster bereitstellt ([ADR 0013](adr/0013-rhi-design.md)).
 
+### Feature-Stufen der GPU
+
+Beim Start prüft das Vulkan-Backend jede GPU gegen die Mindestanforderung und erkennt die optionalen
+Stufen ([ADR 0017](adr/0017-platform-baseline-feature-tiers.md)). Der Renderer fragt
+`device.capabilities().features` ab und wählt danach seinen Pfad; Vulkan-Typen sieht er dabei nicht.
+
+```mermaid
+flowchart LR
+    query["physical_device.cpp<br/>Vulkan abfragen"] --> support["DeviceSupport<br/>(einfache Daten)"]
+    support --> evaluate["evaluate_device()<br/>:requirements"]
+    evaluate -->|"fehlt etwas"| skip["GPU übersprungen,<br/>Log nennt das Fehlende"]
+    evaluate -->|"genügt"| caps["Capabilities::features<br/>mesh_shader, ray_tracing"]
+    caps --> renderer["Renderer wählt<br/>Pfad oder Rückfallpfad"]
+```
+
+`DeviceDesc::disabled_features` schaltet Stufen ab, auch wenn die GPU sie kann. So laufen Tests und
+die Sandbox (`--baseline`) auf jeder Hardware auch über die Rückfallpfade.
+
 ## Regeln
 
 - **Abhängigkeiten nur nach unten.** Ein Modul darf kein Modul einer höheren Schicht importieren.
@@ -63,6 +91,9 @@ Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt de
 - **Daten im ECS.** Spielzustand lebt in ECS-Komponenten, damit Speichern, Netzwerk und Editor ihn
   einheitlich behandeln ([ADR 0003](adr/0003-ecs-flecs.md)).
 - **Plattformcode nur in der Plattformschicht.** Keine `#ifdef _WIN32` außerhalb von Adaptern.
+- **Große Module teilen.** Was nur das Modul selbst braucht, steht in internen Partitionen
+  (`module ngine.<system>:<teil>;` ohne `export`). CMake führt sie in einem privaten
+  `CXX_MODULES`-File-Set; außerhalb des Moduls sind sie unsichtbar. Eine Datei soll eine Aufgabe haben.
 
 ## Verzeichnisse
 
@@ -74,3 +105,51 @@ Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt de
 | `tests/<system>/` | Catch2-Tests, gespiegelt zur Engine |
 | `cmake/` | Gemeinsame CMake-Funktionen |
 | `docs/` | Diese Dokumentation |
+
+## Speicher
+
+CPU-Speicher, der häufig oder in großen Mengen angefordert wird, kommt aus den Allokatoren von
+`ngine.memory`. Sie erben von `std::pmr::memory_resource`, damit Standardcontainer wie
+`std::pmr::vector` sie direkt nutzen können.
+
+| Allokator | Lebensdauer | Threads |
+| --- | --- | --- |
+| `LinearAllocator` | bis `reset()` oder `rewind()` | ein Thread |
+| `FrameAllocator` | ein Frame, ein Bereich pro Frame im Flug | Anfordern lock-frei aus allen Threads |
+| `PoolAllocator`, `ObjectPool<T>` | einzeln freigebbar, feste Blockgröße | ein Thread |
+| `TrackingResource` | wie der darunterliegende Allokator | wie der darunterliegende Allokator |
+
+Jeder Allokator verbucht seinen Speicher in einer `memory::Category`. Pro Kategorie gibt es
+aktuellen Verbrauch, Spitze und ein optionales Budget, dessen Überschreitung das Log meldet. GPU-Speicher
+verwaltet weiterhin VMA in der RHI.
+
+## Jobs
+
+Parallele Arbeit läuft über `ngine.jobs` ([ADR 0015](adr/0015-own-job-system.md)). Die Anwendung
+erzeugt ein `JobSystem`; es startet einen Worker pro Kern minus eins.
+
+```mermaid
+flowchart LR
+    subgraph main["Erzeugender Thread"]
+        d0["Deque 0"]
+    end
+    subgraph w1["Worker 1"]
+        d1["Deque 1"]
+    end
+    subgraph w2["Worker 2"]
+        d2["Deque 2"]
+    end
+    ext["Andere Threads"] --> inj["Gemeinsame Warteschlange"]
+    d0 -. stehlen .-> d1
+    d1 -. stehlen .-> d2
+    d2 -. stehlen .-> d0
+    inj --> w1
+    inj --> w2
+```
+
+- `run(f, &counter)` legt einen Job in die Deque des aufrufenden Threads; `wait(counter)` arbeitet
+  Jobs ab, bis der Zähler null ist.
+- `TaskGraph` beschreibt Aufgaben mit Vorgängern und kann jeden Frame erneut laufen.
+- `parallel_for(count, grain, f)` teilt einen Bereich auf.
+- Jobs sollen kurz sein und nicht auf E/A warten. Ein Funktionsobjekt darf höchstens 80 Bytes groß
+  sein; größere Daten übergibt man per Zeiger.

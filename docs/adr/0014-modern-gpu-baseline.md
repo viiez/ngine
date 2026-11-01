@@ -1,6 +1,6 @@
 # 0014: Moderne GPU als Mindestanforderung
 
-- **Status:** angenommen
+- **Status:** ersetzt durch [0017](0017-platform-baseline-feature-tiers.md)
 - **Datum:** 2026-10-31
 
 ## Kontext
