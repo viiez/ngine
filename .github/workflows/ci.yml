@@ -145,6 +145,7 @@ jobs:
           "$exe" --headless
           "$exe" --jobs-demo --frames 10
           "$exe" --scene-demo --frames 10 --scene "build/${{ matrix.preset }}/scene-demo.json"
+          "$exe" --voxel-demo --headless --frames 60
 
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.
@@ -157,3 +158,13 @@ jobs:
       - name: Sandbox ohne optionale Stufen starten (Linux, Xvfb)
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60 --baseline
+
+      # Voxel-Demo (D1) im Fenster mit automatischen Änderungen, mit und ohne optionale Stufen,
+      # und offscreen als Bild. Prüft Puffer, Tiefe und Push Constants mit den Validation Layers.
+      - name: Voxel-Demo starten (Linux, Xvfb)
+        if: ${{ runner.os == 'Linux' && !matrix.tsan }}
+        run: |
+          exe=build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox
+          xvfb-run -a "$exe" --voxel-demo --frames 120
+          xvfb-run -a "$exe" --voxel-demo --frames 60 --baseline
+          "$exe" --voxel-demo --frames 40 --image build/${{ matrix.preset }}/voxel-demo.ppm

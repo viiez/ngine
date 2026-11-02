@@ -9,6 +9,8 @@ target_sources(ngine_shaders
 
 ngine_compile_shader(ngine_shaders SOURCE triangle.slang ENTRY vertex_main STAGE vertex NAME triangle_vertex)
 ngine_compile_shader(ngine_shaders SOURCE triangle.slang ENTRY fragment_main STAGE fragment NAME triangle_fragment)
+ngine_compile_shader(ngine_shaders SOURCE voxel.slang ENTRY vertex_main STAGE vertex NAME voxel_vertex)
+ngine_compile_shader(ngine_shaders SOURCE voxel.slang ENTRY fragment_main STAGE fragment NAME voxel_fragment)
 
 target_link_libraries(ngine_shaders PUBLIC ngine::core ngine::rhi)
 ngine_set_compiler_options(ngine_shaders)

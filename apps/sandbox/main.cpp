@@ -9,6 +9,10 @@
 //   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
 //   --scene-demo    ECS, Systeme und Szenen vorführen: bewegen, speichern, laden, vergleichen
 //   --scene <pfad>  Szenendatei für --scene-demo (sonst im Benutzerordner)
+//   --voxel-demo    Voxel-Terrain vorführen: Hügel aus Surface Nets, mit der Maus veränderbar
+//                   (links abtragen, rechts auftragen, Mitte glätten, Rad zoomt, Leertaste hält
+//                   die Kamera an). Mit --frames ändert sich das Terrain automatisch; mit
+//                   --headless ohne GPU, mit --image <pfad> offscreen als PPM-Bild.
 
 #include <algorithm>
 #include <charconv>
@@ -30,6 +34,8 @@ import ngine.profile;
 import sandbox.jobs_demo;
 import sandbox.scene_demo;
 import sandbox.frame_stats;
+import sandbox.voxel_demo;
+import ngine.voxel;
 #if NGINE_WITH_WINDOW
 import ngine.platform;
 #endif
@@ -42,6 +48,8 @@ struct Options {
     bool jobs_demo = false;
     bool scene_demo = false;
     std::optional<std::string> scene_path;
+    bool voxel_demo = false;
+    std::optional<std::string> image_path;
     bool baseline = false;
     std::optional<ngine::u64> frames;
 };
@@ -58,6 +66,10 @@ Options parse_options(std::span<char*> args) {
             options.scene_demo = true;
         } else if (arg == "--scene" && i + 1 < args.size()) {
             options.scene_path = std::string{args[++i]};
+        } else if (arg == "--voxel-demo") {
+            options.voxel_demo = true;
+        } else if (arg == "--image" && i + 1 < args.size()) {
+            options.image_path = std::string{args[++i]};
         } else if (arg == "--no-vsync") {
             options.vsync = false;
         } else if (arg == "--baseline") {
@@ -128,33 +140,91 @@ int run_windowed(const Options& options) {
             return 1;
         }
 
+        // Voxel-Demo statt Dreieck (Durchstich D1).
+        std::optional<sandbox::VoxelScene> voxels;
+        if (options.voxel_demo) {
+            voxels.emplace();
+            if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format());
+                !result) {
+                ngine::log::fatal("Voxel-Demo: {}", result.error());
+                return 1;
+            }
+        }
+
         ngine::u64 frame_count = 0;
         bool running = true;
+        auto last_time = std::chrono::steady_clock::now();
+        auto last_report = last_time;
         while (running) {
-            for (const auto& event : window->poll_events()) {
+            namespace event = ngine::platform::event;
+            for (const auto& e : window->poll_events()) {
                 std::visit(
-                    [&](const auto& e) {
-                        using T = std::decay_t<decltype(e)>;
-                        if constexpr (std::is_same_v<T, ngine::platform::event::Quit>) {
+                    [&](const auto& ev) {
+                        using T = std::decay_t<decltype(ev)>;
+                        if constexpr (std::is_same_v<T, event::Quit>) {
                             running = false;
-                        } else if constexpr (std::is_same_v<T, ngine::platform::event::Resized>) {
-                            (*device)->resize({e.framebuffer.width, e.framebuffer.height});
-                        } else if constexpr (std::is_same_v<T,
-                                                            ngine::platform::event::KeyPressed>) {
-                            if (e.key == ngine::platform::Key::Escape) {
+                        } else if constexpr (std::is_same_v<T, event::Resized>) {
+                            (*device)->resize({ev.framebuffer.width, ev.framebuffer.height});
+                        } else if constexpr (std::is_same_v<T, event::KeyPressed>) {
+                            if (ev.key == ngine::platform::Key::Escape) {
                                 running = false;
+                            } else if (ev.key == ngine::platform::Key::Space && voxels) {
+                                voxels->toggle_rotation();
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseMoved>) {
+                            if (voxels) {
+                                voxels->set_cursor(ev.x, ev.y);
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
+                            if (voxels) {
+                                using ngine::platform::MouseButton;
+                                using ngine::voxel::BrushMode;
+                                voxels->set_cursor(ev.x, ev.y);
+                                voxels->set_brush(ev.button == MouseButton::Left ? BrushMode::Remove
+                                                  : ev.button == MouseButton::Right
+                                                      ? BrushMode::Add
+                                                      : BrushMode::Smooth);
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseButtonReleased>) {
+                            if (voxels) {
+                                voxels->set_brush(std::nullopt);
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseWheel>) {
+                            if (voxels) {
+                                voxels->zoom(ev.delta);
                             }
                         }
                     },
-                    event);
+                    e);
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            const auto dt = std::chrono::duration<float>(now - last_time).count();
+            last_time = now;
+            if (voxels) {
+                const auto extent = window->framebuffer_size();
+                voxels->update(dt, {extent.width, extent.height});
+                // Automatische Änderungen, wenn die Laufzeit begrenzt ist (CI).
+                if (options.frames && frame_count % 10 == 0) {
+                    voxels->scripted_edit(frame_count / 10);
+                }
+                voxels->remesh_if_needed();
+                if (now - last_report > std::chrono::seconds{3}) {
+                    ngine::log::info("Voxel-Netz: {}", voxels->stats());
+                    last_report = now;
+                }
             }
 
             if (auto frame = (*device)->begin_frame()) {
-                frame->commands.begin_rendering(frame->backbuffer,
-                                                ngine::rhi::Color{0.02f, 0.02f, 0.04f, 1.0f});
-                frame->commands.bind_pipeline(**pipeline);
-                frame->commands.draw(3);
-                frame->commands.end_rendering();
+                if (voxels) {
+                    voxels->record(**device, frame->commands, frame->backbuffer, frame->index);
+                } else {
+                    frame->commands.begin_rendering(frame->backbuffer,
+                                                    ngine::rhi::Color{0.02f, 0.02f, 0.04f, 1.0f});
+                    frame->commands.bind_pipeline(**pipeline);
+                    frame->commands.draw(3);
+                    frame->commands.end_rendering();
+                }
                 (*device)->end_frame();
                 ++frame_count;
             } else {
@@ -170,6 +240,10 @@ int run_windowed(const Options& options) {
         }
 
         (*device)->wait_idle();
+        if (voxels) {
+            ngine::log::info("Voxel-Netz: {}", voxels->stats());
+            voxels->release_gpu();
+        }
         ngine::log::info("{} Frames gezeichnet", frame_count);
     }
 
@@ -194,6 +268,11 @@ int main(int argc, char** argv) {
     int exit_code = 0;
     if (options.jobs_demo) {
         exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
+    } else if (options.voxel_demo && options.headless) {
+        exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120));
+    } else if (options.voxel_demo && options.image_path) {
+        exit_code = sandbox::run_voxel_demo_offscreen(options.frames.value_or(60),
+                                                      *options.image_path, options.baseline);
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {

@@ -24,7 +24,8 @@ struct WindowDesc {
     bool resizable = true;
 };
 
-enum class Key : u8 { Unknown, Escape };
+enum class Key : u8 { Unknown, Escape, Space };
+enum class MouseButton : u8 { Left, Middle, Right, Other };
 
 namespace event {
 // Der Nutzer will das Fenster schließen.
@@ -36,9 +37,30 @@ struct Resized {
 struct KeyPressed {
     Key key;
 };
+// Mauspositionen in Pixeln der Zeichenfläche, Ursprung oben links.
+struct MouseMoved {
+    f32 x;
+    f32 y;
+};
+struct MouseButtonPressed {
+    MouseButton button;
+    f32 x;
+    f32 y;
+};
+struct MouseButtonReleased {
+    MouseButton button;
+    f32 x;
+    f32 y;
+};
+// Positiv: vom Nutzer weg gedreht.
+struct MouseWheel {
+    f32 delta;
+};
 } // namespace event
 
-using Event = std::variant<event::Quit, event::Resized, event::KeyPressed>;
+using Event =
+    std::variant<event::Quit, event::Resized, event::KeyPressed, event::MouseMoved,
+                 event::MouseButtonPressed, event::MouseButtonReleased, event::MouseWheel>;
 
 class Window {
 public:

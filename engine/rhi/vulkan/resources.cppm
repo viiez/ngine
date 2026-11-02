@@ -2,11 +2,13 @@ module;
 
 #include "vk.hpp"
 
+#include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 
-// GPU-Ressourcen des Vulkan-Backends: Texturen, Shader und Pipelines.
+// GPU-Ressourcen des Vulkan-Backends: Texturen, Puffer, Shader und Pipelines.
 module ngine.rhi.vulkan:resources;
 
 import ngine.core;
@@ -42,6 +44,9 @@ public:
     [[nodiscard]] VkImageView view() const {
         return view_;
     }
+    [[nodiscard]] VkImageAspectFlags aspect() const {
+        return is_depth(format_) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    }
 
     // Aktuelles Layout, damit Übergänge automatisch eingefügt werden können.
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -54,6 +59,39 @@ private:
     VkImageView view_;
     Extent2D extent_;
     Format format_;
+};
+
+// Puffer im CPU-sichtbaren Speicher, dauerhaft abgebildet (TD-11).
+class VulkanBuffer final : public Buffer {
+public:
+    VulkanBuffer(VmaAllocator allocator, VkBuffer buffer, VmaAllocation allocation, void* mapped,
+                 u64 size, u64 address)
+        : allocator_{allocator}, buffer_{buffer}, allocation_{allocation}, mapped_{mapped},
+          size_{size}, address_{address} {}
+
+    ~VulkanBuffer() override {
+        vmaDestroyBuffer(allocator_, buffer_, allocation_);
+    }
+
+    [[nodiscard]] u64 size() const override {
+        return size_;
+    }
+    [[nodiscard]] u64 device_address() const override {
+        return address_;
+    }
+    void write(u64 offset, std::span<const std::byte> data) override;
+
+    [[nodiscard]] VkBuffer handle() const {
+        return buffer_;
+    }
+
+private:
+    VmaAllocator allocator_;
+    VkBuffer buffer_;
+    VmaAllocation allocation_;
+    void* mapped_;
+    u64 size_;
+    u64 address_;
 };
 
 class VulkanShader final : public Shader {
@@ -95,6 +133,9 @@ public:
     [[nodiscard]] VkPipeline handle() const {
         return pipeline_;
     }
+    [[nodiscard]] VkPipelineLayout layout() const {
+        return layout_;
+    }
 
 private:
     VkDevice device_;
@@ -102,12 +143,14 @@ private:
     VkPipeline pipeline_;
 };
 
-// Erzeugt die Image-View eines 2D-Farbbilds.
-[[nodiscard]] Result<VkImageView> create_color_view(VkDevice device, VkImage image,
-                                                    VkFormat format);
+// Erzeugt die Image-View eines 2D-Bilds.
+[[nodiscard]] Result<VkImageView> create_view(VkDevice device, VkImage image, VkFormat format,
+                                              VkImageAspectFlags aspect);
 
 [[nodiscard]] Result<std::unique_ptr<Texture>>
 create_texture(VkDevice device, VmaAllocator allocator, const TextureDesc& desc);
+[[nodiscard]] Result<std::unique_ptr<Buffer>> create_buffer(VkDevice device, VmaAllocator allocator,
+                                                            const BufferDesc& desc);
 [[nodiscard]] Result<std::unique_ptr<Shader>> create_shader(VkDevice device,
                                                             const ShaderDesc& desc);
 [[nodiscard]] Result<std::unique_ptr<Pipeline>> create_pipeline(VkDevice device,

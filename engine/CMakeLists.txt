@@ -6,6 +6,7 @@ add_subdirectory(jobs)
 add_subdirectory(reflect)
 add_subdirectory(serialize)
 add_subdirectory(world)
+add_subdirectory(voxel)
 add_subdirectory(rhi)
 add_subdirectory(shaders)
 
