@@ -31,3 +31,5 @@ betroffene Code einreichen.
 | [0020](0020-scene-format-json.md) | Szenen als JSON mit eigenem Parser | angenommen |
 | [0021](0021-surface-nets-8bit-density.md) | Surface Nets und 8-Bit-Dichte für das Voxel-Terrain | vorgeschlagen |
 | [0022](0022-vertex-pulling-bda.md) | Geometrie per Vertex Pulling über Buffer Device Address | vorgeschlagen |
+| [0023](0023-dotnet-hosting-hostfxr.md) | .NET über hostfxr hosten, Skripte in entladbarem Kontext | vorgeschlagen |
+| [0024](0024-networking-gns-snapshots.md) | Netzwerk über GameNetworkingSockets, Replikation per Schnappschuss über die Reflection | vorgeschlagen |

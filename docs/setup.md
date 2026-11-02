@@ -13,6 +13,7 @@ Was wir brauchen und woher es kommt:
 | CMake 3.28+ und Ninja | `cmake`, `ninja-build` | winget (oder in Visual Studio enthalten) |
 | vcpkg | Git-Klon im Home-Verzeichnis | Git-Klon unter `C:\dev\vcpkg` |
 | SDL3, volk, Vulkan-Header, VMA, Slang, Tracy, flecs, Catch2 | holt vcpkg beim ersten Konfigurieren | holt vcpkg beim ersten Konfigurieren |
+| .NET-SDK 10 (C#-Scripting) | `dotnet-sdk-10.0` | winget (`Microsoft.DotNet.SDK.10`) |
 | Vulkan-Treiber | Mesa 24 oder neuer (`mesa-vulkan-drivers`) | Grafiktreiber (NVIDIA, AMD, Intel) |
 | Validation Layers | `vulkan-validationlayers` | Vulkan SDK von LunarG |
 | Editor | VS Code mit CMake Tools und clangd | VS Code mit CMake Tools und C/C++ |
@@ -64,6 +65,16 @@ steht beim Start, welche Stufen aktiv sind („Optionale Stufen: …“).
 Neben der echten GPU zeigt `vulkaninfo` oft „llvmpipe“, den Software-Renderer aus
 `mesa-vulkan-drivers`. Die Engine nimmt ihn nur, wenn keine echte GPU passt. `vkcube` öffnet ein
 Fenster mit einem drehenden Würfel. Klappt das, funktioniert Vulkan.
+
+### 3b. .NET-SDK für C#-Scripting
+
+```sh
+sudo apt install dotnet-sdk-10.0
+dotnet --version      # 10.0.x
+```
+
+Das SDK baut die C#-Assemblies (`NGine.Scripting`, Skripte); die Engine startet zur Laufzeit die
+.NET-Laufzeit aus `/usr/lib/dotnet`. Ohne SDK baut die Engine trotzdem, nur ohne C#.
 
 ### 4. Bibliotheken für SDL3
 
@@ -161,6 +172,14 @@ Neues Terminal öffnen und prüfen: `cmake --version` (3.28 oder neuer), `ninja 
    optionalen Komponenten wird keine gebraucht.
 3. Neues Terminal öffnen und prüfen: `vulkaninfo --summary` zeigt die RTX 3060 Ti, `vkcube` einen
    drehenden Würfel.
+
+### 4b. .NET-SDK für C#-Scripting
+
+```powershell
+winget install --id Microsoft.DotNet.SDK.10 -e
+```
+
+Danach ein neues Terminal öffnen und mit `dotnet --version` prüfen (10.0.x).
 
 ### 5. vcpkg
 
@@ -348,6 +367,31 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    automatischen Änderungen.
 5. **Tracy (optional):** Die Zonen „VoxelScene::remesh“, „voxel::Mesher::build“ und
    „VoxelScene::upload“ zeigen, wie viel Zeit eine Änderung kostet.
+
+## D2 testen: C#-Skripte
+
+1. **Tests:** `ctest` meldet auch die `[script]`-Tests als bestanden. Fehlt .NET, werden sie
+   übersprungen; dann `dotnet --version` prüfen.
+2. **Skript-Demo:** `ngine_sandbox --script-demo` startet .NET (Pfad zu hostfxr steht im Log), lädt
+   `Sandbox.Scripts.dll` und zeigt „Hallo aus C#: Orbit startet“ in derselben Konsole wie die
+   C++-Ausgaben. Danach entlädt sie die Skripte, lädt sie neu und meldet die Kosten eines Aufrufs
+   in beide Richtungen.
+3. **Eigenes Skript (optional):** In `apps/sandbox/scripts/Orbit.cs` die Logzeile in `Start()`
+   ändern, neu bauen und die Demo starten.
+
+## D3 testen: Server und Client
+
+1. **Tests:** `ctest` meldet die `[net]`- und `[replication]`-Tests als bestanden. Sie nutzen nur
+   localhost.
+2. **Demo in einem Prozess:** `ngine_sandbox --net-demo` startet Server und Client, lässt sie drei
+   Sekunden laufen und meldet am Ende „Server und Client stimmen überein“, dazu die Größe eines
+   Schnappschusses.
+3. **Zwei Prozesse:** In einem Terminal `ngine_sandbox --server`, in einem zweiten
+   `ngine_sandbox --client 127.0.0.1`. Der Client meldet jede Sekunde, wie viele Entities er
+   spiegelt; der Server alle fünf Sekunden Ping und Datenrate. Server mit Strg+C beenden.
+4. **Zwei Rechner (optional):** Auf dem einen `--server`, auf dem anderen
+   `--client <IP des Servers>`. Die Firewall muss UDP-Port 27020 durchlassen (Linux z. B.
+   `sudo ufw allow 27020/udp`; Windows fragt beim ersten Start).
 
 Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
 sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf

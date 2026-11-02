@@ -9,7 +9,8 @@ Gameplay-Logik soll ohne Neukompilieren der Engine entstehen. Gewünschte Sprach
 
 ## Entscheidung
 
-.NET (CoreCLR, aktuelles LTS) wird über hostfxr eingebettet. Die C#-API wird aus unserer Reflection
+.NET (CoreCLR, aktuelles LTS) wird über hostfxr eingebettet (Umsetzung in
+[ADR 0023](0023-dotnet-hosting-hostfxr.md)). Die C#-API wird aus unserer Reflection
 erzeugt. Hot Reload über entladbare Assemblies.
 
 ## Konsequenzen

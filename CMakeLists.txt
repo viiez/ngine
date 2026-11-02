@@ -30,6 +30,8 @@ option(NGINE_WARNINGS_AS_ERRORS "Warnungen als Fehler behandeln" OFF)
 option(NGINE_WITH_WINDOW "Fenster-Unterstützung (SDL3) bauen" ON)
 # Profiling mit Tracy (ADR 0016). Der Client lauscht nur, bis sich der Profiler verbindet.
 option(NGINE_WITH_TRACY "Profiling mit Tracy" ON)
+# C#-Scripting (ADR 0006): Der C++-Teil baut immer, die Assemblies nur mit dem .NET-SDK.
+option(NGINE_WITH_DOTNET "C#-Scripting mit dem .NET-SDK bauen" ON)
 # Sanitizer für alle Ziele (Clang und GCC), z. B. "thread" oder "address,undefined".
 set(NGINE_SANITIZER "" CACHE STRING "Sanitizer für alle Ziele (leer: keiner)")
 
@@ -44,6 +46,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(NgineCompilerOptions)
 include(NgineShaders)
+include(NgineDotnet)
 
 add_subdirectory(engine)
 

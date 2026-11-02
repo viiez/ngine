@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Skripte für die Tests von ngine.script. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Private=false: NGine.Scripting kommt zur Laufzeit aus dem Standardkontext der Engine. -->
+    <ProjectReference Include="../../../engine/script/managed/NGine.Scripting.csproj" Private="false" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Verwalteter Teil der Engine (D2): Einstieg für den C++-Host, Log, Schnittstelle für Skripte.
+       Wird über hostfxr in den Standard-Ladekontext geladen; Spielskripte kommen in einen
+       entladbaren Kontext (ADR 0006, ADR 0023). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Erzeugt NGine.Scripting.runtimeconfig.json, mit der hostfxr die Laufzeit startet. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>NGine</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

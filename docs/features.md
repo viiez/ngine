@@ -140,19 +140,19 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| SCR-01 | .NET-Hosting | Eingebettetes .NET über hostfxr | D2 / R4 | geplant |
+| SCR-01 | .NET-Hosting | Eingebettetes .NET 10 über hostfxr, Aufrufe in beide Richtungen über Funktionszeiger ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)) | D2 / R4 | in Arbeit |
 | SCR-02 | Bindings | Aus der Reflection erzeugte C#-API | R4 | geplant |
 | SCR-03 | Skript-Komponenten | Gameplay-Logik als C#-Komponenten | R4 | geplant |
-| SCR-04 | Hot Reload | Skripte zur Laufzeit neu laden | R4 | geplant |
+| SCR-04 | Hot Reload | Skripte zur Laufzeit neu laden; D2: Entladen und Neuladen über einen entladbaren Kontext funktioniert, Dateiüberwachung fehlt | D2 / R4 | in Arbeit |
 
 ## Netzwerk
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| NET-01 | Transport | GameNetworkingSockets hinter `Transport` | D3 / R5 | geplant |
-| NET-02 | Dedizierter Server | Headless-Build ohne Grafik | D3 / R5 | geplant |
+| NET-01 | Transport | GameNetworkingSockets hinter `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | D3 / R5 | in Arbeit |
+| NET-02 | Dedizierter Server | Headless-Build ohne Grafik (`ngine_sandbox --server`) | D3 / R5 | in Arbeit |
 | NET-03 | Listen-Server | Ein Spieler hostet | R5 | geplant |
-| NET-04 | Replikation | Geänderte Komponenten an Clients senden | D3 / R5 | geplant |
+| NET-04 | Replikation | Geänderte Komponenten an Clients senden; in D3 volle Schnappschüsse über die Reflection | D3 / R5 | in Arbeit |
 | NET-05 | Vorhersage | Client-seitige Vorhersage und Korrektur | R5 | geplant |
 | NET-06 | Voxel-Synchronisation | Terrain-Änderungen effizient verteilen | R5 | geplant |
 

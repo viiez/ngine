@@ -19,8 +19,8 @@ und Windows, freie Lizenz ohne Gebühren, aktiv gepflegt, schmale API.
 | JSON | eigener Parser | `ngine::json` | im Einsatz | Klein, geordnete Objekte, genaue Zahlen, Fehler mit Position ([ADR 0020](adr/0020-scene-format-json.md)) | nlohmann/json, glaze, simdjson, yyjson |
 | Profiling | Tracy (On-Demand) | `ngine.profile`, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | im Einsatz | CPU- und GPU-Zeiten inkl. Vulkan, live | Optick, Superluminal |
 | ECS | flecs 4 (nur der Kern, `ecs_mini`) | `ngine::world::World`, `Entity`, `Query` | im Einsatz | Hierarchien, Prefabs, C-API für C# ([ADR 0003](adr/0003-ecs-flecs.md)); Reflection und Systeme sind eigene ([ADR 0018](adr/0018-own-reflection.md), [ADR 0019](adr/0019-systems-on-job-system.md)) | EnTT, eigenes ECS |
-| C#-Laufzeit | .NET über hostfxr | `ScriptRuntime` | geplant (D2) | Offizieller Weg für aktuelles .NET, Hot Reload ([ADR 0006](adr/0006-csharp-scripting-dotnet.md)) | Mono, NativeAOT, Coral als Vorlage |
-| Netzwerk | GameNetworkingSockets | `Transport` | geplant (D3) | UDP mit Zuverlässigkeit und Verschlüsselung, BSD | ENet, yojimbo |
+| C#-Laufzeit | .NET 10 über hostfxr (dynamisch geladen, ohne nethost) | `ngine::script::ScriptRuntime` | im Einsatz (D2) | Offizieller Weg für aktuelles .NET, Hot Reload ([ADR 0006](adr/0006-csharp-scripting-dotnet.md), [ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)) | Mono, NativeAOT, nethost, Coral als Vorlage |
+| Netzwerk | GameNetworkingSockets (vcpkg, ohne ICE) | `ngine::net::Transport` | im Einsatz (D3) | UDP mit Zuverlässigkeit und Verschlüsselung, BSD | ENet, yojimbo |
 | Editor-UI | Dear ImGui (Docking) | `EditorUI` | geplant (R2) | Standard für Engine-Werkzeuge | Qt, RmlUi, eigenes UI |
 | glTF | fastgltf | Importer | geplant (R1) | Sehr schnell, modernes C++ | cgltf, tinygltf, Assimp |
 | Texturen | KTX-Software, stb_image | Importer | geplant (R1) | KTX2 mit Basis Universal; PNG/JPG als Quelle | DDS mit DirectXTex |
