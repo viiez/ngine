@@ -3,10 +3,10 @@
 Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist ein Plan, kein
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
-**Aktuell:** Phase Ausarbeitung. [Iteration A4](iterations/A4-ecs-und-reflection.md) (ECS und
-Reflection) ist abgeschlossen. Die Durchstiche [D1](iterations/D1-voxel-meshing.md)
-(Voxel-Meshing), [D2](iterations/D2-csharp-hosting.md) (C#-Hosting) und [D3](iterations/D3-netzwerk.md) (Netzwerk)
-sind in Arbeit.
+**Aktuell:** Die Phase Ausarbeitung ist abgeschlossen: Die Iterationen A1 bis A4 und die Durchstiche
+[D1](iterations/D1-voxel-meshing.md) (Voxel-Meshing), [D2](iterations/D2-csharp-hosting.md)
+(C#-Hosting) und [D3](iterations/D3-netzwerk.md) (Netzwerk) sind fertig. Als Nächstes folgt die
+Konstruktion mit R1 (Rendering-Grundlagen).
 
 ## Phasen und Iterationen
 
@@ -19,9 +19,9 @@ flowchart TB
         A1["A1 Projektgerüst ✓"] --> A2["A2 Fenster und Vulkan-Dreieck ✓"]
         A2 --> A3["A3 Job-System und Speicher ✓"]
         A3 --> A4["A4 ECS und Reflection ✓"]
-        A2 --> D1["D1 Durchstich Voxel-Meshing"]
-        A4 --> D2["D2 Durchstich C#-Hosting"]
-        A4 --> D3["D3 Durchstich Netzwerk"]
+        A2 --> D1["D1 Durchstich Voxel-Meshing ✓"]
+        A4 --> D2["D2 Durchstich C#-Hosting ✓"]
+        A4 --> D3["D3 Durchstich Netzwerk ✓"]
     end
     subgraph B["Konstruktion: Reifegrade"]
         R1["R1 Rendering-Grundlagen"] --> R2["R2 Welt und Editor"]
@@ -46,9 +46,9 @@ getestete Schicht, und die drei größten Risiken sind durch Durchstiche geklär
 | A2 Fenster und Vulkan-Dreieck | SDL3-Fenster, Vulkan 1.4 über volk und VMA, erste RHI-Schnittstelle | Erledigt, siehe [Iteration A2](iterations/A2-fenster-und-dreieck.md) |
 | A3 Job-System und Speicher | Task-System mit Abhängigkeiten, Frame- und Pool-Allokatoren, Tracy | Erledigt, siehe [Iteration A3](iterations/A3-jobs-und-speicher.md) |
 | A4 ECS und Reflection | flecs hinter `World`/`Entity`, Reflection-Grundlage, Dateisystem, Szene speichern | Erledigt, siehe [Iteration A4](iterations/A4-ecs-und-reflection.md) |
-| D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | In Arbeit, siehe [Durchstich D1](iterations/D1-voxel-meshing.md) |
-| D2 Durchstich C#-Hosting | .NET über hostfxr starten, C#-Methode aus C++ aufrufen und zurück | In Arbeit, siehe [Durchstich D2](iterations/D2-csharp-hosting.md) |
-| D3 Durchstich Netzwerk | Headless-Server und Client über GameNetworkingSockets, eine Komponente wird zum Client repliziert | In Arbeit, siehe [Durchstich D3](iterations/D3-netzwerk.md) |
+| D1 Durchstich Voxel-Meshing | Ein Chunk mit Dichtefeld, Surface Nets, gerendert | Erledigt, siehe [Durchstich D1](iterations/D1-voxel-meshing.md) |
+| D2 Durchstich C#-Hosting | .NET über hostfxr starten, C#-Methode aus C++ aufrufen und zurück | Erledigt, siehe [Durchstich D2](iterations/D2-csharp-hosting.md) |
+| D3 Durchstich Netzwerk | Headless-Server und Client über GameNetworkingSockets, eine Komponente wird zum Client repliziert | Erledigt, siehe [Durchstich D3](iterations/D3-netzwerk.md) |
 
 Die Durchstiche sind bewusst klein und dürfen Wegwerf-Code enthalten. Ihr Ergebnis ist vor allem
 Wissen: ein ADR oder eine Anpassung der Architektur.

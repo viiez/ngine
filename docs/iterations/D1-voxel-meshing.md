@@ -1,7 +1,7 @@
 # D1: Durchstich Voxel-Meshing
 
 - **Phase:** Ausarbeitung
-- **Status:** in Arbeit
+- **Status:** abgeschlossen
 - **Pull Requests:** #12
 
 ## Plan
@@ -130,4 +130,51 @@ Leertaste hält die Kamera an. Mit `--frames` ändert ein Skript das Terrain aut
 
 ## Review
 
-Folgt nach dem Merge und dem Test auf dem PC.
+**Ergebnis:** Ein Chunk Voxel-Terrain entsteht aus einem 8-Bit-Dichtefeld mit Material pro Sample,
+wird mit Surface Nets in einem Durchlauf gemeshed und über Vertex Pulling (Buffer Device Address)
+mit Tiefe und Back-Face-Culling gezeichnet. Kugel-Pinsel tragen ab, auf und glätten, ein
+Strahltest findet die Stelle unter der Maus, und der Chunk wird im selben Frame neu gemeshed. Die
+RHI kann jetzt Puffer mit Geräteadresse, Tiefenbilder, Push Constants und indiziertes Zeichnen. Die
+CI zeichnet die Demo unter Linux mit lavapipe im Fenster, ohne optionale Stufen und offscreen als
+Bild; PR #12 wurde nach einer Korrektur (verdeckte Variable in der Fensterschleife) unter Linux,
+mit ThreadSanitizer und unter Windows grün.
+
+Abnahme: Alle Kriterien sind erfüllt. Die Tests auf dem PC (Windows) verliefen erfolgreich.
+Aufgefallen ist nur, dass Umlaute im Log in der Windows-Konsole falsch erscheinen; die Engine
+stellt die Konsole jetzt beim Start auf UTF-8 um (`ngine.core:console`).
+
+**Erkenntnisse:**
+
+- Ein Durchlauf über die Voxel mit Vorzeichentest direkt auf den 8-Bit-Werten ist dreimal so
+  schnell wie zwei Durchläufe über Ecken und Kanten. 32³ braucht im Release-Build 0,45 ms und
+  reicht damit für Änderungen im selben Frame; für 64³ und mehr braucht es Jobs (R3).
+- 8 Bit Dichte (1/32 Voxel pro Schritt, ±4 Voxel) genügt: Die Abweichung einer Kugel bleibt unter
+  0,15 Voxel, und ein Sample mit Material braucht nur zwei Bytes.
+- Material gehört an die feste Ecke, die der Oberfläche am nächsten liegt, und die Farbe wird pro
+  Eckpunkt interpoliert; so werden Übergänge weich. Fels an Hängen entscheidet der Shader über die
+  Normale.
+- Ein Tiefenpuffer für alle Frames im Flug braucht vor jedem Löschen eine Barriere; der Übergang
+  aus `UNDEFINED` bei `clear_depth` erledigt das.
+- Code, der nur unter Windows oder mit SDL3 baut, fällt lokal nicht auf. Ein Build mit
+  Ersatz-Headern für SDL3 übersetzt jetzt auch den Fenstercode im Cloud-Container.
+
+**Anpassungen:** ADR 0021 und 0022 angenommen. Feature-Katalog: VOX-01 bis VOX-03, REND-16 und die
+RHI-Erweiterungen bleiben bis R1 und R3 in Arbeit (Chunks, Jobs, Staging). Schuldenregister: TD-10
+und TD-11 bleiben bis R1. Windows-Konsole auf UTF-8.
+
+**Architektur-Review:**
+
+- Abhängigkeiten zeigen nur nach unten: `ngine.voxel` hängt nur an `ngine.core` und kennt weder
+  RHI noch Welt; die Sandbox verbindet Voxel, RHI und Plattform. Plattform und RHI bleiben
+  getrennt.
+- Vulkan, VMA und SDL3 stecken weiter nur in ihren Adaptern. Die neuen RHI-Typen (`Buffer`,
+  `RenderingDesc`, `CullMode`) enthalten keine Vulkan-Typen.
+- Die Schnittstellen passen zu R1 und R3: Der Renderer kann Geometrie über Geräteadressen ziehen,
+  und der `Mesher` arbeitet auf einem `Grid`, das sich später auf Chunks verteilen lässt.
+- Die größte neue Datei ist `apps/sandbox/voxel_demo.cppm` (rund 520 Zeilen) mit Kamera,
+  Matrizen und drei Modi. Sie ist Durchstich-Code; Kamera und Mathematik ziehen in R1 in die
+  Engine (TD-10).
+- Neue Schulden: TD-10 (eigene Vektoren und Matrizen) und TD-11 (Puffer nur im CPU-sichtbaren
+  Speicher), beide bis R1.
+- Leistung: siehe Messungen oben. Der Engpass für große Welten ist das Meshing auf einem Kern;
+  Jobs und LOD sind für R3 geplant.

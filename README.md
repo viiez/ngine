@@ -3,7 +3,8 @@
 Eine moderne 3D-Engine in C++23 mit Vulkan, Voxel-Terrain im Stil von Enshrouded, C#-Scripting,
 eigenem Editor und Multiplayer. Lernprojekt und Grundlage für ein eigenes Spiel.
 
-**Stand:** Phase Ausarbeitung. Die Sandbox öffnet ein Fenster und zeichnet mit Vulkan ein Dreieck.
+**Stand:** Ausarbeitung abgeschlossen, als Nächstes folgt R1 (Rendering-Grundlagen). Die Sandbox zeigt
+veränderbares Voxel-Terrain, lädt C#-Skripte und repliziert Entities vom Server zum Client.
 Siehe [Roadmap](docs/roadmap.md).
 
 ## Bauen

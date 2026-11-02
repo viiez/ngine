@@ -1,7 +1,7 @@
 # D3: Durchstich Netzwerk
 
 - **Phase:** Ausarbeitung
-- **Status:** in Arbeit
+- **Status:** abgeschlossen
 - **Pull Requests:** #13 (zusammen mit D2)
 
 ## Plan
@@ -117,4 +117,42 @@ Client mit Eingaben im Kreis laufen lässt.
 
 ## Review
 
-Folgt nach dem Merge.
+**Ergebnis:** Ein dedizierter Server ohne Fenster und GPU (`--server`) und ein Client
+(`--client`) verbinden sich über GameNetworkingSockets. Der Server repliziert Name und Position
+von 32 Kugeln und einer Spielfigur pro Client als Schnappschuss; der Client steuert seine Figur
+über Eingaben, und am Ende stimmen beide Welten überein. Transport und Replikation sind getrennte
+Module; die Replikation schreibt Komponenten über die Reflection und braucht keinen Netzwerkcode
+pro Komponente. Die CI startet unter Linux und Windows die Demo im Prozess und Server und Client
+als zwei Prozesse.
+
+Abnahme: Alle Kriterien sind erfüllt. Die Tests auf dem PC (Windows) verliefen erfolgreich.
+
+**Erkenntnisse:**
+
+- GameNetworkingSockets passt: vcpkg ohne ICE, statisch unter Linux, als DLL unter Windows,
+  verschlüsselt auch ohne Steam. Es zieht Protobuf und OpenSSL mit; der erste CI-Lauf dauert
+  deshalb rund 30 Minuten, danach greift der Cache.
+- Port 0 lehnt die Bibliothek ab; `listen(0)` probiert zufällige Ports. Qualität und Datenraten
+  misst sie erst nach einigen Sekunden.
+- Volle Schnappschüsse sind einfach und heilen Verluste selbst, aber schon 33 Entities brauchen
+  rund 1,2 KB pro Tick und damit mehr als ein UDP-Paket. Deltas und Quantisierung sind früh in R5
+  nötig (TD-13).
+- Debug-Builds der Bibliothek melden gelegentlich eine harmlose interne Prüfung beim Schließen
+  von Sockets.
+
+**Anpassungen:** ADR 0024 angenommen. Feature-Katalog: NET-01, NET-02 und NET-04 bleiben bis R5 in Arbeit.
+Schuldenregister: TD-13 und TD-14 neu.
+
+**Architektur-Review:**
+
+- `ngine.net` hängt nur an `ngine.core`, `ngine.replication` an Netz, Welt und Reflection.
+  Rendering und Plattform sind nicht beteiligt; der Server läuft wie verlangt ohne Fenster und GPU
+  ([ADR 0007](../adr/0007-server-authoritative-multiplayer.md)).
+- GameNetworkingSockets steckt nur in `transport_gns.cpp`; die Replikation sieht nur `Transport`.
+- Die Schnittstellen passen zu R5: Deltas lassen sich hinter `encode_snapshot`/`Mirror` einbauen,
+  ein Listen-Server (NET-03) ist ein Transport, der lauscht und verbindet. Es fehlen
+  Entity-Verweise in replizierten Komponenten und Relevanz pro Client; beides ist R5.
+- Größte Dateien: `transport_gns.cpp` (rund 310 Zeilen) und die Demo `net_demo.cppm` (rund 410).
+- Neue Schulden: TD-13 (volle Schnappschüsse) und TD-14 (keine Tests mit Verlust und Latenz).
+- Leistung: Kodieren und Anwenden eines Schnappschusses fallen im Profil nicht auf; der Engpass
+  ist die Bandbreite, nicht die CPU.

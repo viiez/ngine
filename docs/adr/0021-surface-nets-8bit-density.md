@@ -1,6 +1,6 @@
 # 0021: Surface Nets und 8-Bit-Dichte für das Voxel-Terrain
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-01
 
 ## Kontext

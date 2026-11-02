@@ -1,7 +1,7 @@
 # D2: Durchstich C#-Hosting
 
 - **Phase:** Ausarbeitung
-- **Status:** in Arbeit
+- **Status:** abgeschlossen
 - **Pull Requests:** #13 (zusammen mit D3)
 
 ## Plan
@@ -125,4 +125,43 @@ Positionen kreisen und loggt), läuft einige Frames, entlädt, lädt neu und mis
 
 ## Review
 
-Folgt nach dem Merge.
+**Ergebnis:** Die Engine startet .NET 10 selbst über hostfxr, lädt `NGine.Scripting` in den
+Standardkontext und ruft C# über `[UnmanagedCallersOnly]`-Methoden auf; C# ruft die Engine über
+`delegate* unmanaged` zurück. Skripte laufen in einem entladbaren `AssemblyLoadContext`, lassen
+sich entladen und neu laden, und ein Test prüft, dass der GC den Kontext wirklich freigibt. C#
+ändert Daten der Engine ohne Kopie (`Span<Position>`). Die CI baut die Assemblies unter Linux
+(.NET aus Ubuntu 24.04) und Windows und startet die Skript-Demo; PR #13 wurde nach zwei
+Korrekturen (fehlender Import, fehlendes Include) überall grün.
+
+Abnahme: Alle Kriterien sind erfüllt. Die Tests auf dem PC (Windows) verliefen erfolgreich.
+
+**Erkenntnisse:**
+
+- Ein Aufruf in jede Richtung kostet rund 10 bis 13 ns, der Start rund 40 ms. Für Skripte pro
+  Entity und Frame ist das kein Hindernis; teurer wird erst Marshalling, das wir vermeiden.
+- `load_assembly` plus `get_function_pointer` (ab .NET 8) hält den Host im Standardkontext; der
+  ältere Weg hätte zwei verschiedene `IScript`-Typen erzeugt.
+- Den Kontext von hostfxr nach dem Holen der Funktionszeiger sofort schließen. In einem statischen
+  Destruktor ist hostfxr schon abgebaut.
+- Scheitert das Laden einer Assembly, muss der halb gefüllte Kontext sofort entladen werden.
+- `dotnet build --artifacts-path` hält die Quellen sauber; abhängige Projekte bauen mit
+  `BuildProjectReferences=false`, damit Ninja nicht zwei Builds in dieselben Dateien schreiben
+  lässt.
+- Profiling-Makros brauchen `import ngine.profile;` auch dann, wenn ein Build ohne Tracy nichts
+  davon merkt. Die CI mit Tracy hat den fehlenden Import gefunden.
+
+**Anpassungen:** ADR 0023 angenommen. Feature-Katalog: SCR-01 und SCR-04 bleiben bis R4 in Arbeit
+(Skript-Komponenten, Dateiüberwachung). Schuldenregister: TD-12 bleibt bis R2.
+
+**Architektur-Review:**
+
+- `ngine.script` hängt nur an `ngine.core` und privat an `ngine.profile`. Die Welt kennt Skripte
+  noch nicht; die Anbindung über Komponenten (SCR-03) kommt in R4.
+- hostfxr steckt nur in `runtime.cpp`, Plattformcode (dlopen, LoadLibraryW, Installationsorte) in
+  `native_linux.cpp` und `native_windows.cpp`.
+- Die Schnittstelle ist für den Durchstich schmal (`load_scripts`, `start`, `update` mit
+  Positionen). Für R4 muss sie Komponenten über die Reflection an C# geben statt eines festen
+  Typs.
+- Größte Datei: `runtime.cpp` (rund 390 Zeilen), ein Adapter mit einer Aufgabe.
+- Neue Schulden: TD-12 (fest einkompilierter Pfad zu den Assemblies).
+- Leistung: siehe Messungen oben; keine Engpässe.

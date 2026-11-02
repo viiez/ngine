@@ -1,6 +1,6 @@
 # 0022: Geometrie per Vertex Pulling über Buffer Device Address
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-01
 
 ## Kontext

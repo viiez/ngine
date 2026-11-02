@@ -12,6 +12,8 @@ module;
 
 module ngine.core;
 
+import :console;
+
 namespace ngine::log {
 
 namespace {
@@ -23,6 +25,8 @@ constexpr Level default_level = Level::Debug;
 #endif
 
 struct State {
+    // Läuft vor dem ersten Log, weil state() beim ersten Log angelegt wird.
+    bool console_ready = (detail::prepare_console(), true);
     std::mutex mutex;
     std::vector<std::shared_ptr<Sink>> sinks{std::make_shared<ConsoleSink>()};
     std::atomic<Level> min_level{default_level};
