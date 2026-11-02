@@ -32,6 +32,7 @@ module;
 module ngine.net;
 
 import ngine.core;
+import ngine.profile;
 
 namespace ngine::net {
 

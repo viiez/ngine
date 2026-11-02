@@ -15,6 +15,7 @@ module;
 module ngine.replication;
 
 import ngine.core;
+import ngine.profile;
 import ngine.reflect;
 import ngine.serialize;
 import ngine.world;

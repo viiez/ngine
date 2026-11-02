@@ -16,6 +16,7 @@ module;
 module ngine.replication;
 
 import ngine.core;
+import ngine.profile;
 import ngine.net;
 import ngine.world;
 

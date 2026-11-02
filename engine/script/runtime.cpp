@@ -24,6 +24,7 @@ module;
 module ngine.script;
 
 import ngine.core;
+import ngine.profile;
 import :native;
 
 namespace ngine::script {
