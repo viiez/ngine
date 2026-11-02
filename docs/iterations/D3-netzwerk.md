@@ -107,6 +107,10 @@ Client mit Eingaben im Kreis laufen lässt.
   - Rückrufe für Statusänderungen gelten pro Verbindung (Konfigurationswert), die Benutzerdaten der
     Verbindung zeigen auf den Transport. Angenommene Verbindungen erben beides vom Listen-Socket.
   - Qualität und Datenraten misst die Bibliothek erst nach einigen Sekunden.
+  - Debug-Builds von GameNetworkingSockets melden gelegentlich „Assertion Failed:
+    pSock->m_callback.m_fnCallback“, wenn ein Socket geschlossen wird, während der Dienst-Thread
+    gerade pollt. Die Bibliothek räumt geschlossene Sockets absichtlich später auf, die Prüfung
+    im Dienst-Thread rechnet damit aber nicht. Die Meldung ist harmlos, die Tests laufen weiter.
   - Schon 33 Entities überschreiten mit vollen Schnappschüssen ein UDP-Paket; die Bibliothek
     zerlegt die Nachricht, verliert aber die ganze, wenn ein Teil fehlt. Deltas sind deshalb früh
     in R5 nötig ([TD-13](../tech-debt.md)).

@@ -5,7 +5,9 @@
 #include <format>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <variant>
 #include <vector>

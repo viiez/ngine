@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <format>
 #include <memory>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
