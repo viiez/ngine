@@ -2,7 +2,7 @@
 
 - **Phase:** Ausarbeitung
 - **Status:** in Arbeit
-- **Pull Requests:** folgt nach #12
+- **Pull Requests:** #13 (zusammen mit D3)
 
 ## Plan
 
