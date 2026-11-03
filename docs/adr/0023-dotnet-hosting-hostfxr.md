@@ -1,6 +1,6 @@
 # 0023: .NET über hostfxr hosten, Skripte in entladbarem Kontext
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-01
 
 ## Kontext
