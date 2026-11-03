@@ -5,6 +5,9 @@
 //   :edit  Pinsel zum Abtragen, Auftragen und Glätten, Strahltest
 export module ngine.voxel;
 
+// Positionen sind math::Vec3; wer das Voxel-Modul nutzt, rechnet mit den Funktionen von ngine.math.
+export import ngine.math;
+
 export import :grid;
 export import :mesh;
 export import :edit;

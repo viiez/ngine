@@ -198,6 +198,14 @@ struct ComponentVisitor {
                   const void* data);
 };
 
+// Besuch eines Chunks in der Reihenfolge der Hierarchie (World::for_each_parent_first): count
+// Entities mit je einer gelesenen und einer geschriebenen Komponente, dazu die Komponente des
+// Elternteils, die für alle Entities des Chunks dieselbe ist (nullptr ohne).
+struct HierarchyVisitor {
+    void* context;
+    void (*visit)(void* context, u32 count, const void* own, void* out, const void* parent);
+};
+
 // Die Welt besitzt alle Entities und ihre Komponenten. Komponenten sind Structs, die in der
 // Reflection registriert sind (siehe ADR 0018); die Welt meldet sie beim ersten Gebrauch bei flecs
 // an. Eine Welt gehört einem Thread; nur Systeme (Schedule) arbeiten parallel auf ihren Daten.
@@ -262,6 +270,16 @@ public:
     [[nodiscard]] u64 parent(u64 entity) const;
     // Kennungen der Kinder, aufsteigend sortiert.
     [[nodiscard]] std::vector<u64> children(u64 entity) const;
+    // Besucht alle Entities mit den Komponenten own (lesen) und out (schreiben), Eltern vor ihren
+    // Kindern, und reicht die Komponente parent des nächsten Vorfahren mit, der sie hat. Grundlage
+    // für Berechnungen entlang der Hierarchie wie die Transform-Propagation. visitor darf nur out
+    // ändern.
+    void for_each_parent_first(ComponentId own, ComponentId out, ComponentId parent,
+                               HierarchyVisitor visitor);
+
+    // Wer component bekommt, bekommt required automatisch mit (mit Standardwert).
+    void require(ComponentId component, ComponentId required);
+
     // Besucht alle reflektierten Komponenten einer Entity in einer festen Reihenfolge. visitor
     // darf die Welt nicht verändern.
     void for_each_component(u64 entity, ComponentVisitor visitor) const;

@@ -65,6 +65,9 @@ struct TypeInfo {
     Kind kind = Kind::Struct;
     // Lässt sich mit memcpy kopieren und braucht keinen Destruktor.
     bool trivial = false;
+    // Nur zur Laufzeit: Szenen speichern solche Komponenten nicht, weil sie aus anderen berechnet
+    // werden (z. B. WorldTransform aus Transform und Hierarchie).
+    bool transient = false;
     TypeOps ops{};
     // Nur bei Kind::Struct, in der Reihenfolge der Registrierung.
     std::vector<Field> fields;

@@ -6,6 +6,7 @@
   "dependencies": [
     "catch2",
     "flecs",
+    "glm",
     {
       "name": "gamenetworkingsockets",
       "default-features": false

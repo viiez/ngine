@@ -33,3 +33,4 @@ betroffene Code einreichen.
 | [0022](0022-vertex-pulling-bda.md) | Geometrie per Vertex Pulling über Buffer Device Address | angenommen |
 | [0023](0023-dotnet-hosting-hostfxr.md) | .NET über hostfxr hosten, Skripte in entladbarem Kontext | angenommen |
 | [0024](0024-networking-gns-snapshots.md) | Netzwerk über GameNetworkingSockets, Replikation per Schnappschuss über die Reflection | angenommen |
+| [0025](0025-own-math-mixed-precision.md) | Eigene Mathematik in `ngine.math`, Weltlage mit gemischter Genauigkeit | vorgeschlagen |

@@ -1,4 +1,6 @@
 find_package(Catch2 3 REQUIRED)
+# GLM nur als Vergleich für die eigene Mathematik (ADR 0025).
+find_package(glm CONFIG REQUIRED)
 
 add_executable(ngine_tests
     core/log_tests.cpp
@@ -7,6 +9,8 @@ add_executable(ngine_tests
     jobs/deque_tests.cpp
     jobs/job_system_tests.cpp
     jobs/task_graph_tests.cpp
+    math/math_tests.cpp
+    math/math_oracle_tests.cpp
     memory/allocator_tests.cpp
     memory/budget_tests.cpp
     profile/profile_tests.cpp
@@ -18,15 +22,18 @@ add_executable(ngine_tests
     world/world_tests.cpp
     world/schedule_tests.cpp
     world/scene_tests.cpp
+    world/transform_tests.cpp
     voxel/voxel_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
     replication/replication_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
-    ngine::core ngine::filesystem ngine::memory ngine::jobs ngine::profile ngine::reflect
+    ngine::core ngine::filesystem ngine::math ngine::memory ngine::jobs ngine::profile ngine::reflect
     ngine::serialize ngine::world ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::shaders
-    Catch2::Catch2WithMain)
+    Catch2::Catch2WithMain glm::glm-header-only)
 ngine_set_compiler_options(ngine_tests)
+set_source_files_properties(math/math_oracle_tests.cpp PROPERTIES
+    COMPILE_DEFINITIONS "GLM_FORCE_DEPTH_ZERO_TO_ONE;GLM_FORCE_CTOR_INIT")
 
 # Skripte für die Tests von ngine.script; ohne .NET-SDK werden diese Tests übersprungen.
 if(NGINE_WITH_DOTNET)

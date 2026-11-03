@@ -2,7 +2,7 @@ add_executable(ngine_sandbox main.cpp)
 target_sources(ngine_sandbox PRIVATE FILE_SET CXX_MODULES FILES
     frame_stats.cppm jobs_demo.cppm scene_demo.cppm voxel_demo.cppm script_demo.cppm net_demo.cppm)
 target_link_libraries(ngine_sandbox PRIVATE
-    ngine::core ngine::filesystem ngine::memory ngine::jobs ngine::profile ngine::reflect
+    ngine::core ngine::filesystem ngine::math ngine::memory ngine::jobs ngine::profile ngine::reflect
     ngine::world ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::shaders)
 if(NGINE_WITH_WINDOW)
     target_link_libraries(ngine_sandbox PRIVATE ngine::platform)

@@ -3,7 +3,9 @@ module;
 #include <flecs.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -17,6 +19,7 @@ module;
 module ngine.world;
 
 import ngine.core;
+import ngine.math;
 import ngine.reflect;
 
 namespace ngine::world {
@@ -114,6 +117,9 @@ struct World::Impl {
     ecs_entity_t tag = 0;
     std::unordered_map<const reflect::TypeInfo*, ComponentId> components;
     std::unordered_map<ComponentId, const reflect::TypeInfo*> types;
+    // Abfragen für for_each_parent_first(), nach (own, out, parent). flecs gibt sie mit der Welt
+    // frei.
+    std::map<std::array<ComponentId, 3>, ecs_query_t*> hierarchy_queries;
 };
 
 World::World(const reflect::TypeRegistry& types) : impl_{std::make_unique<Impl>()}, types_{&types} {
@@ -124,6 +130,8 @@ World::World(const reflect::TypeRegistry& types) : impl_{std::make_unique<Impl>(
     // plant die Engine selbst auf dem Job-System (ADR 0019).
     impl_->world = ecs_mini();
     impl_->tag = ecs_new(impl_->world);
+    // Jede Entity mit Transform bekommt ihre Weltlage dazu (update_transforms()).
+    require(component<Transform>(), component<WorldTransform>());
 }
 
 World::~World() {
@@ -275,6 +283,45 @@ std::vector<u64> World::children(u64 entity) const {
     return ids;
 }
 
+void World::for_each_parent_first(ComponentId own, ComponentId out, ComponentId parent,
+                                  HierarchyVisitor visitor) {
+    check_structural_change();
+    ecs_query_t*& query = impl_->hierarchy_queries[{own, out, parent}];
+    if (query == nullptr) {
+        ecs_query_desc_t desc{};
+        desc.terms[0].id = own;
+        desc.terms[0].inout = EcsIn;
+        desc.terms[1].id = out;
+        desc.terms[1].inout = EcsOut;
+        // Komponente beim nächsten Vorfahren; Cascade sortiert die Tabellen nach Tiefe in der
+        // Hierarchie, so kommen Eltern vor ihren Kindern.
+        desc.terms[2].id = parent;
+        desc.terms[2].src.id = EcsUp | EcsCascade;
+        desc.terms[2].trav = EcsChildOf;
+        desc.terms[2].oper = EcsOptional;
+        desc.terms[2].inout = EcsIn;
+        desc.cache_kind = EcsQueryCacheAuto;
+        query = ecs_query_init(impl_->world, &desc);
+        verify(query != nullptr, "Abfrage für die Hierarchie lässt sich nicht anlegen");
+    }
+    const usize own_size = impl_->types.at(own)->size;
+    const usize out_size = impl_->types.at(out)->size;
+    const usize parent_size = impl_->types.at(parent)->size;
+    ecs_iter_t it = ecs_query_iter(impl_->world, query);
+    while (ecs_query_next(&it)) {
+        const void* parent_data =
+            ecs_field_is_set(&it, 2) ? ecs_field_w_size(&it, parent_size, 2) : nullptr;
+        visitor.visit(visitor.context, static_cast<u32>(it.count),
+                      ecs_field_w_size(&it, own_size, 0), ecs_field_w_size(&it, out_size, 1),
+                      parent_data);
+    }
+}
+
+void World::require(ComponentId component, ComponentId required) {
+    check_structural_change();
+    ecs_add_pair(impl_->world, component, EcsWith, required);
+}
+
 void World::for_each_component(u64 entity, ComponentVisitor visitor) const {
     verify(alive(entity), "for_each_component() auf einer Entity, die nicht lebt");
     const ecs_type_t* type = ecs_get_type(impl_->world, entity);
@@ -414,6 +461,35 @@ usize QueryBase::count() const {
 void register_types(reflect::TypeRegistry& types) {
     if (types.find<Name>() == nullptr) {
         types.add<Name>("Name").field("value", &Name::value);
+    }
+    if (types.find<math::Vec3>() == nullptr) {
+        types.add<math::Vec3>("Vec3")
+            .field("x", &math::Vec3::x)
+            .field("y", &math::Vec3::y)
+            .field("z", &math::Vec3::z);
+    }
+    if (types.find<math::DVec3>() == nullptr) {
+        types.add<math::DVec3>("DVec3")
+            .field("x", &math::DVec3::x)
+            .field("y", &math::DVec3::y)
+            .field("z", &math::DVec3::z);
+    }
+    if (types.find<math::Quat>() == nullptr) {
+        types.add<math::Quat>("Quat")
+            .field("x", &math::Quat::x)
+            .field("y", &math::Quat::y)
+            .field("z", &math::Quat::z)
+            .field("w", &math::Quat::w);
+    }
+    if (types.find<Transform>() == nullptr) {
+        types.add<Transform>("Transform")
+            .field("position", &Transform::position)
+            .field("rotation", &Transform::rotation)
+            .field("scale", &Transform::scale);
+    }
+    if (types.find<WorldTransform>() == nullptr) {
+        // Ohne Felder: wird nur berechnet, nie gespeichert oder bearbeitet.
+        types.add<WorldTransform>("WorldTransform").transient();
     }
 }
 
