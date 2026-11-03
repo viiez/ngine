@@ -16,14 +16,15 @@ module;
 #include <vector>
 
 // Durchstich D1: ein Chunk Voxel-Terrain mit einem glatten Hügel, als Netz aus Surface Nets
-// gezeichnet und zur Laufzeit veränderbar. Wegwerf-Code: Kamera und das Hochladen der Netze
-// wandern in R1.2 und R1.3 in den Renderer.
+// gezeichnet und zur Laufzeit veränderbar. Seit R1.2 zeichnet die Demo über den Render-Graph und
+// hält das Netz im GPU-Speicher. Wegwerf-Code: Die Kamera wandert in R1.3 in den Renderer.
 export module sandbox.voxel_demo;
 
 import ngine.core;
 import ngine.filesystem;
 import ngine.math;
 import ngine.profile;
+import ngine.render;
 import ngine.rhi;
 import ngine.rhi.vulkan;
 import ngine.shaders;
@@ -87,8 +88,8 @@ struct PushConstants {
 };
 static_assert(sizeof(PushConstants) <= rhi::max_push_constant_size);
 
-// Netz auf der GPU, eines pro Frame im Flug, damit die CPU nie in einen Puffer schreibt, den die
-// GPU gerade liest.
+// Netz im GPU-Speicher. Ein Exemplar genügt: upload() kopiert erst, wenn frühere Frames mit dem
+// Puffer fertig sind.
 struct GpuMesh {
     std::unique_ptr<rhi::Buffer> vertices;
     std::unique_ptr<rhi::Buffer> indices;
@@ -102,8 +103,10 @@ bool ensure_capacity(rhi::Device& device, std::unique_ptr<rhi::Buffer>& buffer, 
     if (buffer && buffer->size() >= size) {
         return true;
     }
-    auto created =
-        device.create_buffer({.size = std::max<u64>(size + size / 2, 4096), .usage = usage});
+    // Der alte Puffer darf sofort weg: Die RHI gibt ihn erst frei, wenn die GPU fertig ist.
+    auto created = device.create_buffer({.size = std::max<u64>(size + size / 2, 4096),
+                                         .usage = usage,
+                                         .memory = rhi::MemoryUsage::Gpu});
     if (!created) {
         log::error("Puffer für das Voxel-Netz: {}", created.error());
         return false;
@@ -255,36 +258,27 @@ public:
         vertex_shader_ = *std::move(vertex);
         fragment_shader_ = *std::move(fragment);
         pipeline_ = *std::move(pipeline);
-        gpu_meshes_.resize(device.frames_in_flight());
         return {};
     }
 
     void release_gpu() {
-        gpu_meshes_.clear();
-        depth_.reset();
+        gpu_mesh_ = {};
         pipeline_.reset();
         fragment_shader_.reset();
         vertex_shader_.reset();
     }
 
-    // Zeichnet die Szene in color. slot ist der Platz des Frames im Flug (rhi::Frame::index).
-    void record(rhi::Device& device, rhi::CommandList& commands, rhi::Texture& color, u32 slot) {
-        NGINE_PROFILE_ZONE("VoxelScene::record");
-        const rhi::Extent2D extent = color.extent();
-        if (!depth_ || depth_->extent().width != extent.width ||
-            depth_->extent().height != extent.height) {
-            // Der alte Tiefenpuffer kann noch in einem Frame im Flug stecken.
-            device.wait_idle();
-            auto depth = device.create_texture({.extent = extent, .format = rhi::Format::D32Float});
-            verify(depth.has_value(), "Tiefenpuffer lässt sich nicht erzeugen");
-            depth_ = *std::move(depth);
+    // Lädt ein geändertes Netz hoch und fügt dem Graph den Pass hinzu, der die Szene in target
+    // zeichnet; der Tiefenpuffer ist eine transiente Textur des Graphs.
+    void add_passes(rhi::Device& device, render::RenderGraph& graph, render::TextureHandle target) {
+        NGINE_PROFILE_ZONE("VoxelScene::add_passes");
+        if (gpu_mesh_.version != meshed_version_) {
+            upload(device, gpu_mesh_);
         }
 
-        GpuMesh& gpu = gpu_meshes_[slot];
-        if (gpu.version != meshed_version_) {
-            upload(device, gpu);
-        }
-
+        const rhi::Extent2D extent = graph.texture_desc(target).extent;
+        const auto depth = graph.create_texture(
+            "Voxel-Tiefe", {.extent = extent, .format = rhi::Format::D32Float});
         const f32 aspect =
             static_cast<f32>(extent.width) / static_cast<f32>(std::max(extent.height, 1u));
         // Gitter in kamerarelative Koordinaten: Die Differenz zur Kamera entsteht in 64 Bit.
@@ -295,20 +289,29 @@ public:
             .view_projection_rows = math::transpose(view_projection),
             .light = {0.48f, 0.78f, 0.40f, 0.35f},
             .camera = math::extend(eye_in_grid(), 0.003f),
-            .vertices = gpu.vertices ? gpu.vertices->device_address() : 0,
+            .vertices = gpu_mesh_.vertices ? gpu_mesh_.vertices->device_address() : 0,
         };
 
-        commands.begin_rendering({.color = &color,
-                                  .clear_color = rhi::Color{0.45f, 0.60f, 0.80f, 1.0f},
-                                  .depth = depth_.get(),
-                                  .clear_depth = 1.0f});
-        if (gpu.index_count > 0) {
-            commands.bind_pipeline(*pipeline_);
-            commands.push_constants(std::as_bytes(std::span{&push, 1}));
-            commands.bind_index_buffer(*gpu.indices);
-            commands.draw_indexed(gpu.index_count);
-        }
-        commands.end_rendering();
+        graph.add_pass(
+            "Voxel",
+            [&](render::PassBuilder& pass) {
+                pass.write(target, rhi::ResourceState::ColorTarget);
+                pass.write(depth, rhi::ResourceState::DepthTarget);
+            },
+            [this, target, depth, push](render::PassContext& context) {
+                rhi::CommandList& commands = context.commands;
+                commands.begin_rendering({.color = &context.texture(target),
+                                          .clear_color = rhi::Color{0.45f, 0.60f, 0.80f, 1.0f},
+                                          .depth = &context.texture(depth),
+                                          .clear_depth = 1.0f});
+                if (gpu_mesh_.index_count > 0) {
+                    commands.bind_pipeline(*pipeline_);
+                    commands.push_constants(std::as_bytes(std::span{&push, 1}));
+                    commands.bind_index_buffer(*gpu_mesh_.indices);
+                    commands.draw_indexed(gpu_mesh_.index_count);
+                }
+                commands.end_rendering();
+            });
     }
 
 private:
@@ -339,8 +342,8 @@ private:
                              rhi::BufferUsage::Storage | rhi::BufferUsage::Index)) {
             return;
         }
-        gpu.vertices->write(0, vertices);
-        gpu.indices->write(0, indices);
+        device.upload(*gpu.vertices, 0, vertices);
+        device.upload(*gpu.indices, 0, indices);
         gpu.index_count = static_cast<u32>(mesh_.indices.size());
     }
 
@@ -368,8 +371,7 @@ private:
     std::unique_ptr<rhi::Shader> vertex_shader_;
     std::unique_ptr<rhi::Shader> fragment_shader_;
     std::unique_ptr<rhi::Pipeline> pipeline_;
-    std::unique_ptr<rhi::Texture> depth_;
-    std::vector<GpuMesh> gpu_meshes_;
+    GpuMesh gpu_mesh_;
 };
 
 namespace {
@@ -476,6 +478,7 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             log::fatal("{}", result.error());
             return 1;
         }
+        render::TexturePool pool{**device};
         // Ein Bild mehr als Änderungen, damit auch ohne Änderungen etwas zu sehen ist.
         for (u64 i = 0; i <= frames; ++i) {
             if (i < frames) {
@@ -483,11 +486,15 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             }
             scene.remesh_if_needed();
             scene.update(1.0f / 60.0f, extent);
-            (*device)->execute(
-                [&](rhi::CommandList& commands) { scene.record(**device, commands, **target, 0); });
+            render::RenderGraph graph;
+            const auto output = graph.import_texture(
+                "Bild", **target, rhi::ResourceState::Undefined, rhi::ResourceState::TransferSrc);
+            scene.add_passes(**device, graph, output);
+            (*device)->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+            pool.end_frame();
         }
         log::info("Voxel-Netz: {}", scene.stats());
-        const auto pixels = (*device)->read_texture(**target);
+        const auto pixels = (*device)->read_texture(**target, rhi::ResourceState::TransferSrc);
         if (auto written = write_ppm(image_path, pixels, extent); !written) {
             log::error("Bild lässt sich nicht schreiben: {}", written.error());
             exit_code = 1;

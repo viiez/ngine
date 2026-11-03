@@ -26,6 +26,18 @@ constexpr u32 voxel_fragment[] = {
 #include "voxel_fragment.spv.inc"
 };
 
+constexpr u32 fullscreen_vertex[] = {
+#include "fullscreen_vertex.spv.inc"
+};
+
+constexpr u32 fullscreen_fragment[] = {
+#include "fullscreen_fragment.spv.inc"
+};
+
+constexpr u32 gradient_compute[] = {
+#include "gradient_compute.spv.inc"
+};
+
 } // namespace ngine::shaders::detail
 
 export namespace ngine::shaders {
@@ -46,6 +58,22 @@ rhi::ShaderDesc voxel_vertex() {
 
 rhi::ShaderDesc voxel_fragment() {
     return {rhi::ShaderStage::Fragment, detail::voxel_fragment, "fragment_main"};
+}
+
+// Zeichnet eine Textur über das ganze Ziel (drei Eckpunkte, ohne Puffer). Push Constants: Index
+// der Textur und des Samplers im bindlosen Satz (je u32).
+rhi::ShaderDesc fullscreen_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::fullscreen_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc fullscreen_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::fullscreen_fragment, "fragment_main"};
+}
+
+// Testmuster: Farbverlauf in eine Storage-Textur, Gruppen zu 8×8. Push Constants: Index der
+// Storage-Textur, Breite, Höhe (je u32) und Blauanteil (f32).
+rhi::ShaderDesc gradient_compute() {
+    return {rhi::ShaderStage::Compute, detail::gradient_compute, "compute_main"};
 }
 
 } // namespace ngine::shaders

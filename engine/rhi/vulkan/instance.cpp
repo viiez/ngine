@@ -105,6 +105,17 @@ std::expected<void, std::string> Instance::init(const DeviceDesc& desc,
         .pUserData = &validation_errors,
     };
 
+    // Die Validation Layers prüfen auch die Synchronisation: fehlende oder zu schwache Barrieren
+    // zeigen sich sonst oft erst auf echter Hardware.
+    const VkValidationFeatureEnableEXT enabled_features[] = {
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT};
+    const VkValidationFeaturesEXT validation_features{
+        .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
+        .pNext = &messenger_info,
+        .enabledValidationFeatureCount = 1,
+        .pEnabledValidationFeatures = enabled_features,
+    };
+
     const VkApplicationInfo app_info{
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = desc.application_name.c_str(),
@@ -119,7 +130,7 @@ std::expected<void, std::string> Instance::init(const DeviceDesc& desc,
     const VkInstanceCreateInfo instance_info{
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         // Meldungen schon beim Erzeugen und Zerstören der Instanz abfangen.
-        .pNext = validation ? &messenger_info : nullptr,
+        .pNext = validation ? &validation_features : nullptr,
         .pApplicationInfo = &app_info,
         .enabledLayerCount = static_cast<u32>(layers.size()),
         .ppEnabledLayerNames = layers.data(),
@@ -150,6 +161,29 @@ std::expected<void, std::string> Instance::create_surface(const SurfaceDesc& sur
     }
     surface_ = std::bit_cast<VkSurfaceKHR>(handle);
     return {};
+}
+
+SurfaceDesc headless_surface(Extent2D extent) {
+    return SurfaceDesc{
+        .instance_extensions = {VK_KHR_SURFACE_EXTENSION_NAME,
+                                VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME},
+        .create_surface = [](void* instance) -> u64 {
+            const auto vk_instance = static_cast<VkInstance>(instance);
+            const auto create = instance_function<PFN_vkCreateHeadlessSurfaceEXT>(
+                vk_instance, "vkCreateHeadlessSurfaceEXT");
+            if (create == nullptr) {
+                return 0;
+            }
+            const VkHeadlessSurfaceCreateInfoEXT info{
+                .sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
+            VkSurfaceKHR surface = VK_NULL_HANDLE;
+            if (create(vk_instance, &info, nullptr, &surface) != VK_SUCCESS) {
+                return 0;
+            }
+            return std::bit_cast<u64>(surface);
+        },
+        .extent = extent,
+    };
 }
 
 Instance::~Instance() {

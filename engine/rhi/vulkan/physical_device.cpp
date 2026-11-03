@@ -75,6 +75,17 @@ void for_each_required_feature(FeatureChain& chain, Visitor&& visit) {
     visit("Variable Descriptor Count", chain.v12.descriptorBindingVariableDescriptorCount);
     visit("Non-Uniform Indexing", chain.v12.shaderSampledImageArrayNonUniformIndexing);
     visit("Update After Bind", chain.v12.descriptorBindingSampledImageUpdateAfterBind);
+    // Bindloser Satz mit Storage-Texturen, die sich ändern, während Frames im Flug sind (ADR 0026).
+    visit("Storage Image Update After Bind",
+          chain.v12.descriptorBindingStorageImageUpdateAfterBind);
+    visit("Update Unused While Pending", chain.v12.descriptorBindingUpdateUnusedWhilePending);
+    visit("Non-Uniform Storage Image Indexing",
+          chain.v12.shaderStorageImageArrayNonUniformIndexing);
+    // Storage-Texturen ohne festes Format im Shader (RWTexture2D<float4>).
+    visit("Storage Image Read Without Format",
+          chain.root.features.shaderStorageImageReadWithoutFormat);
+    visit("Storage Image Write Without Format",
+          chain.root.features.shaderStorageImageWriteWithoutFormat);
     visit("Buffer Device Address", chain.v12.bufferDeviceAddress);
     visit("Timeline Semaphores", chain.v12.timelineSemaphore);
     visit("Scalar Block Layout", chain.v12.scalarBlockLayout);

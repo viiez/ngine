@@ -5,59 +5,119 @@ module;
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <vector>
 
 // Aufzeichnen von Befehlen in einen VkCommandBuffer.
 module ngine.rhi.vulkan:command_list;
 
 import ngine.core;
 import ngine.rhi;
+import :common;
+import :context;
 import :resources;
 
 namespace ngine::rhi::vulkan {
 
-// Grober, aber sicherer Übergang zwischen zwei Layouts (TD-02). Feinere Barrieren übernimmt
-// später der Render-Graph.
-void transition(VkCommandBuffer cmd, VulkanTexture& texture, VkImageLayout new_layout) {
-    if (texture.layout == new_layout) {
-        return;
-    }
-    const VkImageMemoryBarrier2 barrier{
+[[nodiscard]] VkImageMemoryBarrier2 image_barrier(const VulkanTexture& texture,
+                                                  ResourceState before, ResourceState after) {
+    verify(after != ResourceState::Undefined, "Barriere nach Undefined");
+    const StateInfo src = state_info(before);
+    const StateInfo dst = state_info(after);
+    return VkImageMemoryBarrier2{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .oldLayout = texture.layout,
-        .newLayout = new_layout,
+        .srcStageMask = src.stages,
+        .srcAccessMask = src.access,
+        .dstStageMask = dst.stages,
+        .dstAccessMask = dst.access,
+        .oldLayout = src.layout,
+        .newLayout = dst.layout,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = texture.image(),
         .subresourceRange = {texture.aspect(), 0, 1, 0, 1},
     };
+}
+
+// Globale Speicherbarriere: alles davor (alle Stufen, alle Schreibzugriffe) vor allem danach.
+void full_barrier(VkCommandBuffer cmd) {
+    const VkMemoryBarrier2 barrier{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+    };
     const VkDependencyInfo dependency{
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrier,
+        .memoryBarrierCount = 1,
+        .pMemoryBarriers = &barrier,
     };
     vkCmdPipelineBarrier2(cmd, &dependency);
-    texture.layout = new_layout;
 }
 
 // Zeichnet in einen fremden Command Buffer auf; Beginn, Ende und Abschicken übernimmt das Device.
 class VulkanCommandList final : public CommandList {
 public:
+    explicit VulkanCommandList(const BindlessHeap& bindless) : bindless_{&bindless} {}
+
+    // Übernimmt einen Command Buffer im Aufzeichnungszustand und bindet den bindlosen Satz für
+    // Grafik und Compute; er bleibt über alle Pipeline-Wechsel gebunden, weil alle Pipelines
+    // dasselbe Layout haben.
     void reset(VkCommandBuffer cmd) {
         cmd_ = cmd;
-        layout_ = VK_NULL_HANDLE;
+        bound_ = false;
+        const VkDescriptorSet set = bindless_->set();
+        for (const VkPipelineBindPoint point :
+             {VK_PIPELINE_BIND_POINT_GRAPHICS, VK_PIPELINE_BIND_POINT_COMPUTE}) {
+            vkCmdBindDescriptorSets(cmd_, point, bindless_->pipeline_layout(), 0, 1, &set, 0,
+                                    nullptr);
+        }
     }
     [[nodiscard]] VkCommandBuffer handle() const {
         return cmd_;
     }
 
+    void barrier(std::span<const TextureBarrier> textures,
+                 std::span<const BufferBarrier> buffers) override {
+        image_barriers_.clear();
+        buffer_barriers_.clear();
+        for (const TextureBarrier& b : textures) {
+            image_barriers_.push_back(
+                image_barrier(static_cast<const VulkanTexture&>(*b.texture), b.before, b.after));
+        }
+        for (const BufferBarrier& b : buffers) {
+            verify(b.after != ResourceState::Undefined, "Barriere nach Undefined");
+            const StateInfo src = state_info(b.before);
+            const StateInfo dst = state_info(b.after);
+            buffer_barriers_.push_back(VkBufferMemoryBarrier2{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = src.stages,
+                .srcAccessMask = src.access,
+                .dstStageMask = dst.stages,
+                .dstAccessMask = dst.access,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = static_cast<const VulkanBuffer&>(*b.buffer).handle(),
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+        }
+        if (image_barriers_.empty() && buffer_barriers_.empty()) {
+            return;
+        }
+        const VkDependencyInfo dependency{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .bufferMemoryBarrierCount = static_cast<u32>(buffer_barriers_.size()),
+            .pBufferMemoryBarriers = buffer_barriers_.data(),
+            .imageMemoryBarrierCount = static_cast<u32>(image_barriers_.size()),
+            .pImageMemoryBarriers = image_barriers_.data(),
+        };
+        vkCmdPipelineBarrier2(cmd_, &dependency);
+    }
+
     void begin_rendering(const RenderingDesc& desc) override {
         verify(desc.color != nullptr, "begin_rendering braucht ein Farbziel");
-        auto& texture = static_cast<VulkanTexture&>(*desc.color);
-        transition(cmd_, texture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        const auto& texture = static_cast<const VulkanTexture&>(*desc.color);
 
         const Color color = desc.clear_color.value_or(Color{});
         const VkRenderingAttachmentInfo attachment{
@@ -72,13 +132,7 @@ public:
         VkRenderingAttachmentInfo depth_attachment{.sType =
                                                        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         if (desc.depth != nullptr) {
-            auto& depth = static_cast<VulkanTexture&>(*desc.depth);
-            if (desc.clear_depth) {
-                // Alter Inhalt wird nicht gebraucht. Der Übergang aus UNDEFINED setzt trotzdem
-                // eine Barriere, damit ein früherer Frame im Flug mit dem Tiefenpuffer fertig ist.
-                depth.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-            }
-            transition(cmd_, depth, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+            const auto& depth = static_cast<const VulkanTexture&>(*desc.depth);
             depth_attachment.imageView = depth.view();
             depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
             depth_attachment.loadOp =
@@ -113,14 +167,14 @@ public:
 
     void bind_pipeline(const Pipeline& pipeline) override {
         const auto& vulkan_pipeline = static_cast<const VulkanPipeline&>(pipeline);
-        vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline.handle());
-        layout_ = vulkan_pipeline.layout();
+        vkCmdBindPipeline(cmd_, vulkan_pipeline.bind_point(), vulkan_pipeline.handle());
+        bound_ = true;
     }
 
     void push_constants(std::span<const std::byte> data) override {
-        verify(layout_ != VK_NULL_HANDLE, "push_constants ohne gebundene Pipeline");
+        verify(bound_, "push_constants ohne gebundene Pipeline");
         verify(data.size() <= max_push_constant_size, "Zu viele Push Constants");
-        vkCmdPushConstants(cmd_, layout_, VK_SHADER_STAGE_ALL_GRAPHICS, 0,
+        vkCmdPushConstants(cmd_, bindless_->pipeline_layout(), VK_SHADER_STAGE_ALL, 0,
                            static_cast<u32>(data.size()), data.data());
     }
 
@@ -137,9 +191,16 @@ public:
         vkCmdDrawIndexed(cmd_, index_count, instance_count, first_index, 0, 0);
     }
 
+    void dispatch(u32 groups_x, u32 groups_y, u32 groups_z) override {
+        vkCmdDispatch(cmd_, groups_x, groups_y, groups_z);
+    }
+
 private:
+    const BindlessHeap* bindless_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
-    VkPipelineLayout layout_ = VK_NULL_HANDLE;
+    bool bound_ = false;
+    std::vector<VkImageMemoryBarrier2> image_barriers_;
+    std::vector<VkBufferMemoryBarrier2> buffer_barriers_;
 };
 
 } // namespace ngine::rhi::vulkan

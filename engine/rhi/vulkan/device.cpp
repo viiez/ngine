@@ -4,18 +4,19 @@ module;
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstring>
 #include <expected>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 // Das Vulkan-Device setzt die Teile des Backends zusammen: Instanz, GPU-Auswahl, Allokator,
-// Frames, Swapchain und sofortige Ausführung.
+// Timeline und Löschliste, bindloser Satz, Uploads, Frames, Swapchain und sofortige Ausführung.
 module ngine.rhi.vulkan;
 
 import ngine.core;
@@ -23,8 +24,10 @@ import ngine.rhi;
 import :common;
 import :instance;
 import :physical_device;
+import :context;
 import :resources;
 import :command_list;
+import :upload;
 import :swapchain;
 
 namespace ngine::rhi::vulkan {
@@ -47,17 +50,32 @@ public:
 
     [[nodiscard]] Result<std::unique_ptr<Texture>>
     create_texture(const TextureDesc& desc) override {
-        return vulkan::create_texture(device_, allocator_, desc);
+        return vulkan::create_texture(context_, desc);
     }
     [[nodiscard]] Result<std::unique_ptr<Shader>> create_shader(const ShaderDesc& desc) override {
-        return vulkan::create_shader(device_, desc);
+        return vulkan::create_shader(context_.device, desc);
     }
     [[nodiscard]] Result<std::unique_ptr<Pipeline>>
     create_pipeline(const GraphicsPipelineDesc& desc) override {
-        return vulkan::create_pipeline(device_, desc);
+        return vulkan::create_pipeline(context_, desc);
+    }
+    [[nodiscard]] Result<std::unique_ptr<Pipeline>>
+    create_compute_pipeline(const ComputePipelineDesc& desc) override {
+        return vulkan::create_compute_pipeline(context_, desc);
     }
     [[nodiscard]] Result<std::unique_ptr<Buffer>> create_buffer(const BufferDesc& desc) override {
-        return vulkan::create_buffer(device_, allocator_, desc);
+        return vulkan::create_buffer(context_, desc);
+    }
+    [[nodiscard]] Result<std::unique_ptr<Sampler>>
+    create_sampler(const SamplerDesc& desc) override {
+        return vulkan::create_sampler(context_, desc);
+    }
+
+    void upload(Buffer& buffer, u64 offset, std::span<const std::byte> data) override {
+        uploader_.upload(static_cast<const VulkanBuffer&>(buffer), offset, data);
+    }
+    void upload(Texture& texture, std::span<const std::byte> data) override {
+        uploader_.upload(static_cast<const VulkanTexture&>(texture), data);
     }
 
     [[nodiscard]] Format swapchain_format() const override {
@@ -75,10 +93,11 @@ public:
     }
 
     void execute(const std::function<void(CommandList&)>& record) override;
-    [[nodiscard]] std::vector<u8> read_texture(Texture& texture) override;
+    [[nodiscard]] std::vector<u8> read_texture(Texture& texture, ResourceState state) override;
 
     void wait_idle() override {
         vkDeviceWaitIdle(device_);
+        collect();
     }
 
     [[nodiscard]] u32 validation_errors() const override {
@@ -89,13 +108,19 @@ private:
     struct FrameData {
         VkCommandPool pool = VK_NULL_HANDLE;
         VkCommandBuffer cmd = VK_NULL_HANDLE;
-        VkFence in_flight = VK_NULL_HANDLE;
         VkSemaphore image_available = VK_NULL_HANDLE;
+        // Wert der Timeline, den die letzte Abgabe dieses Frames signalisiert.
+        u64 submitted = 0;
     };
 
     std::expected<void, std::string> create_allocator();
     void create_command_resources();
     VkCommandBuffer allocate_command_buffer(VkCommandPool pool);
+    // Gibt frei, was die GPU nicht mehr braucht: Löschliste und Staging-Speicher.
+    void collect();
+    // Gibt cmd ab, davor die gesammelten Upload-Kopien. Signalisiert die Timeline mit dem Wert
+    // der Abgabe, den die Funktion liefert, und optional signal.
+    u64 submit(VkCommandBuffer cmd, const VkSemaphoreSubmitInfo* wait, VkSemaphore signal);
 
     // Muss vor instance_ stehen: Die Debug-Schicht zählt bis zum Zerstören der Instanz.
     std::atomic<u32> validation_errors_{0};
@@ -105,6 +130,9 @@ private:
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     VmaAllocator allocator_ = nullptr;
+    // Gemeinsamer Zustand für alle Ressourcen; lebt so lange wie das Device.
+    DeviceContext context_;
+    Uploader uploader_;
 
     // Nur mit Fenster vorhanden.
     std::unique_ptr<Swapchain> swapchain_;
@@ -112,11 +140,10 @@ private:
     std::array<FrameData, vulkan::frames_in_flight> frames_{};
     u32 frame_index_ = 0;
     u32 image_index_ = 0;
-    VulkanCommandList frame_commands_;
+    VulkanCommandList frame_commands_{context_.bindless};
 
     VkCommandPool immediate_pool_ = VK_NULL_HANDLE;
     VkCommandBuffer immediate_cmd_ = VK_NULL_HANDLE;
-    VkFence immediate_fence_ = VK_NULL_HANDLE;
 };
 
 std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
@@ -151,12 +178,16 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     if (auto result = create_allocator(); !result) {
         return result;
     }
+    context_.physical_device = physical_device_.handle;
+    context_.device = device_;
+    context_.allocator = allocator_;
+    context_.bindless.init(physical_device_.handle, device_);
     create_command_resources();
+    uploader_.init(context_, physical_device_.queue_family);
 
     if (with_swapchain) {
-        swapchain_ =
-            std::make_unique<Swapchain>(physical_device_.handle, device_, instance_.surface(),
-                                        desc.surface->extent, desc.vsync);
+        swapchain_ = std::make_unique<Swapchain>(context_, instance_.surface(),
+                                                 desc.surface->extent, desc.vsync);
         if (auto result = swapchain_->rebuild(); !result) {
             return result;
         }
@@ -207,15 +238,12 @@ void VulkanDevice::create_command_resources() {
         .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
         .queueFamilyIndex = physical_device_.queue_family,
     };
-    const VkFenceCreateInfo signaled_fence{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-                                           .flags = VK_FENCE_CREATE_SIGNALED_BIT};
     const VkSemaphoreCreateInfo semaphore_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 
     for (FrameData& frame : frames_) {
         check(vkCreateCommandPool(device_, &pool_info, nullptr, &frame.pool),
               "vkCreateCommandPool");
         frame.cmd = allocate_command_buffer(frame.pool);
-        check(vkCreateFence(device_, &signaled_fence, nullptr, &frame.in_flight), "vkCreateFence");
         check(vkCreateSemaphore(device_, &semaphore_info, nullptr, &frame.image_available),
               "vkCreateSemaphore");
     }
@@ -223,8 +251,60 @@ void VulkanDevice::create_command_resources() {
     check(vkCreateCommandPool(device_, &pool_info, nullptr, &immediate_pool_),
           "vkCreateCommandPool");
     immediate_cmd_ = allocate_command_buffer(immediate_pool_);
-    const VkFenceCreateInfo fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    check(vkCreateFence(device_, &fence_info, nullptr, &immediate_fence_), "vkCreateFence");
+
+    // Ein Timeline Semaphore zählt alle Abgaben; er ersetzt die Fences pro Frame.
+    const VkSemaphoreTypeCreateInfo timeline_type{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        .initialValue = 0,
+    };
+    const VkSemaphoreCreateInfo timeline_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                                              .pNext = &timeline_type};
+    check(vkCreateSemaphore(device_, &timeline_info, nullptr, &context_.timeline),
+          "vkCreateSemaphore (Timeline)");
+}
+
+void VulkanDevice::collect() {
+    const u64 completed = context_.completed();
+    context_.deletion.collect(completed);
+    uploader_.collect(completed);
+}
+
+u64 VulkanDevice::submit(VkCommandBuffer cmd, const VkSemaphoreSubmitInfo* wait,
+                         VkSemaphore signal) {
+    const u64 value = context_.next_submission();
+    std::array<VkCommandBufferSubmitInfo, 2> commands{};
+    u32 command_count = 0;
+    if (const VkCommandBuffer uploads = uploader_.finish(value); uploads != VK_NULL_HANDLE) {
+        commands[command_count++] = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+                                     .commandBuffer = uploads};
+    }
+    commands[command_count++] = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+                                 .commandBuffer = cmd};
+
+    std::array<VkSemaphoreSubmitInfo, 2> signals{};
+    u32 signal_count = 0;
+    signals[signal_count++] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                               .semaphore = context_.timeline,
+                               .value = value,
+                               .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    if (signal != VK_NULL_HANDLE) {
+        signals[signal_count++] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                                   .semaphore = signal,
+                                   .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    }
+    const VkSubmitInfo2 submit_info{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .waitSemaphoreInfoCount = wait != nullptr ? 1u : 0u,
+        .pWaitSemaphoreInfos = wait,
+        .commandBufferInfoCount = command_count,
+        .pCommandBufferInfos = commands.data(),
+        .signalSemaphoreInfoCount = signal_count,
+        .pSignalSemaphoreInfos = signals.data(),
+    };
+    check(vkQueueSubmit2(queue_, 1, &submit_info, VK_NULL_HANDLE), "vkQueueSubmit2");
+    context_.submitted = value;
+    return value;
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -233,13 +313,19 @@ VulkanDevice::~VulkanDevice() {
     }
     vkDeviceWaitIdle(device_);
     swapchain_.reset();
+    const usize leftover = context_.deletion.size();
+    context_.deletion.flush();
+    if (leftover > 0) {
+        log::debug("Vulkan: {} Objekte beim Beenden aus der Löschliste freigegeben", leftover);
+    }
+    uploader_.destroy();
     for (FrameData& frame : frames_) {
         vkDestroySemaphore(device_, frame.image_available, nullptr);
-        vkDestroyFence(device_, frame.in_flight, nullptr);
         vkDestroyCommandPool(device_, frame.pool, nullptr);
     }
-    vkDestroyFence(device_, immediate_fence_, nullptr);
     vkDestroyCommandPool(device_, immediate_pool_, nullptr);
+    vkDestroySemaphore(device_, context_.timeline, nullptr);
+    context_.bindless.destroy();
     if (allocator_ != nullptr) {
         vmaDestroyAllocator(allocator_);
     }
@@ -252,8 +338,6 @@ std::optional<Frame> VulkanDevice::begin_frame() {
         return std::nullopt;
     }
     if (swapchain_->needs_rebuild()) {
-        // Blockierend, siehe TD-03.
-        vkDeviceWaitIdle(device_);
         if (auto result = swapchain_->rebuild(); !result) {
             log::error("{}", result.error());
             return std::nullopt;
@@ -263,9 +347,11 @@ std::optional<Frame> VulkanDevice::begin_frame() {
         }
     }
 
+    // Der Frame mit demselben Platz muss fertig sein, bevor sein Command Buffer und sein
+    // Semaphor wiederverwendet werden.
     FrameData& frame = frames_[frame_index_];
-    check(vkWaitForFences(device_, 1, &frame.in_flight, VK_TRUE, std::numeric_limits<u64>::max()),
-          "vkWaitForFences");
+    context_.wait(frame.submitted);
+    collect();
 
     const std::optional<u32> image_index = swapchain_->acquire(frame.image_available);
     if (!image_index) {
@@ -273,8 +359,6 @@ std::optional<Frame> VulkanDevice::begin_frame() {
     }
     image_index_ = *image_index;
 
-    // Erst nach erfolgreichem Acquire zurücksetzen, sonst wartet der nächste Frame ewig.
-    check(vkResetFences(device_, 1, &frame.in_flight), "vkResetFences");
     check(vkResetCommandBuffer(frame.cmd, 0), "vkResetCommandBuffer");
     const VkCommandBufferBeginInfo begin_info{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -283,42 +367,21 @@ std::optional<Frame> VulkanDevice::begin_frame() {
     check(vkBeginCommandBuffer(frame.cmd, &begin_info), "vkBeginCommandBuffer");
     frame_commands_.reset(frame.cmd);
 
-    VulkanTexture& backbuffer = swapchain_->backbuffer(image_index_);
-    // Der alte Inhalt wird nicht gebraucht; das spart einen Übergang mit Kopie.
-    backbuffer.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    return Frame{frame_commands_, backbuffer, frame_index_};
+    return Frame{frame_commands_, swapchain_->backbuffer(image_index_), frame_index_};
 }
 
 void VulkanDevice::end_frame() {
     FrameData& frame = frames_[frame_index_];
-    VulkanTexture& backbuffer = swapchain_->backbuffer(image_index_);
-    transition(frame.cmd, backbuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     check(vkEndCommandBuffer(frame.cmd), "vkEndCommandBuffer");
 
+    // Das Bild ist erst nach dem Acquire frei; vorher darf nichts hineinschreiben. Die erste
+    // Barriere auf den Backbuffer wartet auf alle Stufen und hängt damit an dieser Wartestufe.
     const VkSemaphoreSubmitInfo wait{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
         .semaphore = frame.image_available,
-        .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-    };
-    const VkSemaphoreSubmitInfo signal{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = swapchain_->render_finished(image_index_),
         .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
     };
-    const VkCommandBufferSubmitInfo command{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-        .commandBuffer = frame.cmd,
-    };
-    const VkSubmitInfo2 submit{
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        .waitSemaphoreInfoCount = 1,
-        .pWaitSemaphoreInfos = &wait,
-        .commandBufferInfoCount = 1,
-        .pCommandBufferInfos = &command,
-        .signalSemaphoreInfoCount = 1,
-        .pSignalSemaphoreInfos = &signal,
-    };
-    check(vkQueueSubmit2(queue_, 1, &submit, frame.in_flight), "vkQueueSubmit2");
+    frame.submitted = submit(frame.cmd, &wait, swapchain_->render_finished(image_index_));
     swapchain_->present(queue_, image_index_);
 
     frame_index_ = (frame_index_ + 1) % vulkan::frames_in_flight;
@@ -332,30 +395,21 @@ void VulkanDevice::execute(const std::function<void(CommandList&)>& record) {
     };
     check(vkBeginCommandBuffer(immediate_cmd_, &begin_info), "vkBeginCommandBuffer");
 
-    VulkanCommandList commands;
+    VulkanCommandList commands{context_.bindless};
     commands.reset(immediate_cmd_);
     record(commands);
 
     check(vkEndCommandBuffer(immediate_cmd_), "vkEndCommandBuffer");
-    const VkCommandBufferSubmitInfo command{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-        .commandBuffer = immediate_cmd_,
-    };
-    const VkSubmitInfo2 submit{
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        .commandBufferInfoCount = 1,
-        .pCommandBufferInfos = &command,
-    };
-    // Blockierend, siehe TD-03.
-    check(vkQueueSubmit2(queue_, 1, &submit, immediate_fence_), "vkQueueSubmit2");
-    check(vkWaitForFences(device_, 1, &immediate_fence_, VK_TRUE, std::numeric_limits<u64>::max()),
-          "vkWaitForFences");
-    check(vkResetFences(device_, 1, &immediate_fence_), "vkResetFences");
+    // Wartet absichtlich: execute() ist für Werkzeuge und Tests gedacht, nicht für Frames.
+    context_.wait(submit(immediate_cmd_, nullptr, VK_NULL_HANDLE));
+    collect();
 }
 
-std::vector<u8> VulkanDevice::read_texture(Texture& texture) {
-    auto& source = static_cast<VulkanTexture&>(texture);
+std::vector<u8> VulkanDevice::read_texture(Texture& texture, ResourceState state) {
+    const auto& source = static_cast<const VulkanTexture&>(texture);
     verify(!is_depth(source.format()), "Tiefenpuffer lassen sich nicht auslesen");
+    verify(has(source.usage(), TextureUsage::TransferSrc), "read_texture() braucht TransferSrc");
+    verify(state != ResourceState::Undefined, "read_texture(): Inhalt ist undefiniert");
     const Extent2D extent = source.extent();
     const VkDeviceSize size =
         VkDeviceSize{extent.width} * extent.height * bytes_per_pixel(source.format());
@@ -379,7 +433,7 @@ std::vector<u8> VulkanDevice::read_texture(Texture& texture) {
 
     execute([&](CommandList& commands) {
         const VkCommandBuffer cmd = static_cast<VulkanCommandList&>(commands).handle();
-        transition(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        commands.barrier(source, state, ResourceState::TransferSrc);
         const VkBufferImageCopy region{
             .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
             .imageExtent = {extent.width, extent.height, 1},
@@ -400,6 +454,9 @@ std::vector<u8> VulkanDevice::read_texture(Texture& texture) {
             .pMemoryBarriers = &barrier,
         };
         vkCmdPipelineBarrier2(cmd, &dependency);
+        if (state != ResourceState::TransferSrc) {
+            commands.barrier(source, ResourceState::TransferSrc, state);
+        }
     });
 
     check(vmaInvalidateAllocation(allocator_, allocation, 0, VK_WHOLE_SIZE),

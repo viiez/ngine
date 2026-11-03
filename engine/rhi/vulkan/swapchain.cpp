@@ -16,6 +16,7 @@ module ngine.rhi.vulkan;
 import ngine.core;
 import ngine.rhi;
 import :common;
+import :context;
 import :resources;
 import :swapchain;
 
@@ -112,12 +113,10 @@ std::expected<void, std::string> Swapchain::rebuild() {
         return std::unexpected(failed("vkCreateSwapchainKHR", result));
     }
 
-    destroy_images();
-    if (old_swapchain != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device_, old_swapchain, nullptr);
-    }
+    retire();
     swapchain_ = new_swapchain;
     format_ = from_vk(surface_format.format);
+    extent_ = {extent.width, extent.height};
     dirty_ = false;
 
     u32 count = 0;
@@ -131,10 +130,12 @@ std::expected<void, std::string> Swapchain::rebuild() {
         if (!view) {
             return std::unexpected(std::move(view).error());
         }
-        // Die Bilder gehören der Swapchain und haben deshalb keine eigene Allokation.
-        backbuffers_.push_back(
-            std::make_unique<VulkanTexture>(device_, nullptr, image, nullptr, *view,
-                                            Extent2D{extent.width, extent.height}, format_));
+        // Die Bilder gehören der Swapchain und haben deshalb keine eigene Allokation. Ihre Views
+        // werden so spät frei wie die Swapchain selbst (siehe retire()).
+        backbuffers_.push_back(std::make_unique<VulkanTexture>(
+            *context_,
+            TextureDesc{.extent = extent_, .format = format_, .usage = TextureUsage::RenderTarget},
+            VulkanTexture::Parts{.image = image, .view = *view, .retire_delay = frames_in_flight}));
 
         VkSemaphore semaphore = VK_NULL_HANDLE;
         check(vkCreateSemaphore(device_, &semaphore_info, nullptr, &semaphore),
@@ -181,19 +182,27 @@ void Swapchain::present(VkQueue queue, u32 image_index) {
     }
 }
 
-void Swapchain::destroy_images() {
+void Swapchain::retire() {
+    // Die Timeline zählt nur Abgaben, nicht die Präsentation. Deshalb wartet die Freigabe noch
+    // frames_in_flight weitere Abgaben ab: Bis dahin hat die Queue die Präsentationen der alten
+    // Bilder längst abgearbeitet, die vor diesen Abgaben eingereiht wurden.
     backbuffers_.clear();
-    for (VkSemaphore semaphore : render_finished_) {
-        vkDestroySemaphore(device_, semaphore, nullptr);
-    }
+    context_->retire(
+        [device = device_, swapchain = swapchain_, semaphores = std::move(render_finished_)] {
+            for (VkSemaphore semaphore : semaphores) {
+                vkDestroySemaphore(device, semaphore, nullptr);
+            }
+            if (swapchain != VK_NULL_HANDLE) {
+                vkDestroySwapchainKHR(device, swapchain, nullptr);
+            }
+        },
+        frames_in_flight);
     render_finished_.clear();
+    swapchain_ = VK_NULL_HANDLE;
 }
 
 Swapchain::~Swapchain() {
-    destroy_images();
-    if (swapchain_ != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-    }
+    retire();
 }
 
 } // namespace ngine::rhi::vulkan

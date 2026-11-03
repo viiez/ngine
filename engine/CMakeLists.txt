@@ -12,6 +12,7 @@ add_subdirectory(script)
 add_subdirectory(net)
 add_subdirectory(replication)
 add_subdirectory(rhi)
+add_subdirectory(render)
 add_subdirectory(shaders)
 
 if(NGINE_WITH_WINDOW)

@@ -13,22 +13,24 @@ module ngine.rhi.vulkan:swapchain;
 
 import ngine.core;
 import ngine.rhi;
+import :common;
+import :context;
 import :resources;
 
 namespace ngine::rhi::vulkan {
 
 class Swapchain {
 public:
-    Swapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
-              Extent2D requested_extent, bool vsync)
-        : physical_device_{physical_device}, device_{device}, surface_{surface},
-          requested_extent_{requested_extent}, vsync_{vsync} {}
+    Swapchain(DeviceContext& context, VkSurfaceKHR surface, Extent2D requested_extent, bool vsync)
+        : context_{&context}, physical_device_{context.physical_device}, device_{context.device},
+          surface_{surface}, requested_extent_{requested_extent}, vsync_{vsync} {}
     ~Swapchain();
     Swapchain(const Swapchain&) = delete;
     Swapchain& operator=(const Swapchain&) = delete;
 
-    // Baut die Swapchain (neu) auf. Die GPU darf ihre Bilder nicht mehr benutzen.
-    // Bei minimiertem Fenster bleibt needs_rebuild() wahr.
+    // Baut die Swapchain (neu) auf, ohne auf die GPU zu warten (TD-03): Die alte Swapchain geht
+    // als oldSwapchain an den Treiber und kommt mit ihren Bildern und Semaphoren in die
+    // Löschliste. Bei minimiertem Fenster bleibt needs_rebuild() wahr.
     [[nodiscard]] std::expected<void, std::string> rebuild();
     [[nodiscard]] bool needs_rebuild() const {
         return swapchain_ == VK_NULL_HANDLE || dirty_;
@@ -54,10 +56,15 @@ public:
     [[nodiscard]] Format format() const {
         return format_;
     }
+    [[nodiscard]] Extent2D extent() const {
+        return extent_;
+    }
 
 private:
-    void destroy_images();
+    // Gibt Swapchain, Bilder und Semaphoren über die Löschliste frei.
+    void retire();
 
+    DeviceContext* context_;
     VkPhysicalDevice physical_device_;
     VkDevice device_;
     VkSurfaceKHR surface_;
@@ -66,6 +73,7 @@ private:
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     Format format_ = Format::Unknown;
+    Extent2D extent_;
     bool dirty_ = false;
     std::vector<std::unique_ptr<VulkanTexture>> backbuffers_;
     std::vector<VkSemaphore> render_finished_;

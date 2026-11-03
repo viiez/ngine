@@ -21,12 +21,25 @@ export namespace ngine::rhi {
 template <typename T>
 using Result = std::expected<T, std::string>;
 
-enum class Format : u8 { Unknown, RGBA8Unorm, BGRA8Unorm, RGBA8Srgb, BGRA8Srgb, D32Float };
-enum class ShaderStage : u8 { Vertex, Fragment };
+enum class Format : u8 {
+    Unknown,
+    RGBA8Unorm,
+    BGRA8Unorm,
+    RGBA8Srgb,
+    BGRA8Srgb,
+    RGBA16Float,
+    R32Float,
+    D32Float,
+};
+enum class ShaderStage : u8 { Vertex, Fragment, Compute };
 enum class DeviceType : u8 { Other, Integrated, Discrete, Virtual, Cpu };
 
 [[nodiscard]] constexpr u32 bytes_per_pixel(Format format) noexcept {
-    return format == Format::Unknown ? 0 : 4;
+    switch (format) {
+    case Format::Unknown: return 0;
+    case Format::RGBA16Float: return 8;
+    default: return 4;
+    }
 }
 
 [[nodiscard]] constexpr bool is_depth(Format format) noexcept {
@@ -35,6 +48,34 @@ enum class DeviceType : u8 { Other, Integrated, Discrete, Virtual, Cpu };
 
 // Größe der Push Constants, die jede Pipeline anbietet (Mindestwert, den Vulkan garantiert).
 inline constexpr u32 max_push_constant_size = 128;
+
+// Index im bindlosen Descriptor-Satz, den eine Ressource ohne passende Verwendung hat.
+inline constexpr u32 invalid_index = ~u32{0};
+
+// Wie eine Ressource gerade benutzt wird. Barrieren beschreiben Übergänge zwischen zwei
+// Zuständen; das Backend leitet daraus Pipeline-Stufen, Zugriffe und Layouts ab.
+enum class ResourceState : u8 {
+    // Inhalt wird nicht gebraucht. Nur als Vorher-Zustand erlaubt.
+    Undefined,
+    ColorTarget,
+    DepthTarget,
+    // Tiefenpuffer, der getestet, aber nicht geschrieben wird. Zum Lesen im Shader: ShaderRead.
+    DepthRead,
+    // Lesen in einem beliebigen Shader: Texturen über den bindlosen Satz, Puffer über ihre Adresse.
+    ShaderRead,
+    // Lesen und Schreiben in einem beliebigen Shader (Storage-Texturen und -Puffer).
+    ShaderWrite,
+    IndexRead,
+    TransferSrc,
+    TransferDst,
+    // Bereit für die Präsentation (nur Swapchain-Bilder).
+    Present,
+};
+
+[[nodiscard]] constexpr bool is_write(ResourceState state) noexcept {
+    return state == ResourceState::ColorTarget || state == ResourceState::DepthTarget ||
+           state == ResourceState::ShaderWrite || state == ResourceState::TransferDst;
+}
 
 struct Extent2D {
     u32 width = 0;
@@ -94,17 +135,55 @@ public:
     virtual ~Resource() = default;
 };
 
+enum class TextureUsage : u8 {
+    // Farbziel bzw. Tiefenpuffer beim Zeichnen.
+    RenderTarget = 1,
+    // Im Shader über sampled_index() lesbar.
+    Sampled = 2,
+    // Im Shader über storage_index() les- und schreibbar.
+    Storage = 4,
+    TransferSrc = 8,
+    TransferDst = 16,
+};
+
+[[nodiscard]] constexpr TextureUsage operator|(TextureUsage a, TextureUsage b) noexcept {
+    return static_cast<TextureUsage>(static_cast<u8>(a) | static_cast<u8>(b));
+}
+[[nodiscard]] constexpr bool has(TextureUsage set, TextureUsage flag) noexcept {
+    return (static_cast<u8>(set) & static_cast<u8>(flag)) != 0;
+}
+
 struct TextureDesc {
     Extent2D extent;
     Format format = Format::RGBA8Unorm;
+    TextureUsage usage = TextureUsage::RenderTarget | TextureUsage::TransferSrc;
 };
 
-// Bisher nur als Render-Ziel nutzbar: Farbformate lassen sich auslesen, Tiefenformate dienen als
-// Tiefenpuffer.
+// 2D-Textur ohne Mipmaps. Eine neue Textur ist im Zustand Undefined. Mit Sampled oder Storage hat
+// sie einen festen Index im bindlosen Descriptor-Satz, über den Shader sie erreichen.
 class Texture : public Resource {
 public:
     [[nodiscard]] virtual Extent2D extent() const = 0;
     [[nodiscard]] virtual Format format() const = 0;
+    [[nodiscard]] virtual TextureUsage usage() const = 0;
+    // Index im Feld der lesbaren Texturen (zu lesen im Zustand ShaderRead), sonst invalid_index.
+    [[nodiscard]] virtual u32 sampled_index() const = 0;
+    // Index im Feld der Storage-Texturen (im Zustand ShaderWrite), sonst invalid_index.
+    [[nodiscard]] virtual u32 storage_index() const = 0;
+};
+
+enum class Filter : u8 { Nearest, Linear };
+enum class AddressMode : u8 { Repeat, ClampToEdge };
+
+struct SamplerDesc {
+    Filter filter = Filter::Linear;
+    AddressMode address = AddressMode::Repeat;
+};
+
+// Sampler im bindlosen Descriptor-Satz.
+class Sampler : public Resource {
+public:
+    [[nodiscard]] virtual u32 index() const = 0;
 };
 
 enum class BufferUsage : u8 {
@@ -121,18 +200,28 @@ enum class BufferUsage : u8 {
     return (static_cast<u8>(set) & static_cast<u8>(flag)) != 0;
 }
 
+enum class MemoryUsage : u8 {
+    // Schneller Speicher der GPU; beschrieben wird nur über Device::upload().
+    Gpu,
+    // Speicher, den die CPU direkt über Buffer::write() beschreibt. Mit Resizable BAR liegt er auf
+    // der GPU, sonst im Systemspeicher.
+    CpuWrite,
+};
+
 struct BufferDesc {
     u64 size = 0;
     BufferUsage usage = BufferUsage::Storage;
+    MemoryUsage memory = MemoryUsage::CpuWrite;
 };
 
-// GPU-Puffer, den die CPU direkt beschreibt (TD-11: noch ohne Staging in reinen GPU-Speicher).
-// Shader lesen ihn über device_address(). Wer ihn ändert, während die GPU ihn noch liest, muss
-// selbst warten oder pro Frame im Flug einen eigenen Puffer nehmen (Frame::index).
+// GPU-Puffer. Shader lesen ihn über device_address().
 class Buffer : public Resource {
 public:
     [[nodiscard]] virtual u64 size() const = 0;
     [[nodiscard]] virtual u64 device_address() const = 0;
+    [[nodiscard]] virtual MemoryUsage memory() const = 0;
+    // Nur für MemoryUsage::CpuWrite. Wer ihn ändert, während die GPU ihn noch liest, muss selbst
+    // warten oder pro Frame im Flug einen eigenen Puffer nehmen (Frame::index).
     virtual void write(u64 offset, std::span<const std::byte> data) = 0;
 };
 
@@ -147,8 +236,9 @@ class Shader : public Resource {};
 enum class CullMode : u8 { None, Back };
 
 // Dreiecke gegen den Uhrzeigersinn sind Vorderseiten. Geometrie kommt nicht über Vertex-Attribute,
-// sondern liest der Shader selbst aus Puffern (ADR 0022). Jede Pipeline hat
-// max_push_constant_size Bytes Push Constants für alle Stufen.
+// sondern liest der Shader selbst aus Puffern (ADR 0022). Alle Pipelines teilen ein Layout: den
+// bindlosen Descriptor-Satz (Satz 0, siehe bindless.slang) und max_push_constant_size Bytes Push
+// Constants für alle Stufen.
 struct GraphicsPipelineDesc {
     const Shader* vertex = nullptr;
     const Shader* fragment = nullptr;
@@ -158,7 +248,23 @@ struct GraphicsPipelineDesc {
     CullMode cull_mode = CullMode::None;
 };
 
+struct ComputePipelineDesc {
+    const Shader* compute = nullptr;
+};
+
 class Pipeline : public Resource {};
+
+struct TextureBarrier {
+    const Texture* texture = nullptr;
+    ResourceState before = ResourceState::Undefined;
+    ResourceState after = ResourceState::Undefined;
+};
+
+struct BufferBarrier {
+    const Buffer* buffer = nullptr;
+    ResourceState before = ResourceState::Undefined;
+    ResourceState after = ResourceState::Undefined;
+};
 
 struct RenderingDesc {
     Texture* color = nullptr;
@@ -176,7 +282,18 @@ public:
     CommandList& operator=(const CommandList&) = delete;
     virtual ~CommandList() = default;
 
-    // Beginnt das Zeichnen. Viewport und Scissor decken das ganze Farbziel ab; die y-Achse zeigt
+    // Übergänge zwischen Zuständen. Die CommandList merkt sich keine Zustände; wer aufzeichnet,
+    // kennt sie (meist der Render-Graph). Auch zwischen zwei schreibenden Nutzungen im selben
+    // Zustand ist eine Barriere nötig.
+    virtual void barrier(std::span<const TextureBarrier> textures,
+                         std::span<const BufferBarrier> buffers = {}) = 0;
+    void barrier(const Texture& texture, ResourceState before, ResourceState after) {
+        const TextureBarrier one{.texture = &texture, .before = before, .after = after};
+        barrier(std::span{&one, 1});
+    }
+
+    // Beginnt das Zeichnen. Farbziel und Tiefenpuffer müssen in den Zuständen ColorTarget bzw.
+    // DepthTarget sein. Viewport und Scissor decken das ganze Farbziel ab; die y-Achse zeigt
     // nach oben, die Tiefe läuft von 0 (nah) bis 1 (fern).
     virtual void begin_rendering(const RenderingDesc& desc) = 0;
     void begin_rendering(Texture& target, std::optional<Color> clear) {
@@ -189,16 +306,22 @@ public:
     virtual void bind_index_buffer(const Buffer& buffer) = 0;
     virtual void draw(u32 vertex_count, u32 instance_count = 1) = 0;
     virtual void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0) = 0;
+    // Nur mit gebundener Compute-Pipeline, außerhalb von begin_rendering().
+    virtual void dispatch(u32 groups_x, u32 groups_y = 1, u32 groups_z = 1) = 0;
 };
 
 struct Frame {
     CommandList& commands;
+    // Zu Beginn im Zustand Undefined; vor end_frame() muss es im Zustand Present sein.
     Texture& backbuffer;
     // Platz dieses Frames unter den Frames im Flug (0 bis frames_in_flight() - 1). Ressourcen, die
     // der Frame mit demselben Index benutzt hat, sind jetzt wieder frei.
     u32 index = 0;
 };
 
+// Ein Device darf nur von einem Thread zugleich benutzt werden. Ressourcen dürfen jederzeit
+// zerstört werden, auch wenn ein Frame im Flug sie noch benutzt: Das Device gibt sie erst frei,
+// wenn die GPU damit fertig ist.
 class Device {
 public:
     Device() = default;
@@ -213,7 +336,19 @@ public:
     [[nodiscard]] virtual Result<std::unique_ptr<Shader>> create_shader(const ShaderDesc& desc) = 0;
     [[nodiscard]] virtual Result<std::unique_ptr<Pipeline>>
     create_pipeline(const GraphicsPipelineDesc& desc) = 0;
+    [[nodiscard]] virtual Result<std::unique_ptr<Pipeline>>
+    create_compute_pipeline(const ComputePipelineDesc& desc) = 0;
     [[nodiscard]] virtual Result<std::unique_ptr<Buffer>> create_buffer(const BufferDesc& desc) = 0;
+    [[nodiscard]] virtual Result<std::unique_ptr<Sampler>>
+    create_sampler(const SamplerDesc& desc) = 0;
+
+    // Kopiert Daten über Staging-Speicher in einen Puffer, ohne auf die GPU zu warten. Die Kopie
+    // läuft vor der nächsten Abgabe (end_frame() oder execute()) und ist für alles danach
+    // sichtbar; GPU-Arbeit davor ist mit dem Puffer fertig, bevor die Kopie ihn überschreibt.
+    virtual void upload(Buffer& buffer, u64 offset, std::span<const std::byte> data) = 0;
+    // Wie oben für eine ganze Textur mit TransferDst (Zeilen ohne Abstand). Danach ist sie im
+    // Zustand ShaderRead.
+    virtual void upload(Texture& texture, std::span<const std::byte> data) = 0;
 
     // Bildschirmausgabe, nur mit Surface. begin_frame() liefert nichts, solange gerade
     // nicht gezeichnet werden kann (z. B. minimiertes Fenster).
@@ -223,10 +358,12 @@ public:
     virtual void end_frame() = 0;
     virtual void resize(Extent2D extent) = 0;
 
-    // Führt Befehle sofort aus und wartet, bis die GPU fertig ist.
+    // Führt Befehle sofort aus und wartet, bis die GPU fertig ist. Für Werkzeuge und Tests;
+    // Frames laufen über begin_frame() und end_frame().
     virtual void execute(const std::function<void(CommandList&)>& record) = 0;
-    // Liest eine Textur zurück, Zeile für Zeile ohne Abstand.
-    [[nodiscard]] virtual std::vector<u8> read_texture(Texture& texture) = 0;
+    // Liest eine Textur mit TransferSrc zurück, Zeile für Zeile ohne Abstand. state ist ihr
+    // Zustand vorher und nachher.
+    [[nodiscard]] virtual std::vector<u8> read_texture(Texture& texture, ResourceState state) = 0;
 
     virtual void wait_idle() = 0;
 
