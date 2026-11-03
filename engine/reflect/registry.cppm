@@ -43,6 +43,12 @@ public:
         requires std::is_member_object_pointer_v<Member>
     TypeBuilder& field(std::string_view name, Member member);
 
+    // Markiert den Typ als nur zur Laufzeit vorhanden (TypeInfo::transient).
+    TypeBuilder& transient() noexcept {
+        info_->transient = true;
+        return *this;
+    }
+
     [[nodiscard]] const TypeInfo& info() const noexcept {
         return *info_;
     }

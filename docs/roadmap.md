@@ -6,7 +6,9 @@ Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn
 **Aktuell:** Die Phase Ausarbeitung ist abgeschlossen: Die Iterationen A1 bis A4 und die Durchstiche
 [D1](iterations/D1-voxel-meshing.md) (Voxel-Meshing), [D2](iterations/D2-csharp-hosting.md)
 (C#-Hosting) und [D3](iterations/D3-netzwerk.md) (Netzwerk) sind fertig. Als Nächstes folgt die
-Konstruktion mit R1 (Rendering-Grundlagen).
+Konstruktion mit R1 (Rendering-Grundlagen), aufgeteilt in vier Iterationen
+([Plan](iterations/R1-rendering-grundlagen.md)); [R1.1](iterations/R1.1-mathematik-und-transforms.md)
+(Mathematik und Transforms) ist in Arbeit.
 
 ## Phasen und Iterationen
 
@@ -57,7 +59,7 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 
 | Reifegrad | Inhalt |
 | --- | --- |
-| R1 Rendering-Grundlagen | Render-Graph, Bindless, Meshes aus glTF, PBR-Materialien, Kamera, Licht und Schatten; Mathematik, 64-Bit-Positionen und Transform-Propagation |
+| R1 Rendering-Grundlagen | Render-Graph, Bindless, Meshes aus glTF, PBR-Materialien, Kamera, Licht und Schatten; Mathematik, 64-Bit-Positionen und Transform-Propagation. Iterationen R1.1 Mathematik und Transforms, R1.2 Render-Graph, Bindless, GPU-Speicher, R1.3 Meshes, Materialien, Kamera, R1.4 Licht und Schatten ([Plan](iterations/R1-rendering-grundlagen.md)) |
 | R2 Welt und Editor | Szenenbaum, Inspector, Viewport, Spielen im Editor, Asset-Pipeline |
 | R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas |
 | R4 Gameplay-Systeme | Physik (Jolt), C#-Scripting vollständig, Audio, Animation |

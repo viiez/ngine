@@ -15,5 +15,5 @@ target_sources(ngine_voxel
         edit.cpp)
 
 # Läuft ohne GPU: Der Server braucht Dichtefeld und Bearbeitung, nur das Zeichnen nicht.
-target_link_libraries(ngine_voxel PUBLIC ngine::core PRIVATE ngine::profile)
+target_link_libraries(ngine_voxel PUBLIC ngine::core ngine::math PRIVATE ngine::profile)
 ngine_set_compiler_options(ngine_voxel)

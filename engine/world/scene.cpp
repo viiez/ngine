@@ -32,6 +32,9 @@ void append_subtree(const World& world, u64 entity, std::vector<u64>& out) {
 json::Value components_to_json(const World& world, u64 entity) {
     json::Value components{json::Object{}};
     auto visit = [&](const reflect::TypeInfo& type, ComponentId /*component*/, const void* data) {
+        if (type.transient) {
+            return;
+        }
         components[type.name] = serialize::to_json(data, type);
     };
     world.for_each_component(entity, ComponentVisitor{

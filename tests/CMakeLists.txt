@@ -7,6 +7,7 @@ add_executable(ngine_tests
     jobs/deque_tests.cpp
     jobs/job_system_tests.cpp
     jobs/task_graph_tests.cpp
+    math/math_tests.cpp
     memory/allocator_tests.cpp
     memory/budget_tests.cpp
     profile/profile_tests.cpp
@@ -18,12 +19,13 @@ add_executable(ngine_tests
     world/world_tests.cpp
     world/schedule_tests.cpp
     world/scene_tests.cpp
+    world/transform_tests.cpp
     voxel/voxel_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
     replication/replication_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
-    ngine::core ngine::filesystem ngine::memory ngine::jobs ngine::profile ngine::reflect
+    ngine::core ngine::filesystem ngine::math ngine::memory ngine::jobs ngine::profile ngine::reflect
     ngine::serialize ngine::world ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::shaders
     Catch2::Catch2WithMain)
 ngine_set_compiler_options(ngine_tests)

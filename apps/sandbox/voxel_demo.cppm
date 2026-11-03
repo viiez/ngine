@@ -3,7 +3,6 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -17,12 +16,13 @@ module;
 #include <vector>
 
 // Durchstich D1: ein Chunk Voxel-Terrain mit einem glatten Hügel, als Netz aus Surface Nets
-// gezeichnet und zur Laufzeit veränderbar. Wegwerf-Code: Kamera, Matrizen und das Hochladen der
-// Netze wandern in R1 in den Renderer und die Mathematik-Bibliothek.
+// gezeichnet und zur Laufzeit veränderbar. Wegwerf-Code: Kamera und das Hochladen der Netze
+// wandern in R1.2 und R1.3 in den Renderer.
 export module sandbox.voxel_demo;
 
 import ngine.core;
 import ngine.filesystem;
+import ngine.math;
 import ngine.profile;
 import ngine.rhi;
 import ngine.rhi.vulkan;
@@ -32,63 +32,35 @@ import ngine.voxel;
 namespace sandbox {
 
 using namespace ngine;
-using voxel::Vec3;
-
 namespace {
 
-constexpr f32 pi = 3.14159265359f;
+using math::DVec3;
+using math::Mat4;
+using math::Quat;
+using math::Vec3;
+using math::Vec4;
 
-// Matrix in Zeilen, so wie voxel.slang sie erwartet.
-using Mat4 = std::array<f32, 16>;
-
-Mat4 multiply(const Mat4& a, const Mat4& b) {
-    Mat4 r{};
-    for (usize row = 0; row < 4; ++row) {
-        for (usize col = 0; col < 4; ++col) {
-            f32 sum = 0.0f;
-            for (usize k = 0; k < 4; ++k) {
-                sum += a[row * 4 + k] * b[k * 4 + col];
-            }
-            r[row * 4 + col] = sum;
-        }
-    }
-    return r;
-}
-
-// Rechtshändig, y oben, Blick entlang -z, Tiefe 0 (nah) bis 1 (fern).
-Mat4 perspective(f32 fov_y, f32 aspect, f32 z_near, f32 z_far) {
-    const f32 sy = 1.0f / std::tan(fov_y * 0.5f);
-    const f32 sx = sy / aspect;
-    return {sx,
-            0.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            sy,
-            0.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            z_far / (z_near - z_far),
-            z_near * z_far / (z_near - z_far),
-            0.0f,
-            0.0f,
-            -1.0f,
-            0.0f};
-}
-
+// Freie Kamera mit 64-Bit-Position. Gezeichnet wird relativ zu ihr (ADR 0012): Die Blickmatrix
+// enthält nur die Drehung, alles andere wird vorher in 64 Bit um die Kamera verschoben. Wandert
+// in R1.3 als Komponente in den Renderer (REND-08).
 struct Camera {
-    Vec3 eye;
-    Vec3 forward;
-    Vec3 right;
-    Vec3 up;
-    f32 fov_y = 50.0f * pi / 180.0f;
+    DVec3 eye{0.0, 0.0, 0.0};
+    // Dreht -z in die Blickrichtung.
+    Quat rotation = math::quat_identity();
+    f32 fov_y = math::radians(50.0f);
 
+    [[nodiscard]] Vec3 forward() const {
+        return rotation * Vec3{0.0f, 0.0f, -1.0f};
+    }
+    [[nodiscard]] Vec3 right() const {
+        return rotation * Vec3{1.0f, 0.0f, 0.0f};
+    }
+    [[nodiscard]] Vec3 up() const {
+        return rotation * Vec3{0.0f, 1.0f, 0.0f};
+    }
+    // Von kamerarelativen Koordinaten in Kamerakoordinaten: nur die umgekehrte Drehung.
     [[nodiscard]] Mat4 view() const {
-        return {right.x,    right.y,    right.z,    -voxel::dot(right, eye),
-                up.x,       up.y,       up.z,       -voxel::dot(up, eye),
-                -forward.x, -forward.y, -forward.z, voxel::dot(forward, eye),
-                0.0f,       0.0f,       0.0f,       1.0f};
+        return math::to_mat4(math::conjugate(rotation));
     }
 
     // Strahl durch einen Bildpunkt (Ursprung oben links).
@@ -97,23 +69,20 @@ struct Camera {
         const f32 t = std::tan(fov_y * 0.5f);
         const f32 nx = 2.0f * x / static_cast<f32>(extent.width) - 1.0f;
         const f32 ny = 1.0f - 2.0f * y / static_cast<f32>(extent.height);
-        return voxel::normalize(forward + right * (nx * t * aspect) + up * (ny * t));
+        return math::normalize(forward() + right() * (nx * t * aspect) + up() * (ny * t));
     }
 };
 
-Camera look_at(Vec3 eye, Vec3 target) {
-    Camera c;
-    c.eye = eye;
-    c.forward = voxel::normalize(target - eye);
-    c.right = voxel::normalize(voxel::cross(c.forward, Vec3{0.0f, 1.0f, 0.0f}));
-    c.up = voxel::cross(c.right, c.forward);
-    return c;
+Camera look_at(DVec3 eye, DVec3 target) {
+    return Camera{.eye = eye,
+                  .rotation = math::look_rotation(math::to_f32(target - eye), Vec3{0, 1, 0})};
 }
 
 struct PushConstants {
-    Mat4 view_projection;
-    std::array<f32, 4> light;
-    std::array<f32, 4> camera;
+    // Zeilen der Matrix von Gitter- in Clip-Koordinaten, so wie voxel.slang sie liest.
+    Mat4 view_projection_rows;
+    Vec4 light;
+    Vec4 camera;
     u64 vertices;
 };
 static_assert(sizeof(PushConstants) <= rhi::max_push_constant_size);
@@ -148,7 +117,10 @@ bool ensure_capacity(rhi::Device& device, std::unique_ptr<rhi::Buffer>& buffer, 
 // Zustand der Demo: Gitter, Netz, Kamera, Pinsel und GPU-Ressourcen.
 export class VoxelScene {
 public:
-    explicit VoxelScene(u32 voxels = 32) : grid_{{voxels + 1, voxels + 1, voxels + 1}} {
+    // origin: Lage der Gitterecke in der Welt. Weit vom Ursprung zeigt die Demo, dass nichts
+    // zittert, weil relativ zur Kamera gezeichnet wird (--far).
+    explicit VoxelScene(u32 voxels = 32, DVec3 origin = DVec3{0, 0, 0})
+        : grid_{{voxels + 1, voxels + 1, voxels + 1}}, origin_{origin} {
         voxel::fill_hill(
             grid_, {.ground = 6.0f, .height = 14.0f, .radius = static_cast<f32>(voxels) * 0.28f});
         center_ = {static_cast<f32>(voxels) * 0.5f, 10.0f, static_cast<f32>(voxels) * 0.5f};
@@ -191,7 +163,7 @@ public:
         }
         brush_timer_ = 1.0f / 30.0f;
         const Vec3 direction = camera_.ray(cursor_->first, cursor_->second, viewport);
-        if (const auto hit = voxel::raycast(grid_, camera_.eye, direction, 500.0f)) {
+        if (const auto hit = voxel::raycast(grid_, eye_in_grid(), direction, 500.0f)) {
             edit({.mode = *brush_,
                   .center = hit->position,
                   .radius = 2.5f,
@@ -315,11 +287,14 @@ public:
 
         const f32 aspect =
             static_cast<f32>(extent.width) / static_cast<f32>(std::max(extent.height, 1u));
+        // Gitter in kamerarelative Koordinaten: Die Differenz zur Kamera entsteht in 64 Bit.
+        const Mat4 model = math::Affine{.translation = origin_}.relative_to(camera_.eye);
+        const Mat4 view_projection =
+            math::perspective(camera_.fov_y, aspect, 0.5f, 1000.0f) * camera_.view() * model;
         const PushConstants push{
-            .view_projection =
-                multiply(perspective(camera_.fov_y, aspect, 0.5f, 1000.0f), camera_.view()),
+            .view_projection_rows = math::transpose(view_projection),
             .light = {0.48f, 0.78f, 0.40f, 0.35f},
-            .camera = {camera_.eye.x, camera_.eye.y, camera_.eye.z, 0.003f},
+            .camera = math::extend(eye_in_grid(), 0.003f),
             .vertices = gpu.vertices ? gpu.vertices->device_address() : 0,
         };
 
@@ -341,7 +316,13 @@ private:
         const f32 pitch = 0.55f;
         const Vec3 offset{std::cos(yaw_) * std::cos(pitch), std::sin(pitch),
                           std::sin(yaw_) * std::cos(pitch)};
-        return look_at(center_ + offset * distance_, center_);
+        const DVec3 center = origin_ + math::to_f64(center_);
+        return look_at(center + math::to_f64(offset * distance_), center);
+    }
+
+    // Kameraposition in Gitterkoordinaten, für Strahltest und Beleuchtung.
+    [[nodiscard]] Vec3 eye_in_grid() const {
+        return math::to_f32(camera_.eye - origin_);
     }
 
     void upload(rhi::Device& device, GpuMesh& gpu) {
@@ -368,6 +349,7 @@ private:
     voxel::Mesh mesh_;
     u64 meshed_version_ = ~u64{0};
 
+    DVec3 origin_;
     Vec3 center_;
     f32 distance_ = 48.0f;
     f32 yaw_ = 0.6f;
@@ -439,6 +421,12 @@ rhi::Result<void> write_ppm(const std::string& path, std::span<const u8> rgba,
 
 } // namespace
 
+// Lage des Gitters in der Welt: im Ursprung oder, mit --far, 10 000 km entfernt. Dort hätte eine
+// 32-Bit-Position nur noch eine Auflösung von rund einem Meter.
+export DVec3 voxel_origin(bool far) {
+    return far ? DVec3{1.0e7, 0.0, -1.0e7} : DVec3{0, 0, 0};
+}
+
 // Ohne GPU: Hügel erzeugen, frames Änderungen anwenden und jeweils neu meshen, Zeiten messen.
 export int run_voxel_demo_headless(u64 frames) {
     log::info("Voxel-Demo ohne GPU: {} Änderungen", frames);
@@ -458,7 +446,8 @@ export int run_voxel_demo_headless(u64 frames) {
 }
 
 // Offscreen auf der GPU zeichnen, ohne Fenster: Szene ändern, zeichnen und als Bild speichern.
-export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, bool baseline) {
+export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, bool baseline,
+                                    bool far) {
     auto device = rhi::vulkan::create_device({
         .application_name = "NGine Voxel-Demo",
 #ifdef NDEBUG
@@ -482,7 +471,7 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             log::fatal("{}", target.error());
             return 1;
         }
-        VoxelScene scene;
+        VoxelScene scene{32, voxel_origin(far)};
         if (auto result = scene.create_gpu(**device, rhi::Format::RGBA8Srgb); !result) {
             log::fatal("{}", result.error());
             return 1;

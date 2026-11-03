@@ -25,14 +25,15 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version`; interne Partition `console` stellt die Windows-Konsole auf UTF-8 (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
+| `ngine.math` | `ngine::math` | Mathematik über GLM: Aliase `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-math-glm-mixed-precision.md)) | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
 | `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner; Pfade als UTF-8, Plattformcode in `user_dir_linux.cpp`/`user_dir_windows.cpp` | vorhanden |
-| `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
+| `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
-| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden | vorhanden |
-| `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU: Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
+| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-math-glm-mixed-precision.md)) | vorhanden |
+| `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
@@ -41,8 +42,8 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain) | vorhanden |
 
-Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. Neue Module
-entstehen ab R1 (Renderer, Mathematik).
+Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
+`ngine.math` (R1.1) und der Renderer (ab R1.2) dazu.
 
 ```mermaid
 flowchart BT
@@ -63,6 +64,10 @@ flowchart BT
     net["ngine.net<br/>(GameNetworkingSockets)"]
     replication["ngine.replication"]
     sandbox["Sandbox"]
+    math["ngine.math<br/>(GLM)"]
+    math --> core
+    world --> math
+    voxel --> math
     fs --> core
     reflect --> core
     serialize --> reflect
@@ -227,7 +232,12 @@ flowchart LR
 - **Entities** sind Griffe aus Welt und 64-Bit-Kennung. Kennungen tragen eine Generation, alte
   Griffe werden nach `destroy()` nicht wieder lebendig.
 - **Hierarchie** über die `ChildOf`-Beziehung von flecs: ein Elternteil pro Entity, Kinder
-  verschwinden mit dem Elternteil. Die Transform-Propagation kommt mit der Mathematik in R1.
+  verschwinden mit dem Elternteil.
+- **Transforms** ([ADR 0025](adr/0025-math-glm-mixed-precision.md)): `Transform` ist die Lage
+  relativ zum Elternteil mit 64-Bit-Position und wird gespeichert. `WorldTransform` (ein
+  `math::Affine`) kommt über `World::require()` automatisch dazu, ist `transient` und wird von
+  `update_transforms()` nach `Schedule::run()` berechnet: eine Abfrage mit Cascade
+  (`World::for_each_parent_first()`) besucht Eltern vor Kindern.
 - **Abfragen** (`world.query<const A, B>()`) merken sich ihre Tabellen. Strukturänderungen in
   `each()` werden aufgeschoben und nach der Schleife ausgeführt.
 - **Systeme** plant `Schedule` ([ADR 0019](adr/0019-systems-on-job-system.md)): Aus `const`
@@ -235,10 +245,27 @@ flowchart LR
   sammelt der Hauptthread die Chunks; in Jobs ruft niemand flecs auf. Während der Systeme sind
   Änderungen über die Welt verboten.
 - **Szenen** sind JSON ([ADR 0020](adr/0020-scene-format-json.md)) mit Datei-IDs, Eltern und
-  Komponenten nach Namen. Unbekannte Komponenten und Felder werden übersprungen.
+  Komponenten nach Namen. Unbekannte Komponenten und Felder werden übersprungen, Komponenten mit
+  `transient` gar nicht erst geschrieben.
 
 Eine Welt gehört einem Thread. Die Registry muss die Welt überleben und darf nach dem Start nicht
 mehr wachsen.
+
+### Kamerarelatives Zeichnen
+
+Weltpositionen sind 64 Bit ([ADR 0012](adr/0012-64bit-world-coordinates.md)); die GPU rechnet in
+32 Bit. Die Grenze liegt in `math::Affine::relative_to(kamera)`: Die Differenz zwischen Objekt und
+Kamera entsteht in 64 Bit, erst das kleine Ergebnis wird gerundet. Die Blickmatrix enthält nur die
+Drehung der Kamera.
+
+```mermaid
+flowchart LR
+    t["Transform<br/>DVec3, Quat, Vec3"] --> u["update_transforms()"]
+    u --> w["WorldTransform<br/>Mat3 + DVec3"]
+    w --> r["relative_to(Kamera)<br/>Differenz in 64 Bit"]
+    cam["Kamera<br/>DVec3, Quat"] --> r
+    r --> m["Mat4 in 32 Bit<br/>für die GPU"]
+```
 
 ## Voxel-Terrain
 

@@ -6,8 +6,12 @@ module;
 module ngine.voxel;
 
 import ngine.core;
+import ngine.math;
 
 namespace ngine::voxel {
+
+using math::length;
+using math::normalize;
 
 i8 quantize(f32 distance) noexcept {
     const f32 scaled = std::round(distance * density_scale);

@@ -8,9 +8,13 @@ module;
 module ngine.voxel;
 
 import ngine.core;
+import ngine.math;
 import ngine.profile;
 
 namespace ngine::voxel {
+
+using math::length;
+using math::normalize;
 
 namespace {
 

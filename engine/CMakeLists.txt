@@ -1,5 +1,6 @@
 add_subdirectory(core)
 add_subdirectory(filesystem)
+add_subdirectory(math)
 add_subdirectory(memory)
 add_subdirectory(profile)
 add_subdirectory(jobs)

@@ -13,6 +13,8 @@
 //                   (links abtragen, rechts auftragen, Mitte glätten, Rad zoomt, Leertaste hält
 //                   die Kamera an). Mit --frames ändert sich das Terrain automatisch; mit
 //                   --headless ohne GPU, mit --image <pfad> offscreen als PPM-Bild.
+//   --far           Voxel-Terrain 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen
+//                   mit 64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
 //   --net-demo      Netzwerk vorführen: Server und Client im selben Prozess über localhost
 //   --server        dedizierter Server ohne Fenster (Port mit --port, Standard 27020); ohne
@@ -63,6 +65,7 @@ struct Options {
     std::optional<std::string> client_address;
     std::optional<std::string> image_path;
     bool baseline = false;
+    bool far = false;
     std::optional<ngine::u64> frames;
 };
 
@@ -101,6 +104,8 @@ Options parse_options(std::span<char*> args) {
             options.vsync = false;
         } else if (arg == "--baseline") {
             options.baseline = true;
+        } else if (arg == "--far") {
+            options.far = true;
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u64 frames = 0;
@@ -170,7 +175,7 @@ int run_windowed(const Options& options) {
         // Voxel-Demo statt Dreieck (Durchstich D1).
         std::optional<sandbox::VoxelScene> voxels;
         if (options.voxel_demo) {
-            voxels.emplace();
+            voxels.emplace(32u, sandbox::voxel_origin(options.far));
             if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format());
                 !result) {
                 ngine::log::fatal("Voxel-Demo: {}", result.error());
@@ -306,8 +311,8 @@ int main(int argc, char** argv) {
     } else if (options.voxel_demo && options.headless) {
         exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120));
     } else if (options.voxel_demo && options.image_path) {
-        exit_code = sandbox::run_voxel_demo_offscreen(options.frames.value_or(60),
-                                                      *options.image_path, options.baseline);
+        exit_code = sandbox::run_voxel_demo_offscreen(
+            options.frames.value_or(60), *options.image_path, options.baseline, options.far);
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {

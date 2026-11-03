@@ -7,9 +7,11 @@
 #include <utility>
 
 import ngine.core;
+import ngine.math;
 import ngine.voxel;
 
 using namespace ngine;
+using namespace ngine::math;
 using namespace ngine::voxel;
 
 namespace {
