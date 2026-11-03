@@ -1,5 +1,6 @@
-// Mathematik für Spielwelt und Rendering (CORE-10). Grundlage ist GLM (ADR 0025); dieses Modul
-// legt fest, welche Typen und Funktionen die Engine nutzt, und ergänzt, was GLM nicht hat.
+// Mathematik für Spielwelt und Rendering (CORE-10, ADR 0025). Eigene, kleine Typen ohne
+// Fremdbibliothek; gerechnet wird skalar, der Compiler vektorisiert, wo es lohnt. SIMD kommt erst
+// dort, wo eine Messung es verlangt.
 //
 // Konventionen:
 //   - Rechtshändig, y zeigt nach oben, die Kamera blickt entlang -z.
@@ -7,11 +8,17 @@
 //   - Matrizen liegen spaltenweise im Speicher (m[spalte][zeile]), wie in Vulkan und GLSL.
 //   - Winkel im Bogenmaß, Tiefe im Clip-Raum von 0 bis 1 (Vulkan).
 //
-//   :types      Vektoren, Matrizen, Quaternionen und Grundfunktionen aus GLM
-//   :transform  Drehungen, Matrizen, Projektionen, Vergleiche mit Toleranz
-//   :affine     Affine: Drehung und Skalierung in 32 Bit, Verschiebung in 64 Bit (ADR 0012)
+//   :scalar      Konstanten, Winkel, Vergleich mit Toleranz
+//   :vector      Vec2, Vec3, Vec4, IVec2, IVec3 und DVec3 (64 Bit) mit Funktionen
+//   :matrix      Mat3, Mat4, DMat3, Umkehrmatrix und Determinante
+//   :quaternion  Quat für Drehungen, slerp, look_rotation
+//   :transform   compose, look_at, Projektionen
+//   :affine      Affine: Drehung und Skalierung in 32 Bit, Verschiebung in 64 Bit (ADR 0012)
 export module ngine.math;
 
-export import :types;
+export import :scalar;
+export import :vector;
+export import :matrix;
+export import :quaternion;
 export import :transform;
 export import :affine;

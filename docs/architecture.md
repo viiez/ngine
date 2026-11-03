@@ -25,14 +25,14 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version`; interne Partition `console` stellt die Windows-Konsole auf UTF-8 (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
-| `ngine.math` | `ngine::math` | Mathematik über GLM: Aliase `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-math-glm-mixed-precision.md)) | vorhanden |
+| `ngine.math` | `ngine::math` | Eigene Mathematik: `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
 | `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner; Pfade als UTF-8, Plattformcode in `user_dir_linux.cpp`/`user_dir_windows.cpp` | vorhanden |
 | `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
-| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-math-glm-mixed-precision.md)) | vorhanden |
+| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
@@ -64,7 +64,7 @@ flowchart BT
     net["ngine.net<br/>(GameNetworkingSockets)"]
     replication["ngine.replication"]
     sandbox["Sandbox"]
-    math["ngine.math<br/>(GLM)"]
+    math["ngine.math"]
     math --> core
     world --> math
     voxel --> math
@@ -233,7 +233,7 @@ flowchart LR
   Griffe werden nach `destroy()` nicht wieder lebendig.
 - **Hierarchie** über die `ChildOf`-Beziehung von flecs: ein Elternteil pro Entity, Kinder
   verschwinden mit dem Elternteil.
-- **Transforms** ([ADR 0025](adr/0025-math-glm-mixed-precision.md)): `Transform` ist die Lage
+- **Transforms** ([ADR 0025](adr/0025-own-math-mixed-precision.md)): `Transform` ist die Lage
   relativ zum Elternteil mit 64-Bit-Position und wird gespeichert. `WorldTransform` (ein
   `math::Affine`) kommt über `World::require()` automatisch dazu, ist `transient` und wird von
   `update_transforms()` nach `Schedule::run()` berechnet: eine Abfrage mit Cascade

@@ -31,7 +31,7 @@ eine Komponente.
 | CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (mit dem Render-Graph in R1), Thread-Namen, Plots | A3 / R1 | in Arbeit |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C#: `ngine.reflect` mit Builder-API ([ADR 0018](adr/0018-own-reflection.md)); Enums, Arrays und Entity-Verweise folgen bei Bedarf | A4 | fertig |
 | CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
-| CORE-10 | Mathematik | Vektoren, Matrizen, Quaternionen, Projektionen über GLM hinter `ngine.math`; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-math-glm-mixed-precision.md)) | R1.1 | in Arbeit |
+| CORE-10 | Mathematik | Eigene Vektoren, Matrizen, Quaternionen und Projektionen in `ngine.math`, gegen GLM getestet; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | R1.1 | in Arbeit |
 | CORE-11 | Ereignisse | Lose gekoppelte Nachrichten zwischen Systemen | R2 | geplant |
 | CORE-12 | Log-Datei | Sink, der in eine Datei schreibt | R2 | geplant |
 

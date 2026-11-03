@@ -3,7 +3,7 @@
 // (ADR 0003); außerhalb von world.cpp kennt niemand die Bibliothek.
 export module ngine.world;
 
-// Transforms bestehen aus Typen von ngine.math; wer die Welt nutzt, braucht deren Operatoren.
+// Transforms bestehen aus Typen von ngine.math; wer die Welt nutzt, rechnet mit dessen Funktionen.
 export import ngine.math;
 
 export import :ecs;
