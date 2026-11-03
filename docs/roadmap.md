@@ -8,7 +8,8 @@ Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn
 (C#-Hosting) und [D3](iterations/D3-netzwerk.md) (Netzwerk) sind fertig. Als Nächstes folgt die
 Konstruktion mit R1 (Rendering-Grundlagen), aufgeteilt in vier Iterationen
 ([Plan](iterations/R1-rendering-grundlagen.md)); [R1.1](iterations/R1.1-mathematik-und-transforms.md)
-(Mathematik und Transforms) ist in Arbeit.
+(Mathematik und Transforms) ist abgeschlossen, als Nächstes folgt R1.2 (Render-Graph, Bindless,
+GPU-Speicher).
 
 ## Phasen und Iterationen
 

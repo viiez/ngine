@@ -1,6 +1,6 @@
 # 0025: Eigene Mathematik in `ngine.math`, Weltlage mit gemischter Genauigkeit
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-03
 
 ## Kontext
