@@ -22,7 +22,8 @@ und Windows, freie Lizenz ohne Gebühren, aktiv gepflegt, schmale API.
 | C#-Laufzeit | .NET 10 über hostfxr (dynamisch geladen, ohne nethost) | `ngine::script::ScriptRuntime` | im Einsatz (D2) | Offizieller Weg für aktuelles .NET, Hot Reload ([ADR 0006](adr/0006-csharp-scripting-dotnet.md), [ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)) | Mono, NativeAOT, nethost, Coral als Vorlage |
 | Netzwerk | GameNetworkingSockets (vcpkg, ohne ICE) | `ngine::net::Transport` | im Einsatz (D3) | UDP mit Zuverlässigkeit und Verschlüsselung, BSD | ENet, yojimbo |
 | Editor-UI | Dear ImGui (Docking) | `EditorUI` | geplant (R2) | Standard für Engine-Werkzeuge | Qt, RmlUi, eigenes UI |
-| glTF | fastgltf | Importer | geplant (R1) | Sehr schnell, modernes C++ | cgltf, tinygltf, Assimp |
-| Texturen | KTX-Software, stb_image | Importer | geplant (R1) | KTX2 mit Basis Universal; PNG/JPG als Quelle | DDS mit DirectXTex |
+| glTF | fastgltf 0.9 (mit simdjson) | `ngine::asset::load_gltf()`, Adapter `gltf_fastgltf.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | im Einsatz (R1.3) | Sehr schnell, modernes C++, typsichere Accessoren; MIT | cgltf, tinygltf, Assimp |
+| Bilder | stb_image | `ngine::asset::decode_image()`, Adapter `image_stb.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | im Einsatz (R1.3) | PNG und JPEG als Quelle, eine Datei, Public Domain | libpng und libjpeg-turbo, WIC |
+| Texturen | KTX-Software | Importer | geplant (R2) | KTX2 mit Basis Universal, mit der Asset-Pipeline | DDS mit DirectXTex |
 | Physik | Jolt Physics | `PhysicsWorld` | geplant (R4) | Modern, mehrkernfähig, MIT | PhysX 5, Bullet |
 | Audio | miniaudio | `AudioDevice` | geplant (R4) | Eine Datei, Public Domain, 3D-Klang | FMOD, Wwise, OpenAL Soft |
