@@ -1,6 +1,6 @@
 # 0027: glTF über fastgltf, Bilder über stb_image, Materialien als Feld im GPU-Speicher
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-04
 
 ## Kontext

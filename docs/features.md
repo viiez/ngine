@@ -28,7 +28,7 @@ eine Komponente.
 | CORE-04 | Prüfungen | `ngine::verify()` bricht mit Meldung, Datei und Zeile ab | A2 | fertig |
 | CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen: Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | A3 | fertig |
 | CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking (`ngine.memory`, `std::pmr`) | A3 | fertig |
-| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (pro Pass des Render-Graphs über Zeitstempel, `render::GpuProfiler`, R1.3), Thread-Namen, Plots | A3 / R1.3 | in Arbeit |
+| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (pro Pass des Render-Graphs über Zeitstempel, `render::GpuProfiler`, R1.3), Thread-Namen, Plots | A3 / R1.3 | fertig |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C#: `ngine.reflect` mit Builder-API ([ADR 0018](adr/0018-own-reflection.md)); Enums, Arrays und Entity-Verweise folgen bei Bedarf | A4 | fertig |
 | CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
 | CORE-10 | Mathematik | Eigene Vektoren, Matrizen, Quaternionen und Projektionen in `ngine.math`, gegen GLM getestet; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | R1.1 | fertig |
@@ -57,8 +57,8 @@ eine Komponente.
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
 | REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren, Verwerfen und transiente Texturen automatisch (`ngine.render`, [ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
 | REND-06 | Bindless | Texturen und Sampler über Indizes in einem Descriptor-Satz statt Sätzen pro Draw ([ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
-| REND-07 | PBR-Materialien | glTF Metallic-Roughness mit GGX, Smith und Schlick; Materialien als Feld im GPU-Speicher mit bindlosen Texturen (`MaterialStore`, [ADR 0027](adr/0027-gltf-assets-material-store.md)); Alpha-Maske und unsortiertes Überblenden | R1.3 | in Arbeit |
-| REND-08 | Kamera | Komponente `Camera` mit umgekehrter Tiefe und unendlicher Ferne, kamerarelativ über `WorldTransform`; freie Steuerung in der Sandbox | R1.3 | in Arbeit |
+| REND-07 | PBR-Materialien | glTF Metallic-Roughness mit GGX, Smith und Schlick; Materialien als Feld im GPU-Speicher mit bindlosen Texturen (`MaterialStore`, [ADR 0027](adr/0027-gltf-assets-material-store.md)); Alpha-Maske und unsortiertes Überblenden | R1.3 | fertig |
+| REND-08 | Kamera | Komponente `Camera` mit umgekehrter Tiefe und unendlicher Ferne, kamerarelativ über `WorldTransform`; freie Steuerung in der Sandbox | R1.3 | fertig |
 | REND-09 | Licht und Schatten | Sonne mit Cascaded Shadow Maps, Punkt- und Spotlichter | R1 | geplant |
 | REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU | R1 | Idee |
 | REND-11 | Post-Processing | Tone Mapping (Khronos PBR Neutral, Belichtung aus der Kamera, R1.3), Bloom, Farbkorrektur | R1.3 / R3 | in Arbeit |
@@ -160,7 +160,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| ASSET-01 | glTF-Import | `.gltf` und `.glb` über fastgltf in CPU-Daten (`ngine.asset`): Meshes, Materialien, Bilder, Hierarchie; Modelle als Entities ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | R1.3 | in Arbeit |
+| ASSET-01 | glTF-Import | `.gltf` und `.glb` über fastgltf in CPU-Daten (`ngine.asset`): Meshes, Materialien, Bilder, Hierarchie; Modelle als Entities ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | R1.3 | fertig |
 | ASSET-02 | Texturen | Quellbilder über stb_image mit Mip-Stufen von der GPU (R1.3); KTX2 mit Basis Universal folgt mit der Asset-Pipeline | R1.3 / R2 | in Arbeit |
 | ASSET-03 | Asset-Pipeline | Quelldaten in Laufzeitformate umwandeln („Cooking“) | R2 | geplant |
 | ASSET-04 | Ressourcen-Manager | Laden, Referenzen, Entladen, asynchron | R2 | geplant |
