@@ -14,7 +14,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [D3](D3-netzwerk.md) | Ausarbeitung | Durchstich Netzwerk | abgeschlossen |
 | [R1](R1-rendering-grundlagen.md) | Konstruktion | Reifegrad Rendering-Grundlagen (R1.1 bis R1.4) | in Arbeit |
 | [R1.1](R1.1-mathematik-und-transforms.md) | Konstruktion | Mathematik und Transforms | abgeschlossen |
-| [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) | Konstruktion | Render-Graph, Bindless, GPU-Speicher | in Arbeit |
+| [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) | Konstruktion | Render-Graph, Bindless, GPU-Speicher | abgeschlossen |
 
 ## Vorlage
 

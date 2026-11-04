@@ -10,7 +10,7 @@ Konstruktion mit R1 (Rendering-Grundlagen), aufgeteilt in vier Iterationen
 ([Plan](iterations/R1-rendering-grundlagen.md)); [R1.1](iterations/R1.1-mathematik-und-transforms.md)
 (Mathematik und Transforms) ist abgeschlossen,
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
-GPU-Speicher) ist in Arbeit.
+GPU-Speicher) ist abgeschlossen, als Nächstes folgt R1.3 (Meshes, Materialien, Kamera).
 
 ## Phasen und Iterationen
 
