@@ -15,7 +15,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R1](R1-rendering-grundlagen.md) | Konstruktion | Reifegrad Rendering-Grundlagen (R1.1 bis R1.4) | in Arbeit |
 | [R1.1](R1.1-mathematik-und-transforms.md) | Konstruktion | Mathematik und Transforms | abgeschlossen |
 | [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) | Konstruktion | Render-Graph, Bindless, GPU-Speicher | abgeschlossen |
-| [R1.3](R1.3-meshes-materialien-kamera.md) | Konstruktion | Meshes, Materialien, Kamera | in Arbeit |
+| [R1.3](R1.3-meshes-materialien-kamera.md) | Konstruktion | Meshes, Materialien, Kamera | abgeschlossen |
 
 ## Vorlage
 
