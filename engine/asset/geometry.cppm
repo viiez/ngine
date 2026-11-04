@@ -18,4 +18,8 @@ void generate_normals(std::span<Vertex> vertices, std::span<const u32> indices);
 // zur Normale gewählt.
 void generate_tangents(std::span<Vertex> vertices, std::span<const u32> indices);
 
+// Kugel um den Ursprung mit Breiten- und Längenkreisen, Dreiecke gegen den Uhrzeigersinn von
+// außen gesehen. u läuft einmal um die y-Achse, v vom Nord- (0) zum Südpol (1).
+[[nodiscard]] Primitive make_sphere(f32 radius, u32 segments = 48, u32 rings = 24);
+
 } // namespace ngine::asset

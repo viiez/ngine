@@ -13,6 +13,9 @@ ngine_compile_shader(ngine_shaders SOURCE voxel.slang ENTRY vertex_main STAGE ve
 ngine_compile_shader(ngine_shaders SOURCE voxel.slang ENTRY fragment_main STAGE fragment NAME voxel_fragment)
 ngine_compile_shader(ngine_shaders SOURCE fullscreen.slang ENTRY vertex_main STAGE vertex NAME fullscreen_vertex DEPENDS bindless.slang)
 ngine_compile_shader(ngine_shaders SOURCE fullscreen.slang ENTRY fragment_main STAGE fragment NAME fullscreen_fragment DEPENDS bindless.slang)
+ngine_compile_shader(ngine_shaders SOURCE pbr.slang ENTRY vertex_main STAGE vertex NAME pbr_vertex DEPENDS bindless.slang)
+ngine_compile_shader(ngine_shaders SOURCE pbr.slang ENTRY fragment_main STAGE fragment NAME pbr_fragment DEPENDS bindless.slang)
+ngine_compile_shader(ngine_shaders SOURCE tonemap.slang ENTRY fragment_main STAGE fragment NAME tonemap_fragment DEPENDS bindless.slang)
 ngine_compile_shader(ngine_shaders SOURCE gradient.slang ENTRY compute_main STAGE compute NAME gradient_compute DEPENDS bindless.slang)
 
 target_link_libraries(ngine_shaders PUBLIC ngine::core ngine::rhi)

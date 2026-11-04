@@ -472,3 +472,22 @@ TEST_CASE("Generated tangents follow the texture coordinates", "[asset]") {
     asset::generate_tangents(mirrored, indices);
     CHECK(mirrored[0].tangent.w == -vertices[0].tangent.w);
 }
+
+TEST_CASE("Generated spheres face outwards", "[asset]") {
+    const asset::Primitive sphere = asset::make_sphere(2.0f, 16, 8);
+    CHECK(sphere.vertices.size() == 17 * 9);
+    // Polkappen haben je ein Dreieck pro Segment, die anderen Ringe zwei.
+    CHECK(sphere.indices.size() == static_cast<usize>(3 * (16 * 2 + 16 * 6 * 2)));
+    for (const asset::Vertex& vertex : sphere.vertices) {
+        CHECK(math::length(vertex.position) == Approx(2.0f));
+        const math::Vec3 tangent{vertex.tangent.x, vertex.tangent.y, vertex.tangent.z};
+        CHECK(math::dot(tangent, vertex.normal) == Approx(0.0f).margin(1e-5f));
+    }
+    for (usize t = 0; t < sphere.indices.size(); t += 3) {
+        const math::Vec3 a = sphere.vertices[sphere.indices[t]].position;
+        const math::Vec3 b = sphere.vertices[sphere.indices[t + 1]].position;
+        const math::Vec3 c = sphere.vertices[sphere.indices[t + 2]].position;
+        // Die Flächennormale zeigt vom Mittelpunkt weg.
+        CHECK(math::dot(math::cross(b - a, c - a), a + b + c) > 0.0f);
+    }
+}

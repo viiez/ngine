@@ -86,4 +86,43 @@ void generate_tangents(std::span<Vertex> vertices, std::span<const u32> indices)
     }
 }
 
+Primitive make_sphere(f32 radius, u32 segments, u32 rings) {
+    segments = segments < 3 ? 3 : segments;
+    rings = rings < 2 ? 2 : rings;
+    constexpr f32 pi = 3.14159265358979f;
+    Primitive sphere;
+    // Eine Spalte mehr als Segmente: Die Naht hat doppelte Eckpunkte mit u = 0 und u = 1.
+    for (u32 ring = 0; ring <= rings; ++ring) {
+        const f32 v = static_cast<f32>(ring) / static_cast<f32>(rings);
+        const f32 theta = v * pi;
+        for (u32 segment = 0; segment <= segments; ++segment) {
+            const f32 u = static_cast<f32>(segment) / static_cast<f32>(segments);
+            const f32 phi = u * 2.0f * pi;
+            const Vec3 normal{std::sin(theta) * std::sin(phi), std::cos(theta),
+                              std::sin(theta) * std::cos(phi)};
+            // Tangente in Richtung wachsender u, auch an den Polen wohldefiniert.
+            const Vec3 tangent{std::cos(phi), 0.0f, -std::sin(phi)};
+            sphere.vertices.push_back({.position = normal * radius,
+                                       .normal = normal,
+                                       .tangent = {tangent.x, tangent.y, tangent.z, 1.0f},
+                                       .uv = {u, v}});
+        }
+    }
+    const u32 columns = segments + 1;
+    for (u32 ring = 0; ring < rings; ++ring) {
+        for (u32 segment = 0; segment < segments; ++segment) {
+            const u32 a = ring * columns + segment;
+            const u32 b = a + columns;
+            // a oben links, b unten links; von außen gegen den Uhrzeigersinn.
+            if (ring != 0) {
+                sphere.indices.insert(sphere.indices.end(), {a, b, a + 1});
+            }
+            if (ring != rings - 1) {
+                sphere.indices.insert(sphere.indices.end(), {a + 1, b, b + 1});
+            }
+        }
+    }
+    return sphere;
+}
+
 } // namespace ngine::asset

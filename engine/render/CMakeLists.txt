@@ -8,9 +8,19 @@ target_sources(ngine_render
             render.cppm
             pool.cppm
             graph.cppm
+            components.cppm
+            materials.cppm
+            meshes.cppm
+            renderer.cppm
     PRIVATE
         pool.cpp
-        graph.cpp)
+        graph.cpp
+        stores.cpp
+        renderer.cpp)
 
-target_link_libraries(ngine_render PUBLIC ngine::core ngine::rhi PRIVATE ngine::profile)
+# Laufzeit-Schicht: kennt die RHI (nie Vulkan), die Welt für Kamera und MeshRenderer und die
+# Ressourcen-Schicht für Modelle.
+target_link_libraries(ngine_render
+    PUBLIC ngine::core ngine::math ngine::rhi ngine::reflect ngine::world ngine::asset
+    PRIVATE ngine::profile ngine::shaders)
 ngine_set_compiler_options(ngine_render)
