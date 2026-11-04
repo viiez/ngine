@@ -5,6 +5,7 @@
   "builtin-baseline": "9126c6f1ff834e12372c5711ff3bdbca1921541c",
   "dependencies": [
     "catch2",
+    "fastgltf",
     "flecs",
     "glm",
     {
@@ -21,6 +22,7 @@
       ]
     },
     "shader-slang",
+    "stb",
     {
       "name": "tracy",
       "default-features": false,
