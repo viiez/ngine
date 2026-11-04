@@ -56,6 +56,9 @@ public:
     [[nodiscard]] TextureUsage usage() const override {
         return desc_.usage;
     }
+    [[nodiscard]] u32 mip_levels() const override {
+        return desc_.mip_levels;
+    }
     [[nodiscard]] u32 sampled_index() const override {
         return parts_.sampled_index;
     }
@@ -191,9 +194,9 @@ private:
     VkPipelineBindPoint bind_point_;
 };
 
-// Erzeugt die Image-View eines 2D-Bilds.
+// Erzeugt die Image-View eines 2D-Bilds über alle Mip-Stufen.
 [[nodiscard]] Result<VkImageView> create_view(VkDevice device, VkImage image, VkFormat format,
-                                              VkImageAspectFlags aspect);
+                                              VkImageAspectFlags aspect, u32 mip_levels = 1);
 
 [[nodiscard]] Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context,
                                                               const TextureDesc& desc);

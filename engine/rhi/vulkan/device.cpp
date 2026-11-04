@@ -179,6 +179,7 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
         return result;
     }
     context_.physical_device = physical_device_.handle;
+    context_.max_anisotropy = physical_device_.capabilities.max_anisotropy;
     context_.device = device_;
     context_.allocator = allocator_;
     context_.bindless.init(physical_device_.handle, device_);
@@ -433,6 +434,9 @@ std::vector<u8> VulkanDevice::read_texture(Texture& texture, ResourceState state
 
     execute([&](CommandList& commands) {
         const VkCommandBuffer cmd = static_cast<VulkanCommandList&>(commands).handle();
+        // Der Zielpuffer kann Speicher einer früheren Rücklese wiederverwenden; deren Kopie muss
+        // vor dieser fertig sein.
+        full_barrier(cmd);
         commands.barrier(source, state, ResourceState::TransferSrc);
         const VkBufferImageCopy region{
             .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},

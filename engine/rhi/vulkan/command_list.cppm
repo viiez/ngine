@@ -34,7 +34,7 @@ namespace ngine::rhi::vulkan {
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = texture.image(),
-        .subresourceRange = {texture.aspect(), 0, 1, 0, 1},
+        .subresourceRange = {texture.aspect(), 0, VK_REMAINING_MIP_LEVELS, 0, 1},
     };
 }
 

@@ -3,6 +3,7 @@ module;
 #include "vk.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <span>
@@ -92,7 +93,11 @@ public:
         };
         vkCmdCopyBufferToImage(cmd, slice.buffer, texture.image(),
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-        transition(ResourceState::TransferDst, ResourceState::ShaderRead);
+        if (texture.mip_levels() == 1) {
+            transition(ResourceState::TransferDst, ResourceState::ShaderRead);
+            return;
+        }
+        generate_mips(cmd, texture);
     }
 
     // Schließt die gesammelten Kopien ab. Liefert den Command Buffer für die Abgabe mit dem Wert
@@ -146,6 +151,66 @@ public:
     }
 
 private:
+    // Rechnet die Stufen 1 bis n-1 aus Stufe 0, jede per linearem Blit aus der vorigen. Vorher
+    // sind alle Stufen in TransferDst, danach in ShaderRead.
+    static void generate_mips(VkCommandBuffer cmd, const VulkanTexture& texture) {
+        const auto level_barrier = [&](u32 level, ResourceState before, ResourceState after) {
+            VkImageMemoryBarrier2 barrier = image_barrier(texture, before, after);
+            barrier.subresourceRange.baseMipLevel = level;
+            barrier.subresourceRange.levelCount = 1;
+            return barrier;
+        };
+        const auto submit = [&](std::span<const VkImageMemoryBarrier2> barriers) {
+            const VkDependencyInfo dependency{
+                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .imageMemoryBarrierCount = static_cast<u32>(barriers.size()),
+                .pImageMemoryBarriers = barriers.data(),
+            };
+            vkCmdPipelineBarrier2(cmd, &dependency);
+        };
+
+        const u32 levels = texture.mip_levels();
+        i32 width = static_cast<i32>(texture.extent().width);
+        i32 height = static_cast<i32>(texture.extent().height);
+        for (u32 level = 1; level < levels; ++level) {
+            const VkImageMemoryBarrier2 source =
+                level_barrier(level - 1, ResourceState::TransferDst, ResourceState::TransferSrc);
+            submit(std::span{&source, 1});
+            const i32 next_width = std::max(width / 2, 1);
+            const i32 next_height = std::max(height / 2, 1);
+            const VkImageBlit2 region{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+                .srcSubresource = {texture.aspect(), level - 1, 0, 1},
+                .srcOffsets = {{0, 0, 0}, {width, height, 1}},
+                .dstSubresource = {texture.aspect(), level, 0, 1},
+                .dstOffsets = {{0, 0, 0}, {next_width, next_height, 1}},
+            };
+            const VkBlitImageInfo2 blit{
+                .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+                .srcImage = texture.image(),
+                .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .dstImage = texture.image(),
+                .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .regionCount = 1,
+                .pRegions = &region,
+                .filter = VK_FILTER_LINEAR,
+            };
+            vkCmdBlitImage2(cmd, &blit);
+            width = next_width;
+            height = next_height;
+        }
+        const std::array final{
+            [&] {
+                VkImageMemoryBarrier2 barrier =
+                    image_barrier(texture, ResourceState::TransferSrc, ResourceState::ShaderRead);
+                barrier.subresourceRange.levelCount = levels - 1;
+                return barrier;
+            }(),
+            level_barrier(levels - 1, ResourceState::TransferDst, ResourceState::ShaderRead),
+        };
+        submit(final);
+    }
+
     struct Chunk {
         VkBuffer buffer = VK_NULL_HANDLE;
         VmaAllocation allocation = nullptr;

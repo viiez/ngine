@@ -65,8 +65,10 @@ TEST_CASE("Render graph runs compute and graphics passes on the GPU", "[render][
 
     auto target =
         device->create_texture({.extent = {size, size}, .format = rhi::Format::RGBA8Unorm});
-    auto sampler = device->create_sampler(
-        {.filter = rhi::Filter::Nearest, .address = rhi::AddressMode::ClampToEdge});
+    auto sampler = device->create_sampler({.mag_filter = rhi::Filter::Nearest,
+                                           .min_filter = rhi::Filter::Nearest,
+                                           .address_u = rhi::AddressMode::ClampToEdge,
+                                           .address_v = rhi::AddressMode::ClampToEdge});
     auto compute_shader = device->create_shader(shaders::gradient_compute());
     auto vertex = device->create_shader(shaders::fullscreen_vertex());
     auto fragment = device->create_shader(shaders::fullscreen_fragment());
