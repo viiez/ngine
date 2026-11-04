@@ -2,6 +2,7 @@ module;
 
 #include "vk.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -22,13 +23,13 @@ import :resources;
 namespace ngine::rhi::vulkan {
 
 Result<VkImageView> create_view(VkDevice device, VkImage image, VkFormat format,
-                                VkImageAspectFlags aspect) {
+                                VkImageAspectFlags aspect, u32 mip_levels) {
     const VkImageViewCreateInfo view_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = image,
         .viewType = VK_IMAGE_VIEW_TYPE_2D,
         .format = format,
-        .subresourceRange = {aspect, 0, 1, 0, 1},
+        .subresourceRange = {aspect, 0, mip_levels, 0, 1},
     };
     VkImageView view = VK_NULL_HANDLE;
     if (const VkResult result = vkCreateImageView(device, &view_info, nullptr, &view);
@@ -44,6 +45,14 @@ Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const Te
         return std::unexpected("Ungültige Textur-Beschreibung");
     }
     const bool depth = is_depth(desc.format);
+    if (desc.mip_levels == 0 || desc.mip_levels > full_mip_count(desc.extent)) {
+        return std::unexpected("Ungültige Zahl von Mip-Stufen");
+    }
+    const bool mipmapped = desc.mip_levels > 1;
+    if (mipmapped &&
+        (has(desc.usage, TextureUsage::RenderTarget) || has(desc.usage, TextureUsage::Storage))) {
+        return std::unexpected("Mip-Stufen nur für Texturen ohne RenderTarget und Storage");
+    }
 
     VkImageUsageFlags usage = 0;
     if (has(desc.usage, TextureUsage::RenderTarget)) {
@@ -71,13 +80,25 @@ Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const Te
     if (usage == 0) {
         return std::unexpected("Textur ohne Verwendung");
     }
+    if (mipmapped) {
+        // upload() rechnet die Stufen per Blit von Stufe zu Stufe.
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(context.physical_device, format, &properties);
+        constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+                                                VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        if ((properties.optimalTilingFeatures & needed) != needed) {
+            return std::unexpected("Für dieses Format kann die GPU keine Mip-Stufen erzeugen");
+        }
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
 
     const VkImageCreateInfo image_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = {desc.extent.width, desc.extent.height, 1},
-        .mipLevels = 1,
+        .mipLevels = desc.mip_levels,
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -93,8 +114,9 @@ Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const Te
         return std::unexpected(failed("vmaCreateImage", result));
     }
 
-    auto view = create_view(context.device, parts.image, format,
-                            depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
+    auto view =
+        create_view(context.device, parts.image, format,
+                    depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, desc.mip_levels);
     if (!view) {
         vmaDestroyImage(context.allocator, parts.image, parts.allocation);
         return std::unexpected(std::move(view).error());
@@ -182,19 +204,28 @@ Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context, const Buff
 }
 
 Result<std::unique_ptr<Sampler>> create_sampler(DeviceContext& context, const SamplerDesc& desc) {
-    const VkFilter filter = desc.filter == Filter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-    const VkSamplerAddressMode address = desc.address == AddressMode::Repeat
-                                             ? VK_SAMPLER_ADDRESS_MODE_REPEAT
-                                             : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    const auto filter = [](Filter value) {
+        return value == Filter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    };
+    const auto address = [](AddressMode mode) {
+        switch (mode) {
+        case AddressMode::MirroredRepeat: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        case AddressMode::ClampToEdge: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        default: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        }
+    };
+    const f32 anisotropy = std::clamp(desc.anisotropy, 1.0f, context.max_anisotropy);
     const VkSamplerCreateInfo sampler_info{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = filter,
-        .minFilter = filter,
-        .mipmapMode = desc.filter == Filter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
-                                                    : VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        .addressModeU = address,
-        .addressModeV = address,
-        .addressModeW = address,
+        .magFilter = filter(desc.mag_filter),
+        .minFilter = filter(desc.min_filter),
+        .mipmapMode = desc.mip_filter == Filter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                                        : VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        .addressModeU = address(desc.address_u),
+        .addressModeV = address(desc.address_v),
+        .addressModeW = address(desc.address_u),
+        .anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE,
+        .maxAnisotropy = anisotropy,
         .maxLod = VK_LOD_CLAMP_NONE,
     };
     VkSampler sampler = VK_NULL_HANDLE;
@@ -284,13 +315,27 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
     };
+    VkCompareOp compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+    switch (desc.depth_compare) {
+    case CompareOp::LessOrEqual: compare = VK_COMPARE_OP_LESS_OR_EQUAL; break;
+    case CompareOp::Greater: compare = VK_COMPARE_OP_GREATER; break;
+    case CompareOp::GreaterOrEqual: compare = VK_COMPARE_OP_GREATER_OR_EQUAL; break;
+    }
     const VkPipelineDepthStencilStateCreateInfo depth_stencil{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .depthTestEnable = with_depth ? VK_TRUE : VK_FALSE,
-        .depthWriteEnable = with_depth ? VK_TRUE : VK_FALSE,
-        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+        .depthWriteEnable = with_depth && desc.depth_write ? VK_TRUE : VK_FALSE,
+        .depthCompareOp = compare,
     };
+    const bool alpha = desc.blend == BlendMode::Alpha;
     const VkPipelineColorBlendAttachmentState blend_attachment{
+        .blendEnable = alpha ? VK_TRUE : VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .alphaBlendOp = VK_BLEND_OP_ADD,
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
     };

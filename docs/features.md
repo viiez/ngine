@@ -28,7 +28,7 @@ eine Komponente.
 | CORE-04 | Prüfungen | `ngine::verify()` bricht mit Meldung, Datei und Zeile ab | A2 | fertig |
 | CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen: Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | A3 | fertig |
 | CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking (`ngine.memory`, `std::pmr`) | A3 | fertig |
-| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (pro Pass des Render-Graphs, verschoben von R1.2 nach R1.3), Thread-Namen, Plots | A3 / R1.3 | in Arbeit |
+| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (pro Pass des Render-Graphs über Zeitstempel, `render::GpuProfiler`, R1.3), Thread-Namen, Plots | A3 / R1.3 | in Arbeit |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C#: `ngine.reflect` mit Builder-API ([ADR 0018](adr/0018-own-reflection.md)); Enums, Arrays und Entity-Verweise folgen bei Bedarf | A4 | fertig |
 | CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
 | CORE-10 | Mathematik | Eigene Vektoren, Matrizen, Quaternionen und Projektionen in `ngine.math`, gegen GLM getestet; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | R1.1 | fertig |
@@ -40,7 +40,7 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
-| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher Schließen, Escape, Leertaste und Maus (Bewegung, Tasten, Rad) | A2 / D1 / R2 | in Arbeit |
+| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher Schließen, Escape, Leertaste, W/A/S/D/Q/E/Shift mit Loslassen, Maus (Bewegung, relativer Modus, Tasten, Rad) | A2 / D1 / R1.3 / R2 | in Arbeit |
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
 | PLAT-04 | Dateisystem | Dateien lesen und atomar schreiben, Benutzerordner, UTF-8-Pfade (`ngine.filesystem`, auch ohne Fenster) | A4 | fertig |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
@@ -57,11 +57,11 @@ eine Komponente.
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
 | REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren, Verwerfen und transiente Texturen automatisch (`ngine.render`, [ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
 | REND-06 | Bindless | Texturen und Sampler über Indizes in einem Descriptor-Satz statt Sätzen pro Draw ([ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
-| REND-07 | PBR-Materialien | Physikalisch basiertes Shading, Material-Instanzen | R1 | geplant |
-| REND-08 | Kamera | Perspektive, Steuerung, kamerarelatives Rendering | R1 | geplant |
+| REND-07 | PBR-Materialien | glTF Metallic-Roughness mit GGX, Smith und Schlick; Materialien als Feld im GPU-Speicher mit bindlosen Texturen (`MaterialStore`, [ADR 0027](adr/0027-gltf-assets-material-store.md)); Alpha-Maske und unsortiertes Überblenden | R1.3 | in Arbeit |
+| REND-08 | Kamera | Komponente `Camera` mit umgekehrter Tiefe und unendlicher Ferne, kamerarelativ über `WorldTransform`; freie Steuerung in der Sandbox | R1.3 | in Arbeit |
 | REND-09 | Licht und Schatten | Sonne mit Cascaded Shadow Maps, Punkt- und Spotlichter | R1 | geplant |
 | REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU | R1 | Idee |
-| REND-11 | Post-Processing | Tone Mapping, Bloom, Farbkorrektur | R1 | geplant |
+| REND-11 | Post-Processing | Tone Mapping (Khronos PBR Neutral, Belichtung aus der Kamera, R1.3), Bloom, Farbkorrektur | R1.3 / R3 | in Arbeit |
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
 | REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling | R1 | geplant |
 | REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren | R2 | geplant |
@@ -160,8 +160,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| ASSET-01 | glTF-Import | Meshes und Materialien über fastgltf | R1 | geplant |
-| ASSET-02 | Texturen | KTX2 mit Basis Universal, Quellbilder über stb_image | R1 | geplant |
+| ASSET-01 | glTF-Import | `.gltf` und `.glb` über fastgltf in CPU-Daten (`ngine.asset`): Meshes, Materialien, Bilder, Hierarchie; Modelle als Entities ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | R1.3 | in Arbeit |
+| ASSET-02 | Texturen | Quellbilder über stb_image mit Mip-Stufen von der GPU (R1.3); KTX2 mit Basis Universal folgt mit der Asset-Pipeline | R1.3 / R2 | in Arbeit |
 | ASSET-03 | Asset-Pipeline | Quelldaten in Laufzeitformate umwandeln („Cooking“) | R2 | geplant |
 | ASSET-04 | Ressourcen-Manager | Laden, Referenzen, Entladen, asynchron | R2 | geplant |
 | ASSET-05 | Asset-IDs | Stabile IDs statt Pfade | R2 | geplant |

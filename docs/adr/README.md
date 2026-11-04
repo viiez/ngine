@@ -35,3 +35,4 @@ betroffene Code einreichen.
 | [0024](0024-networking-gns-snapshots.md) | Netzwerk über GameNetworkingSockets, Replikation per Schnappschuss über die Reflection | angenommen |
 | [0025](0025-own-math-mixed-precision.md) | Eigene Mathematik in `ngine.math`, Weltlage mit gemischter Genauigkeit | angenommen |
 | [0026](0026-render-graph-bindless.md) | Render-Graph über explizite Zustände, ein bindloser Descriptor-Satz | angenommen |
+| [0027](0027-gltf-assets-material-store.md) | glTF über fastgltf, Bilder über stb_image, Materialien als Feld im GPU-Speicher | vorgeschlagen |

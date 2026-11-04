@@ -125,7 +125,14 @@ struct Capabilities {
     std::string api_version;
     DeviceType device_type = DeviceType::Other;
     Features features;
+    // Höchste anisotrope Filterung der Sampler; 1 heißt: keine.
+    f32 max_anisotropy = 1.0f;
+    // Nanosekunden pro Tick der GPU-Zeitstempel; 0, wenn die Queue keine Zeitstempel kann.
+    f32 timestamp_period = 0.0f;
 };
+
+// Zeitstempel, die ein Frame höchstens schreiben kann (CommandList::write_timestamp()).
+inline constexpr u32 max_frame_timestamps = 256;
 
 class Resource {
 public:
@@ -153,19 +160,35 @@ enum class TextureUsage : u8 {
     return (static_cast<u8>(set) & static_cast<u8>(flag)) != 0;
 }
 
+// Anzahl der Mip-Stufen bis hinunter zu 1x1.
+[[nodiscard]] constexpr u32 full_mip_count(Extent2D extent) noexcept {
+    u32 size = extent.width > extent.height ? extent.width : extent.height;
+    u32 levels = 1;
+    while (size > 1) {
+        size /= 2;
+        ++levels;
+    }
+    return levels;
+}
+
 struct TextureDesc {
     Extent2D extent;
     Format format = Format::RGBA8Unorm;
     TextureUsage usage = TextureUsage::RenderTarget | TextureUsage::TransferSrc;
+    // Mehr als eine Stufe nur für Texturen zum Lesen (ohne RenderTarget und Storage); die Stufen
+    // füllt Device::upload().
+    u32 mip_levels = 1;
 };
 
-// 2D-Textur ohne Mipmaps. Eine neue Textur ist im Zustand Undefined. Mit Sampled oder Storage hat
-// sie einen festen Index im bindlosen Descriptor-Satz, über den Shader sie erreichen.
+// 2D-Textur. Eine neue Textur ist im Zustand Undefined; Barrieren gelten für alle Mip-Stufen. Mit
+// Sampled oder Storage hat sie einen festen Index im bindlosen Descriptor-Satz, über den Shader sie
+// erreichen.
 class Texture : public Resource {
 public:
     [[nodiscard]] virtual Extent2D extent() const = 0;
     [[nodiscard]] virtual Format format() const = 0;
     [[nodiscard]] virtual TextureUsage usage() const = 0;
+    [[nodiscard]] virtual u32 mip_levels() const = 0;
     // Index im Feld der lesbaren Texturen (zu lesen im Zustand ShaderRead), sonst invalid_index.
     [[nodiscard]] virtual u32 sampled_index() const = 0;
     // Index im Feld der Storage-Texturen (im Zustand ShaderWrite), sonst invalid_index.
@@ -173,11 +196,17 @@ public:
 };
 
 enum class Filter : u8 { Nearest, Linear };
-enum class AddressMode : u8 { Repeat, ClampToEdge };
+enum class AddressMode : u8 { Repeat, MirroredRepeat, ClampToEdge };
 
 struct SamplerDesc {
-    Filter filter = Filter::Linear;
-    AddressMode address = AddressMode::Repeat;
+    Filter mag_filter = Filter::Linear;
+    Filter min_filter = Filter::Linear;
+    // Zwischen den Mip-Stufen.
+    Filter mip_filter = Filter::Linear;
+    AddressMode address_u = AddressMode::Repeat;
+    AddressMode address_v = AddressMode::Repeat;
+    // Gewünschte anisotrope Filterung; begrenzt auf Capabilities::max_anisotropy.
+    f32 anisotropy = 1.0f;
 };
 
 // Sampler im bindlosen Descriptor-Satz.
@@ -235,6 +264,17 @@ class Shader : public Resource {};
 
 enum class CullMode : u8 { None, Back };
 
+// Wann ein Fragment den Tiefentest besteht. Die Kamera nutzt umgekehrte Tiefe (nah 1, fern 0)
+// mit Greater; LessOrEqual passt zu klassischer Tiefe.
+enum class CompareOp : u8 { LessOrEqual, Greater, GreaterOrEqual };
+
+enum class BlendMode : u8 {
+    // Farbe ersetzt das Ziel.
+    None,
+    // Klassisches Überblenden: src * a + dst * (1 - a).
+    Alpha,
+};
+
 // Dreiecke gegen den Uhrzeigersinn sind Vorderseiten. Geometrie kommt nicht über Vertex-Attribute,
 // sondern liest der Shader selbst aus Puffern (ADR 0022). Alle Pipelines teilen ein Layout: den
 // bindlosen Descriptor-Satz (Satz 0, siehe bindless.slang) und max_push_constant_size Bytes Push
@@ -243,9 +283,13 @@ struct GraphicsPipelineDesc {
     const Shader* vertex = nullptr;
     const Shader* fragment = nullptr;
     Format color_format = Format::Unknown;
-    // Mit Tiefenformat prüft und schreibt die Pipeline Tiefe (kleiner gleich gewinnt).
+    // Mit Tiefenformat prüft die Pipeline Tiefe mit depth_compare und schreibt sie, wenn
+    // depth_write gesetzt ist.
     Format depth_format = Format::Unknown;
+    CompareOp depth_compare = CompareOp::LessOrEqual;
+    bool depth_write = true;
     CullMode cull_mode = CullMode::None;
+    BlendMode blend = BlendMode::None;
 };
 
 struct ComputePipelineDesc {
@@ -308,6 +352,11 @@ public:
     virtual void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0) = 0;
     // Nur mit gebundener Compute-Pipeline, außerhalb von begin_rendering().
     virtual void dispatch(u32 groups_x, u32 groups_y = 1, u32 groups_z = 1) = 0;
+    // Schreibt einen Zeitstempel der GPU, sobald alle Befehle davor fertig sind. Nur in Frames
+    // (begin_frame()), außerhalb von begin_rendering(), index kleiner als max_frame_timestamps
+    // und lückenlos ab 0; sonst und ohne Zeitstempel auf der GPU geschieht nichts. Die Werte
+    // liefert Frame::timestamps, wenn derselbe Platz wieder an der Reihe ist.
+    virtual void write_timestamp(u32 index) = 0;
 };
 
 struct Frame {
@@ -317,6 +366,9 @@ struct Frame {
     // Platz dieses Frames unter den Frames im Flug (0 bis frames_in_flight() - 1). Ressourcen, die
     // der Frame mit demselben Index benutzt hat, sind jetzt wieder frei.
     u32 index = 0;
+    // Zeitstempel (in Ticks, siehe Capabilities::timestamp_period), die der letzte Frame mit
+    // demselben Platz geschrieben hat, nach Index; gültig bis end_frame().
+    std::span<const u64> timestamps;
 };
 
 // Ein Device darf nur von einem Thread zugleich benutzt werden. Ressourcen dürfen jederzeit
@@ -346,7 +398,8 @@ public:
     // läuft vor der nächsten Abgabe (end_frame() oder execute()) und ist für alles danach
     // sichtbar; GPU-Arbeit davor ist mit dem Puffer fertig, bevor die Kopie ihn überschreibt.
     virtual void upload(Buffer& buffer, u64 offset, std::span<const std::byte> data) = 0;
-    // Wie oben für eine ganze Textur mit TransferDst (Zeilen ohne Abstand). Danach ist sie im
+    // Wie oben für die erste Mip-Stufe einer Textur mit TransferDst (Zeilen ohne Abstand). Die
+    // weiteren Stufen rechnet die GPU daraus (linear verkleinert). Danach ist die Textur im
     // Zustand ShaderRead.
     virtual void upload(Texture& texture, std::span<const std::byte> data) = 0;
 
@@ -364,6 +417,10 @@ public:
     // Liest eine Textur mit TransferSrc zurück, Zeile für Zeile ohne Abstand. state ist ihr
     // Zustand vorher und nachher.
     [[nodiscard]] virtual std::vector<u8> read_texture(Texture& texture, ResourceState state) = 0;
+
+    // Aktueller Zeitstempel der GPU in Ticks; wartet auf die GPU. Zum Abgleich der Zeitachsen von
+    // CPU und GPU (Profiler). 0 ohne Zeitstempel.
+    [[nodiscard]] virtual u64 gpu_timestamp() = 0;
 
     virtual void wait_idle() = 0;
 

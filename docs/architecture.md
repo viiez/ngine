@@ -28,23 +28,24 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.math` | `ngine::math` | Eigene Mathematik: `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
-| `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
+| `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots, GPU-Zeitleisten mit nachgereichten Zeitstempeln; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner; Pfade als UTF-8, Plattformcode in `user_dir_linux.cpp`/`user_dir_windows.cpp` | vorhanden |
 | `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
 | `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
+| `ngine.asset` | `ngine::asset` | Ressourcen-Schicht: `load_gltf()` liefert `Model` (Meshes mit festem Eckpunktformat, Materialien nach Metallic-Roughness, Texturen, Bilder, Knoten) in reinen CPU-Daten, `decode_image()` RGBA8, Normalen, Tangenten und Kugeln erzeugen; Adapter `gltf_fastgltf.cpp` und `image_stb.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | vorhanden (ab R1.3) |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
-| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tastatur, Maus; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler, Shader, Grafik- und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Push Constants, Zeichnen und Dispatch; `upload()` über Staging; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
+| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten mit Loslassen, Maus mit relativem Modus, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Überblenden) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
-| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt nur die RHI): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden (ab R1.2) |
-| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
+| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera` und `MeshRenderer`, `MeshStore`, `MaterialStore`, `Renderer` (PBR vorwärts in ein HDR-Ziel, Tone Mapping), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | vorhanden (ab R1.2) |
+| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Tone Mapping); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
 
 Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
-`ngine.math` (R1.1) und der Renderer `ngine.render` (ab R1.2) dazu.
+`ngine.math` (R1.1), der Renderer `ngine.render` (ab R1.2) und `ngine.asset` (R1.3) dazu.
 
 ```mermaid
 flowchart BT
@@ -67,7 +68,13 @@ flowchart BT
     sandbox["Sandbox"]
     math["ngine.math"]
     render["ngine.render"]
+    asset["ngine.asset<br/>(fastgltf, stb_image)"]
     math --> core
+    asset --> math
+    asset --> fs
+    render --> asset
+    render --> world
+    render --> shaders
     world --> math
     voxel --> math
     fs --> core
@@ -169,6 +176,38 @@ flowchart LR
 - Shader erreichen Texturen und Sampler über einen bindlosen Descriptor-Satz (`bindless.slang`):
   Satz 0 mit Texturen zum Lesen, Samplern und Storage-Texturen. Die Indizes vergibt die RHI beim
   Erzeugen (`sampled_index()`, `storage_index()`, `Sampler::index()`).
+
+### Welt zeichnen: Kamera, Meshes, Materialien
+
+Der `Renderer` zeichnet, was in der Welt steht (REND-07, REND-08, REND-11). Gezeichnet wird von der
+ersten aktiven `Camera` aus, mit umgekehrter Tiefe und unendlich fernem Horizont
+(`perspective_reverse_z()`, Tiefentest „größer“). Jede Entity mit `MeshRenderer` und
+`WorldTransform` wird ein Draw pro Teilnetz; ihre Matrix entsteht relativ zur Kamera in 64 Bit
+([ADR 0012](adr/0012-64bit-world-coordinates.md)).
+
+```mermaid
+flowchart LR
+    gltf["glTF-Datei"] -->|"asset::load_gltf()"| model["asset::Model<br/>CPU-Daten"]
+    model -->|"upload_model()"| stores["MeshStore, MaterialStore<br/>Puffer und Texturen auf der GPU"]
+    model -->|"spawn_model()"| world["Welt<br/>Transform, MeshRenderer"]
+    world --> renderer["Renderer::add_passes()"]
+    stores --> renderer
+    renderer --> fwd["Pass Vorwärts<br/>PBR in HDR (RGBA16Float) + Tiefe"]
+    fwd --> tone["Pass Tone Mapping<br/>PBR Neutral in das Ziel"]
+```
+
+- Push Constants eines Draws: Modellmatrix in drei Zeilen, die Adressen der Eckpunkte, der
+  Frame-Daten (Kamera, Sonne, Himmel- und Bodenfarbe; ein Puffer pro Frame im Flug) und des
+  Materialfelds sowie der Index des Materials. Texturen und Sampler stehen als bindlose Indizes im
+  Material ([ADR 0027](adr/0027-gltf-assets-material-store.md)).
+- Licht in R1.3: eine Sonne und ein Umgebungslicht aus Himmel- und Bodenfarbe, diffus entlang der
+  Normale und glänzend entlang der Spiegelung. Punktlichter und Schatten kommen in R1.4,
+  bildbasiertes Licht mit dem Himmel in R3.
+- Undurchsichtige Materialien zuerst, Alpha-Maske über `discard`, durchsichtige danach ohne
+  Sortierung (TD-20). Vier Pipelines: mit und ohne Überblenden, mit und ohne Rückseiten.
+- GPU-Zonen: Der `GpuProfiler` schreibt vor und nach jedem Pass des Graphs einen Zeitstempel; die
+  Werte kommen über `Frame::timestamps`, wenn der Platz unter den Frames im Flug wieder dran ist,
+  und gehen über `ngine.profile` an Tracy.
 
 ### Lebensdauer von GPU-Ressourcen
 

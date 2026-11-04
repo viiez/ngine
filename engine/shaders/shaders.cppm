@@ -34,6 +34,18 @@ constexpr u32 fullscreen_fragment[] = {
 #include "fullscreen_fragment.spv.inc"
 };
 
+constexpr u32 pbr_vertex[] = {
+#include "pbr_vertex.spv.inc"
+};
+
+constexpr u32 pbr_fragment[] = {
+#include "pbr_fragment.spv.inc"
+};
+
+constexpr u32 tonemap_fragment[] = {
+#include "tonemap_fragment.spv.inc"
+};
+
 constexpr u32 gradient_compute[] = {
 #include "gradient_compute.spv.inc"
 };
@@ -68,6 +80,23 @@ rhi::ShaderDesc fullscreen_vertex() {
 
 rhi::ShaderDesc fullscreen_fragment() {
     return {rhi::ShaderStage::Fragment, detail::fullscreen_fragment, "fragment_main"};
+}
+
+// PBR-Materialien im Vorwärts-Pass (pbr.slang). Push Constants wie render::DrawPush: Modellmatrix
+// in drei Zeilen (48 Bytes), Adressen der Eckpunkte, des Frames und der Materialien (je 8) und
+// der Index des Materials (4).
+rhi::ShaderDesc pbr_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::pbr_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc pbr_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::pbr_fragment, "fragment_main"};
+}
+
+// Tone Mapping (tonemap.slang) mit dem Vertex-Shader von fullscreen_vertex(). Push Constants:
+// Index der HDR-Textur (u32), Belichtung (f32), 1 für eigene sRGB-Kodierung (u32).
+rhi::ShaderDesc tonemap_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::tonemap_fragment, "fragment_main"};
 }
 
 // Testmuster: Farbverlauf in eine Storage-Textur, Gruppen zu 8×8. Push Constants: Index der

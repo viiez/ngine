@@ -45,4 +45,20 @@ void plot(const char* name, f64 value) noexcept;
 // Textnachricht in der Zeitleiste.
 void message(std::string_view text) noexcept;
 
+// --- GPU-Zeitleiste (CORE-07) -----------------------------------------------------------------
+// Zeiten der GPU kommen über Zeitstempel, die erst Frames später vorliegen. Darum werden Zonen beim
+// Aufzeichnen mit einer Abfrage-Nummer geöffnet und geschlossen und die Zeiten nachgereicht. Alle
+// Aufrufe für einen Kontext aus demselben Thread; Abfrage-Nummern dürfen erst wieder vergeben
+// werden, wenn ihre Zeit gemeldet ist.
+
+// Legt eine GPU-Zeitleiste an. gpu_time: Zeitstempel der GPU, der jetzt gilt (in Ticks);
+// period: Nanosekunden pro Tick. Liefert die Nummer des Kontexts.
+[[nodiscard]] u8 gpu_context(std::string_view name, i64 gpu_time, f32 period) noexcept;
+// Zone mit Namen (der Text wird kopiert), beginnt beim Zeitstempel query.
+void gpu_zone_begin(u8 context, u16 query, std::string_view name) noexcept;
+// Schließt die zuletzt geöffnete Zone beim Zeitstempel query.
+void gpu_zone_end(u8 context, u16 query) noexcept;
+// Reicht den Wert eines Zeitstempels nach.
+void gpu_time(u8 context, u16 query, i64 gpu_time) noexcept;
+
 } // namespace ngine::profile

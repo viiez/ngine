@@ -291,7 +291,7 @@ void RenderGraph::record_barriers(rhi::CommandList& commands,
     commands.barrier(texture_barriers, buffer_barriers);
 }
 
-void RenderGraph::execute(rhi::CommandList& commands, TexturePool& pool) {
+void RenderGraph::execute(rhi::CommandList& commands, TexturePool& pool, GpuProfiler* profiler) {
     NGINE_PROFILE_ZONE("RenderGraph::execute");
     if (!compiled_) {
         const auto result = compile();
@@ -310,9 +310,15 @@ void RenderGraph::execute(rhi::CommandList& commands, TexturePool& pool) {
 
     PassContext context{commands, *this};
     for (const PlannedPass& planned : plan_.passes) {
+        if (profiler != nullptr) {
+            profiler->begin_zone(commands, passes_[planned.pass].name);
+        }
         record_barriers(commands, planned.barriers);
         if (const Execute& execute = passes_[planned.pass].execute) {
             execute(context);
+        }
+        if (profiler != nullptr) {
+            profiler->end_zone(commands);
         }
     }
     record_barriers(commands, plan_.final_barriers);

@@ -198,6 +198,13 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& 
             continue;
         }
         best_score = score;
+        VkPhysicalDeviceFeatures basic{};
+        vkGetPhysicalDeviceFeatures(candidate, &basic);
+        u32 family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> families(family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &family_count, families.data());
+        const u32 timestamp_bits = families[*family].timestampValidBits;
         best = PhysicalDevice{
             .handle = candidate,
             .queue_family = *family,
@@ -208,7 +215,13 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& 
                     .api_version = format_version(properties.apiVersion),
                     .device_type = type,
                     .features = evaluation.features,
+                    .max_anisotropy = basic.samplerAnisotropy == VK_TRUE
+                                          ? properties.limits.maxSamplerAnisotropy
+                                          : 1.0f,
+                    .timestamp_period =
+                        timestamp_bits > 0 ? properties.limits.timestampPeriod : 0.0f,
                 },
+            .timestamp_bits = timestamp_bits,
         };
     }
 
@@ -232,6 +245,9 @@ std::expected<VkDevice, std::string> create_logical_device(const PhysicalDevice&
     const Features& enabled = physical_device.capabilities.features;
     FeatureChain features{enabled.mesh_shader, enabled.ray_tracing};
     for_each_required_feature(features, [](std::string_view, VkBool32& value) { value = VK_TRUE; });
+    if (physical_device.capabilities.max_anisotropy > 1.0f) {
+        features.root.features.samplerAnisotropy = VK_TRUE;
+    }
 
     std::vector<const char*> extensions;
     if (enabled.mesh_shader) {

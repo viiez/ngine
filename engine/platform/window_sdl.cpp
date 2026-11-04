@@ -7,6 +7,7 @@ module;
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -20,16 +21,35 @@ namespace ngine::platform {
 
 struct Window::Impl {
     SDL_Window* window = nullptr;
+    std::function<void(Extent)> redraw;
+    bool watching = false;
 
     Impl() = default;
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
 
     ~Impl() {
+        if (watching) {
+            SDL_RemoveEventWatch(&Impl::watch, this);
+        }
         if (window != nullptr) {
             SDL_DestroyWindow(window);
         }
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    }
+
+    // Läuft beim Eintreffen jedes Ereignisses, auch innerhalb der modalen Schleife von Windows.
+    // SDL meldet dort Expose-Ereignisse mit data1 = 1 für das Zeichnen während des Ziehens.
+    static bool SDLCALL watch(void* user, SDL_Event* event) {
+        auto* impl = static_cast<Impl*>(user);
+        if (event->type == SDL_EVENT_WINDOW_EXPOSED && event->window.data1 == 1 &&
+            event->window.windowID == SDL_GetWindowID(impl->window) && impl->redraw) {
+            int width = 0;
+            int height = 0;
+            SDL_GetWindowSizeInPixels(impl->window, &width, &height);
+            impl->redraw({static_cast<u32>(width), static_cast<u32>(height)});
+        }
+        return true;
     }
 };
 
@@ -64,10 +84,18 @@ Window::~Window() = default;
 
 namespace {
 
-Key to_key(SDL_Keycode key) {
+Key to_key(SDL_Scancode key) {
     switch (key) {
-    case SDLK_ESCAPE: return Key::Escape;
-    case SDLK_SPACE: return Key::Space;
+    case SDL_SCANCODE_ESCAPE: return Key::Escape;
+    case SDL_SCANCODE_SPACE: return Key::Space;
+    case SDL_SCANCODE_W: return Key::W;
+    case SDL_SCANCODE_A: return Key::A;
+    case SDL_SCANCODE_S: return Key::S;
+    case SDL_SCANCODE_D: return Key::D;
+    case SDL_SCANCODE_Q: return Key::Q;
+    case SDL_SCANCODE_E: return Key::E;
+    case SDL_SCANCODE_LSHIFT:
+    case SDL_SCANCODE_RSHIFT: return Key::Shift;
     default: return Key::Unknown;
     }
 }
@@ -98,12 +126,16 @@ std::vector<Event> Window::poll_events() {
             break;
         case SDL_EVENT_KEY_DOWN:
             if (!sdl_event.key.repeat) {
-                events.emplace_back(event::KeyPressed{to_key(sdl_event.key.key)});
+                events.emplace_back(event::KeyPressed{to_key(sdl_event.key.scancode)});
             }
             break;
+        case SDL_EVENT_KEY_UP:
+            events.emplace_back(event::KeyReleased{to_key(sdl_event.key.scancode)});
+            break;
         case SDL_EVENT_MOUSE_MOTION:
-            events.emplace_back(
-                event::MouseMoved{sdl_event.motion.x * density, sdl_event.motion.y * density});
+            events.emplace_back(event::MouseMoved{
+                sdl_event.motion.x * density, sdl_event.motion.y * density,
+                sdl_event.motion.xrel * density, sdl_event.motion.yrel * density});
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             events.emplace_back(event::MouseButtonPressed{to_button(sdl_event.button.button),
@@ -133,6 +165,19 @@ Extent Window::framebuffer_size() const {
 
 bool Window::minimized() const {
     return (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_MINIMIZED) != 0;
+}
+
+void Window::set_relative_mouse(bool enabled) {
+    if (!SDL_SetWindowRelativeMouseMode(impl_->window, enabled)) {
+        log::warn("Relativer Mausmodus nicht verfügbar: {}", SDL_GetError());
+    }
+}
+
+void Window::set_redraw_callback(std::function<void(Extent framebuffer)> callback) {
+    impl_->redraw = std::move(callback);
+    if (!impl_->watching && impl_->redraw) {
+        impl_->watching = SDL_AddEventWatch(&Impl::watch, impl_.get());
+    }
 }
 
 std::vector<const char*> Window::vulkan_instance_extensions() const {

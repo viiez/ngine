@@ -17,7 +17,7 @@ module;
 
 // Durchstich D1: ein Chunk Voxel-Terrain mit einem glatten Hügel, als Netz aus Surface Nets
 // gezeichnet und zur Laufzeit veränderbar. Seit R1.2 zeichnet die Demo über den Render-Graph und
-// hält das Netz im GPU-Speicher. Wegwerf-Code: Die Kamera wandert in R1.3 in den Renderer.
+// hält das Netz im GPU-Speicher, seit R1.3 mit der Kamera des Renderers.
 export module sandbox.voxel_demo;
 
 import ngine.core;
@@ -41,33 +41,25 @@ using math::Quat;
 using math::Vec3;
 using math::Vec4;
 
-// Freie Kamera mit 64-Bit-Position. Gezeichnet wird relativ zu ihr (ADR 0012): Die Blickmatrix
-// enthält nur die Drehung, alles andere wird vorher in 64 Bit um die Kamera verschoben. Wandert
-// in R1.3 als Komponente in den Renderer (REND-08).
+// Umlaufende Kamera der Demo. Lage, Blick und Projektion (umgekehrte Tiefe, kamerarelativ nach
+// ADR 0012) kommen aus dem Renderer (REND-08); die Demo hat keine Welt, darum keine Entity.
 struct Camera {
-    DVec3 eye{0.0, 0.0, 0.0};
-    // Dreht -z in die Blickrichtung.
-    Quat rotation = math::quat_identity();
-    f32 fov_y = math::radians(50.0f);
+    render::CameraView view;
 
     [[nodiscard]] Vec3 forward() const {
-        return rotation * Vec3{0.0f, 0.0f, -1.0f};
+        return -view.rotation[2];
     }
     [[nodiscard]] Vec3 right() const {
-        return rotation * Vec3{1.0f, 0.0f, 0.0f};
+        return view.rotation[0];
     }
     [[nodiscard]] Vec3 up() const {
-        return rotation * Vec3{0.0f, 1.0f, 0.0f};
-    }
-    // Von kamerarelativen Koordinaten in Kamerakoordinaten: nur die umgekehrte Drehung.
-    [[nodiscard]] Mat4 view() const {
-        return math::to_mat4(math::conjugate(rotation));
+        return view.rotation[1];
     }
 
     // Strahl durch einen Bildpunkt (Ursprung oben links).
     [[nodiscard]] Vec3 ray(f32 x, f32 y, rhi::Extent2D extent) const {
         const f32 aspect = static_cast<f32>(extent.width) / static_cast<f32>(extent.height);
-        const f32 t = std::tan(fov_y * 0.5f);
+        const f32 t = std::tan(view.camera.fov_y * 0.5f);
         const f32 nx = 2.0f * x / static_cast<f32>(extent.width) - 1.0f;
         const f32 ny = 1.0f - 2.0f * y / static_cast<f32>(extent.height);
         return math::normalize(forward() + right() * (nx * t * aspect) + up() * (ny * t));
@@ -75,8 +67,10 @@ struct Camera {
 };
 
 Camera look_at(DVec3 eye, DVec3 target) {
-    return Camera{.eye = eye,
-                  .rotation = math::look_rotation(math::to_f32(target - eye), Vec3{0, 1, 0})};
+    const Quat rotation = math::look_rotation(math::to_f32(target - eye), Vec3{0, 1, 0});
+    return Camera{.view = {.position = eye,
+                           .rotation = math::to_mat3(rotation),
+                           .camera = {.fov_y = math::radians(50.0f), .near_plane = 0.5f}}};
 }
 
 struct PushConstants {
@@ -250,6 +244,7 @@ public:
             .fragment = fragment->get(),
             .color_format = color_format,
             .depth_format = rhi::Format::D32Float,
+            .depth_compare = rhi::CompareOp::Greater,
             .cull_mode = rhi::CullMode::Back,
         });
         if (!pipeline) {
@@ -282,9 +277,8 @@ public:
         const f32 aspect =
             static_cast<f32>(extent.width) / static_cast<f32>(std::max(extent.height, 1u));
         // Gitter in kamerarelative Koordinaten: Die Differenz zur Kamera entsteht in 64 Bit.
-        const Mat4 model = math::Affine{.translation = origin_}.relative_to(camera_.eye);
-        const Mat4 view_projection =
-            math::perspective(camera_.fov_y, aspect, 0.5f, 1000.0f) * camera_.view() * model;
+        const Mat4 model = math::Affine{.translation = origin_}.relative_to(camera_.view.position);
+        const Mat4 view_projection = render::view_projection(camera_.view, aspect) * model;
         const PushConstants push{
             .view_projection_rows = math::transpose(view_projection),
             .light = {0.48f, 0.78f, 0.40f, 0.35f},
@@ -303,7 +297,8 @@ public:
                 commands.begin_rendering({.color = &context.texture(target),
                                           .clear_color = rhi::Color{0.45f, 0.60f, 0.80f, 1.0f},
                                           .depth = &context.texture(depth),
-                                          .clear_depth = 1.0f});
+                                          // Umgekehrte Tiefe: 0 ist unendlich fern.
+                                          .clear_depth = 0.0f});
                 if (gpu_mesh_.index_count > 0) {
                     commands.bind_pipeline(*pipeline_);
                     commands.push_constants(std::as_bytes(std::span{&push, 1}));
@@ -325,7 +320,7 @@ private:
 
     // Kameraposition in Gitterkoordinaten, für Strahltest und Beleuchtung.
     [[nodiscard]] Vec3 eye_in_grid() const {
-        return math::to_f32(camera_.eye - origin_);
+        return math::to_f32(camera_.view.position - origin_);
     }
 
     void upload(rhi::Device& device, GpuMesh& gpu) {

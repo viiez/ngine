@@ -21,6 +21,8 @@ struct PhysicalDevice {
     u32 api_version = 0;
     // Enthält auch die optionalen Stufen, die create_logical_device einschaltet.
     Capabilities capabilities;
+    // Gültige Bits der Zeitstempel der Queue-Familie (0: keine Zeitstempel).
+    u32 timestamp_bits = 0;
 };
 
 // Wählt die beste GPU, die die Mindestanforderung erfüllt; dedizierte GPUs vor integrierten,

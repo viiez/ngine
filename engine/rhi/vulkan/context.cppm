@@ -251,6 +251,8 @@ struct DeviceContext {
     u64 submitted = 0;
     DeletionQueue deletion;
     BindlessHeap bindless;
+    // Grenze für anisotrope Filterung; 1, wenn die GPU sie nicht kann.
+    f32 max_anisotropy = 1.0f;
 
     // Wert der nächsten Abgabe. Eine jetzt zerstörte Ressource kann höchstens bis dahin benutzt
     // werden.

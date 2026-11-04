@@ -198,3 +198,30 @@ jobs:
           diff=$(cmp -l build/${{ matrix.preset }}/voxel-demo.ppm build/${{ matrix.preset }}/voxel-demo-far.ppm | wc -l || true)
           echo "Abweichende Bytes mit --far: $diff von $size"
           test "$diff" -le $((size / 1000))
+
+      # Kugelraster (R1.3) offscreen: PBR-Materialien, Tone Mapping und Kamera als Komponente.
+      # Wie bei der Voxel-Demo muss das Bild 10 000 km vom Ursprung bis auf Rundung gleich bleiben.
+      - name: Kugelraster als Bild (Linux)
+        if: ${{ runner.os == 'Linux' && !matrix.tsan }}
+        run: |
+          exe=build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox
+          out=build/${{ matrix.preset }}
+          "$exe" --image $out/spheres.ppm
+          "$exe" --far --image $out/spheres-far.ppm
+          "$exe" --baseline --image $out/spheres-baseline.ppm
+          size=$(stat -c %s $out/spheres.ppm)
+          diff=$(cmp -l $out/spheres.ppm $out/spheres-far.ppm | wc -l || true)
+          echo "Abweichende Bytes mit --far: $diff von $size"
+          test "$diff" -le $((size / 1000))
+          # Ohne optionale Stufen zeichnet der Renderer denselben Pfad: gleiches Bild.
+          cmp $out/spheres.ppm $out/spheres-baseline.ppm
+
+      - name: Bilder hochladen
+        if: ${{ runner.os == 'Linux' && !matrix.tsan }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: bilder-${{ matrix.preset }}
+          path: |
+            build/${{ matrix.preset }}/spheres.ppm
+            build/${{ matrix.preset }}/voxel-demo.ppm
+          if-no-files-found: error

@@ -10,6 +10,7 @@
 #include <utility>
 
 import ngine.core;
+import ngine.profile;
 import ngine.rhi;
 import ngine.rhi.vulkan;
 import ngine.render;
@@ -65,8 +66,10 @@ TEST_CASE("Render graph runs compute and graphics passes on the GPU", "[render][
 
     auto target =
         device->create_texture({.extent = {size, size}, .format = rhi::Format::RGBA8Unorm});
-    auto sampler = device->create_sampler(
-        {.filter = rhi::Filter::Nearest, .address = rhi::AddressMode::ClampToEdge});
+    auto sampler = device->create_sampler({.mag_filter = rhi::Filter::Nearest,
+                                           .min_filter = rhi::Filter::Nearest,
+                                           .address_u = rhi::AddressMode::ClampToEdge,
+                                           .address_v = rhi::AddressMode::ClampToEdge});
     auto compute_shader = device->create_shader(shaders::gradient_compute());
     auto vertex = device->create_shader(shaders::fullscreen_vertex());
     auto fragment = device->create_shader(shaders::fullscreen_fragment());
@@ -143,5 +146,48 @@ TEST_CASE("Render graph runs compute and graphics passes on the GPU", "[render][
             CHECK(pixels[i + 3] == 255);
         }
     }
+    CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Render graph writes GPU zones around passes", "[render][gpu]") {
+    using namespace ngine;
+    using rhi::ResourceState;
+    const auto device = make_device(rhi::vulkan::headless_surface({32, 32}));
+    render::TexturePool pool{*device};
+    render::GpuProfiler profiler{*device};
+    CHECK(profiler.active() ==
+          (profile::enabled && device->capabilities().timestamp_period > 0.0f));
+
+    usize timestamps = 0;
+    for (u32 i = 0; i < device->frames_in_flight() + 1; ++i) {
+        auto frame = device->begin_frame();
+        REQUIRE(frame);
+        timestamps = frame->timestamps.size();
+        profiler.begin_frame(*frame);
+        render::RenderGraph graph;
+        const auto backbuffer = graph.import_texture(
+            "Backbuffer", frame->backbuffer, ResourceState::Undefined, ResourceState::Present);
+        const auto scratch = graph.create_texture(
+            "Zwischen", {.extent = {32, 32}, .format = rhi::Format::RGBA8Unorm});
+        for (const auto target : {scratch, backbuffer}) {
+            graph.add_pass(
+                "Löschen",
+                [&](render::PassBuilder& pass) { pass.write(target, ResourceState::ColorTarget); },
+                [target](render::PassContext& context) {
+                    context.commands.begin_rendering(context.texture(target),
+                                                     rhi::Color{0.2f, 0.3f, 0.4f, 1.0f});
+                    context.commands.end_rendering();
+                });
+        }
+        graph.execute(frame->commands, pool, &profiler);
+        pool.end_frame();
+        device->end_frame();
+    }
+    // Zwei Passes, je ein Zeitstempel davor und danach. Der erste Pass wird verworfen, weil
+    // niemand die Zwischentextur liest: Also nur eine Zone.
+    if (profiler.active()) {
+        CHECK(timestamps == 2);
+    }
+    device->wait_idle();
     CHECK(device->validation_errors() == 0);
 }

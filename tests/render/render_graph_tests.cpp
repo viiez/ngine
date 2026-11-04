@@ -29,6 +29,9 @@ public:
     [[nodiscard]] rhi::TextureUsage usage() const override {
         return rhi::TextureUsage::RenderTarget;
     }
+    [[nodiscard]] u32 mip_levels() const override {
+        return 1;
+    }
     [[nodiscard]] u32 sampled_index() const override {
         return rhi::invalid_index;
     }

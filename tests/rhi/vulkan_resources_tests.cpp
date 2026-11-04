@@ -73,8 +73,10 @@ TEST_CASE("Vulkan uploads a texture and samples it bindlessly", "[rhi][vulkan][g
                                 .format = Format::RGBA8Unorm,
                                 .usage = TextureUsage::Sampled | TextureUsage::TransferDst});
     auto target = device->create_texture({.extent = {size, size}, .format = Format::RGBA8Unorm});
-    auto sampler = device->create_sampler(
-        {.filter = ngine::rhi::Filter::Nearest, .address = ngine::rhi::AddressMode::ClampToEdge});
+    auto sampler = device->create_sampler({.mag_filter = ngine::rhi::Filter::Nearest,
+                                           .min_filter = ngine::rhi::Filter::Nearest,
+                                           .address_u = ngine::rhi::AddressMode::ClampToEdge,
+                                           .address_v = ngine::rhi::AddressMode::ClampToEdge});
     auto vertex = device->create_shader(ngine::shaders::fullscreen_vertex());
     auto fragment = device->create_shader(ngine::shaders::fullscreen_fragment());
     REQUIRE(source);
@@ -216,6 +218,127 @@ TEST_CASE("Vulkan rejects storage use for formats without support", "[rhi][vulka
     CHECK(device->validation_errors() == 0);
 }
 
+TEST_CASE("Vulkan generates mip levels on upload", "[rhi][vulkan][gpu]") {
+    const auto device = make_device();
+    constexpr u32 size = 8;
+    CHECK(ngine::rhi::full_mip_count({size, size}) == 4);
+    CHECK(ngine::rhi::full_mip_count({5, 1}) == 3);
+
+    // Mip-Stufen nur für Texturen, in die nicht gezeichnet wird.
+    CHECK_FALSE(device->create_texture({.extent = {size, size}, .mip_levels = 2}));
+    CHECK_FALSE(device->create_texture(
+        {.extent = {size, size}, .usage = TextureUsage::Sampled, .mip_levels = 5}));
+
+    // Schachbrett aus einzelnen Pixeln, schwarz und weiß.
+    std::vector<u8> pixels(static_cast<std::size_t>(size) * size * 4);
+    for (u32 y = 0; y < size; ++y) {
+        for (u32 x = 0; x < size; ++x) {
+            const auto i = (static_cast<std::size_t>(y) * size + x) * 4;
+            const u8 value = (x + y) % 2 == 0 ? 255 : 0;
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = value;
+            pixels[i + 3] = 255;
+        }
+    }
+    auto source =
+        device->create_texture({.extent = {size, size},
+                                .format = Format::RGBA8Unorm,
+                                .usage = TextureUsage::Sampled | TextureUsage::TransferDst,
+                                .mip_levels = 4});
+    REQUIRE(source);
+    CHECK((*source)->mip_levels() == 4);
+    device->upload(**source, std::as_bytes(std::span{pixels}));
+
+    // Ohne Filter in der Stufe, aber linear zwischen den Stufen: Im 2x2-Ziel fallen vier Texel
+    // auf einen Pixel, die GPU liest Stufe 2, in der das Schachbrett zu Grau gemittelt ist.
+    auto target = device->create_texture({.extent = {2, 2}, .format = Format::RGBA8Unorm});
+    auto sampler = device->create_sampler({.mag_filter = ngine::rhi::Filter::Nearest,
+                                           .min_filter = ngine::rhi::Filter::Nearest,
+                                           .anisotropy = 16.0f});
+    auto vertex = device->create_shader(ngine::shaders::fullscreen_vertex());
+    auto fragment = device->create_shader(ngine::shaders::fullscreen_fragment());
+    REQUIRE(target);
+    REQUIRE(sampler);
+    REQUIRE(vertex);
+    REQUIRE(fragment);
+    auto pipeline = device->create_pipeline(
+        {.vertex = vertex->get(), .fragment = fragment->get(), .color_format = Format::RGBA8Unorm});
+    REQUIRE(pipeline);
+
+    const BlitPush push{(*source)->sampled_index(), (*sampler)->index()};
+    device->execute([&](ngine::rhi::CommandList& commands) {
+        commands.barrier(**target, ResourceState::Undefined, ResourceState::ColorTarget);
+        commands.begin_rendering(**target, std::nullopt);
+        commands.bind_pipeline(**pipeline);
+        commands.push_constants(std::as_bytes(std::span{&push, 1}));
+        commands.draw(3);
+        commands.end_rendering();
+    });
+    const auto result = device->read_texture(**target, ResourceState::ColorTarget);
+    for (std::size_t i = 0; i < result.size(); i += 4) {
+        CHECK(result[i] > 110);
+        CHECK(result[i] < 145);
+    }
+    CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Vulkan pipelines choose the depth comparison", "[rhi][vulkan][gpu]") {
+    using ngine::rhi::CompareOp;
+    const auto device = make_device();
+    auto color = device->create_texture({.extent = {4, 4}, .format = Format::RGBA8Unorm});
+    auto depth = device->create_texture(
+        {.extent = {4, 4}, .format = Format::D32Float, .usage = TextureUsage::RenderTarget});
+    auto source =
+        device->create_texture({.extent = {1, 1},
+                                .format = Format::RGBA8Unorm,
+                                .usage = TextureUsage::Sampled | TextureUsage::TransferDst});
+    auto sampler = device->create_sampler({});
+    auto vertex = device->create_shader(ngine::shaders::fullscreen_vertex());
+    auto fragment = device->create_shader(ngine::shaders::fullscreen_fragment());
+    REQUIRE(color);
+    REQUIRE(depth);
+    REQUIRE(source);
+    REQUIRE(sampler);
+    REQUIRE(vertex);
+    REQUIRE(fragment);
+    const std::array<u8, 4> white{255, 255, 255, 255};
+    device->upload(**source, std::as_bytes(std::span{white}));
+
+    // Das Vollbild-Dreieck liegt bei Tiefe 0. Ob es gegen die gelöschte Tiefe besteht, hängt
+    // vom Vergleich ab.
+    const auto drawn = [&](CompareOp compare, float clear_depth) {
+        auto pipeline = device->create_pipeline({.vertex = vertex->get(),
+                                                 .fragment = fragment->get(),
+                                                 .color_format = Format::RGBA8Unorm,
+                                                 .depth_format = Format::D32Float,
+                                                 .depth_compare = compare});
+        REQUIRE(pipeline);
+        const BlitPush push{(*source)->sampled_index(), (*sampler)->index()};
+        device->execute([&](ngine::rhi::CommandList& commands) {
+            const std::array barriers{
+                ngine::rhi::TextureBarrier{color->get(), ResourceState::Undefined,
+                                           ResourceState::ColorTarget},
+                ngine::rhi::TextureBarrier{depth->get(), ResourceState::Undefined,
+                                           ResourceState::DepthTarget}};
+            commands.barrier(barriers);
+            commands.begin_rendering({.color = color->get(),
+                                      .clear_color = ngine::rhi::Color{0, 0, 0, 1},
+                                      .depth = depth->get(),
+                                      .clear_depth = clear_depth});
+            commands.bind_pipeline(**pipeline);
+            commands.push_constants(std::as_bytes(std::span{&push, 1}));
+            commands.draw(3);
+            commands.end_rendering();
+        });
+        return device->read_texture(**color, ResourceState::ColorTarget)[0] == 255;
+    };
+    CHECK(drawn(CompareOp::LessOrEqual, 1.0f));
+    // Umgekehrte Tiefe: gelöscht wird auf 0 (unendlich fern).
+    CHECK_FALSE(drawn(CompareOp::Greater, 0.0f));
+    CHECK(drawn(CompareOp::GreaterOrEqual, 0.0f));
+    CHECK_FALSE(drawn(CompareOp::Greater, 1.0f));
+    CHECK(device->validation_errors() == 0);
+}
+
 TEST_CASE("Vulkan swapchain rebuilds on resize without stalling", "[rhi][vulkan][gpu]") {
     const auto device = make_device(ngine::rhi::vulkan::headless_surface({64, 48}));
 
@@ -253,6 +376,49 @@ TEST_CASE("Vulkan swapchain rebuilds on resize without stalling", "[rhi][vulkan]
             CHECK(extent->height == size.height);
         }
     }
+    device->wait_idle();
+    CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Vulkan frames return their timestamps when the slot comes around",
+          "[rhi][vulkan][gpu]") {
+    const auto device = make_device(ngine::rhi::vulkan::headless_surface({32, 32}));
+    if (device->capabilities().timestamp_period <= 0.0f) {
+        SKIP("Die GPU hat keine Zeitstempel");
+    }
+    const ngine::u64 before = device->gpu_timestamp();
+    CHECK(before > 0);
+
+    const ngine::u32 slots = device->frames_in_flight();
+    bool checked = false;
+    for (ngine::u32 i = 0; i < slots * 2 + 1; ++i) {
+        auto frame = device->begin_frame();
+        REQUIRE(frame);
+        if (i >= slots) {
+            // Der Frame vor slots Frames schrieb drei Zeitstempel, in dieser Reihenfolge.
+            REQUIRE(frame->timestamps.size() == 3);
+            CHECK(frame->timestamps[0] >= before);
+            CHECK(frame->timestamps[0] <= frame->timestamps[1]);
+            CHECK(frame->timestamps[1] <= frame->timestamps[2]);
+            checked = true;
+        } else {
+            CHECK(frame->timestamps.empty());
+        }
+        frame->commands.write_timestamp(0);
+        frame->commands.barrier(frame->backbuffer, ResourceState::Undefined,
+                                ResourceState::ColorTarget);
+        frame->commands.begin_rendering(frame->backbuffer, ngine::rhi::Color{0.1f, 0.2f, 0.3f, 1});
+        frame->commands.end_rendering();
+        frame->commands.write_timestamp(1);
+        frame->commands.barrier(frame->backbuffer, ResourceState::ColorTarget,
+                                ResourceState::Present);
+        frame->commands.write_timestamp(2);
+        // Lücken und Werte über der Grenze werden ignoriert.
+        frame->commands.write_timestamp(7);
+        frame->commands.write_timestamp(ngine::rhi::max_frame_timestamps);
+        device->end_frame();
+    }
+    CHECK(checked);
     device->wait_idle();
     CHECK(device->validation_errors() == 0);
 }
