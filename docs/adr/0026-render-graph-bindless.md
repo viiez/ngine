@@ -1,6 +1,6 @@
 # 0026: Render-Graph über explizite Zustände, ein bindloser Descriptor-Satz
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-03
 
 ## Kontext

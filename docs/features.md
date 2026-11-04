@@ -51,12 +51,12 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)); Puffer, Tiefe, Push Constants und indiziertes Zeichnen seit D1 | A2 / D1 | fertig |
-| REND-16 | Vertex Pulling | Geometrie über Buffer Device Address statt Vertex-Attribute ([ADR 0022](adr/0022-vertex-pulling-bda.md)); statische Geometrie im GPU-Speicher über `upload()` (R1.2) | D1 / R1.2 | in Arbeit |
+| REND-16 | Vertex Pulling | Geometrie über Buffer Device Address statt Vertex-Attribute ([ADR 0022](adr/0022-vertex-pulling-bda.md)); statische Geometrie im GPU-Speicher über `upload()` (R1.2) | D1 / R1.2 | fertig |
 | REND-02 | Vulkan-Backend | Vulkan 1.3 (1.4, wo vorhanden), Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
 | REND-03 | Mindestanforderung und Feature-Stufen | GPU beim Start gegen [ADR 0017](adr/0017-platform-baseline-feature-tiers.md) prüfen, Fehlendes protokollieren; Mesh Shader und Raytracing erkennen, einschalten und in `Capabilities::features` melden, abschaltbar für Tests | A2 / A3 | fertig |
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
-| REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren, Verwerfen und transiente Texturen automatisch (`ngine.render`, [ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | in Arbeit |
-| REND-06 | Bindless | Texturen und Sampler über Indizes in einem Descriptor-Satz statt Sätzen pro Draw ([ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | in Arbeit |
+| REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren, Verwerfen und transiente Texturen automatisch (`ngine.render`, [ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
+| REND-06 | Bindless | Texturen und Sampler über Indizes in einem Descriptor-Satz statt Sätzen pro Draw ([ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
 | REND-07 | PBR-Materialien | Physikalisch basiertes Shading, Material-Instanzen | R1 | geplant |
 | REND-08 | Kamera | Perspektive, Steuerung, kamerarelatives Rendering | R1 | geplant |
 | REND-09 | Licht und Schatten | Sonne mit Cascaded Shadow Maps, Punkt- und Spotlichter | R1 | geplant |
