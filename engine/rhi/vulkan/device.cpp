@@ -100,6 +100,8 @@ public:
         collect();
     }
 
+    [[nodiscard]] u64 gpu_timestamp() override;
+
     [[nodiscard]] u32 validation_errors() const override {
         return validation_errors_.load(std::memory_order_relaxed);
     }
@@ -111,6 +113,9 @@ private:
         VkSemaphore image_available = VK_NULL_HANDLE;
         // Wert der Timeline, den die letzte Abgabe dieses Frames signalisiert.
         u64 submitted = 0;
+        // Zeitstempel, die die letzte Abgabe dieses Platzes geschrieben hat, und ihre Werte.
+        u32 timestamp_count = 0;
+        std::vector<u64> timestamps;
     };
 
     std::expected<void, std::string> create_allocator();
@@ -144,6 +149,10 @@ private:
 
     VkCommandPool immediate_pool_ = VK_NULL_HANDLE;
     VkCommandBuffer immediate_cmd_ = VK_NULL_HANDLE;
+
+    // Zeitstempel: max_frame_timestamps pro Platz, dahinter einer für gpu_timestamp(). Ohne
+    // Zeitstempel auf der Queue VK_NULL_HANDLE.
+    VkQueryPool timestamps_ = VK_NULL_HANDLE;
 };
 
 std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
@@ -263,6 +272,15 @@ void VulkanDevice::create_command_resources() {
                                               .pNext = &timeline_type};
     check(vkCreateSemaphore(device_, &timeline_info, nullptr, &context_.timeline),
           "vkCreateSemaphore (Timeline)");
+
+    if (physical_device_.timestamp_bits > 0) {
+        const VkQueryPoolCreateInfo query_info{
+            .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+            .queryType = VK_QUERY_TYPE_TIMESTAMP,
+            .queryCount = vulkan::frames_in_flight * max_frame_timestamps + 1,
+        };
+        check(vkCreateQueryPool(device_, &query_info, nullptr, &timestamps_), "vkCreateQueryPool");
+    }
 }
 
 void VulkanDevice::collect() {
@@ -325,6 +343,7 @@ VulkanDevice::~VulkanDevice() {
         vkDestroyCommandPool(device_, frame.pool, nullptr);
     }
     vkDestroyCommandPool(device_, immediate_pool_, nullptr);
+    vkDestroyQueryPool(device_, timestamps_, nullptr);
     vkDestroySemaphore(device_, context_.timeline, nullptr);
     context_.bindless.destroy();
     if (allocator_ != nullptr) {
@@ -368,11 +387,41 @@ std::optional<Frame> VulkanDevice::begin_frame() {
     check(vkBeginCommandBuffer(frame.cmd, &begin_info), "vkBeginCommandBuffer");
     frame_commands_.reset(frame.cmd);
 
-    return Frame{frame_commands_, swapchain_->backbuffer(image_index_), frame_index_};
+    // Zeitstempel des letzten Frames mit diesem Platz abholen (die GPU ist damit fertig), dann
+    // die Abfragen für diesen Frame zurücksetzen.
+    frame.timestamps.clear();
+    if (timestamps_ != VK_NULL_HANDLE) {
+        const u32 base = frame_index_ * max_frame_timestamps;
+        if (frame.timestamp_count > 0) {
+            frame.timestamps.resize(frame.timestamp_count);
+            const VkResult result =
+                vkGetQueryPoolResults(device_, timestamps_, base, frame.timestamp_count,
+                                      frame.timestamps.size() * sizeof(u64),
+                                      frame.timestamps.data(), sizeof(u64), VK_QUERY_RESULT_64_BIT);
+            if (result != VK_SUCCESS) {
+                frame.timestamps.clear();
+            }
+            const u32 bits = physical_device_.timestamp_bits;
+            if (bits < 64) {
+                for (u64& value : frame.timestamps) {
+                    value &= (u64{1} << bits) - 1;
+                }
+            }
+        }
+        vkCmdResetQueryPool(frame.cmd, timestamps_, base, max_frame_timestamps);
+        frame_commands_.set_timestamps(timestamps_, base);
+    }
+
+    return Frame{.commands = frame_commands_,
+                 .backbuffer = swapchain_->backbuffer(image_index_),
+                 .index = frame_index_,
+                 .timestamps = frame.timestamps};
 }
 
 void VulkanDevice::end_frame() {
     FrameData& frame = frames_[frame_index_];
+    frame.timestamp_count = frame_commands_.timestamp_count();
+    frame_commands_.set_timestamps(VK_NULL_HANDLE, 0);
     check(vkEndCommandBuffer(frame.cmd), "vkEndCommandBuffer");
 
     // Das Bild ist erst nach dem Acquire frei; vorher darf nichts hineinschreiben. Die erste
@@ -404,6 +453,24 @@ void VulkanDevice::execute(const std::function<void(CommandList&)>& record) {
     // Wartet absichtlich: execute() ist für Werkzeuge und Tests gedacht, nicht für Frames.
     context_.wait(submit(immediate_cmd_, nullptr, VK_NULL_HANDLE));
     collect();
+}
+
+u64 VulkanDevice::gpu_timestamp() {
+    if (timestamps_ == VK_NULL_HANDLE) {
+        return 0;
+    }
+    const u32 query = vulkan::frames_in_flight * max_frame_timestamps;
+    execute([&](CommandList& commands) {
+        const VkCommandBuffer cmd = static_cast<VulkanCommandList&>(commands).handle();
+        vkCmdResetQueryPool(cmd, timestamps_, query, 1);
+        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, timestamps_, query);
+    });
+    u64 value = 0;
+    check(vkGetQueryPoolResults(device_, timestamps_, query, 1, sizeof(value), &value,
+                                sizeof(value), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT),
+          "vkGetQueryPoolResults");
+    const u32 bits = physical_device_.timestamp_bits;
+    return bits < 64 ? value & ((u64{1} << bits) - 1) : value;
 }
 
 std::vector<u8> VulkanDevice::read_texture(Texture& texture, ResourceState state) {

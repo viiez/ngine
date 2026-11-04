@@ -7,6 +7,7 @@ target_sources(ngine_render
         FILES
             render.cppm
             pool.cppm
+            profiler.cppm
             graph.cppm
             components.cppm
             materials.cppm
@@ -14,6 +15,7 @@ target_sources(ngine_render
             renderer.cppm
     PRIVATE
         pool.cpp
+        profiler.cpp
         graph.cpp
         stores.cpp
         renderer.cpp)

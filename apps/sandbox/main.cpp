@@ -191,6 +191,8 @@ int run_windowed(const Options& options) {
         }
 
         ngine::render::TexturePool pool{**device};
+        // GPU-Zonen pro Pass in Tracy (CORE-07).
+        ngine::render::GpuProfiler gpu_profiler{**device};
         ngine::u64 frame_count = 0;
         bool running = true;
         sandbox::FlyInput fly;
@@ -224,6 +226,7 @@ int run_windowed(const Options& options) {
             }
 
             if (auto frame = (*device)->begin_frame()) {
+                gpu_profiler.begin_frame(*frame);
                 // Jeder Frame ist ein Render-Graph; er setzt alle Barrieren, auch die für die
                 // Präsentation am Ende.
                 ngine::render::RenderGraph graph;
@@ -235,7 +238,7 @@ int run_windowed(const Options& options) {
                 } else {
                     scene->add_passes(graph, backbuffer);
                 }
-                graph.execute(frame->commands, pool);
+                graph.execute(frame->commands, pool, &gpu_profiler);
                 pool.end_frame();
                 (*device)->end_frame();
                 ++frame_count;

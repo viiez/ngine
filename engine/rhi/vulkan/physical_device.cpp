@@ -200,6 +200,11 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& 
         best_score = score;
         VkPhysicalDeviceFeatures basic{};
         vkGetPhysicalDeviceFeatures(candidate, &basic);
+        u32 family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> families(family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &family_count, families.data());
+        const u32 timestamp_bits = families[*family].timestampValidBits;
         best = PhysicalDevice{
             .handle = candidate,
             .queue_family = *family,
@@ -213,7 +218,10 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& 
                     .max_anisotropy = basic.samplerAnisotropy == VK_TRUE
                                           ? properties.limits.maxSamplerAnisotropy
                                           : 1.0f,
+                    .timestamp_period =
+                        timestamp_bits > 0 ? properties.limits.timestampPeriod : 0.0f,
                 },
+            .timestamp_bits = timestamp_bits,
         };
     }
 

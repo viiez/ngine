@@ -127,7 +127,12 @@ struct Capabilities {
     Features features;
     // Höchste anisotrope Filterung der Sampler; 1 heißt: keine.
     f32 max_anisotropy = 1.0f;
+    // Nanosekunden pro Tick der GPU-Zeitstempel; 0, wenn die Queue keine Zeitstempel kann.
+    f32 timestamp_period = 0.0f;
 };
+
+// Zeitstempel, die ein Frame höchstens schreiben kann (CommandList::write_timestamp()).
+inline constexpr u32 max_frame_timestamps = 256;
 
 class Resource {
 public:
@@ -347,6 +352,11 @@ public:
     virtual void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0) = 0;
     // Nur mit gebundener Compute-Pipeline, außerhalb von begin_rendering().
     virtual void dispatch(u32 groups_x, u32 groups_y = 1, u32 groups_z = 1) = 0;
+    // Schreibt einen Zeitstempel der GPU, sobald alle Befehle davor fertig sind. Nur in Frames
+    // (begin_frame()), außerhalb von begin_rendering(), index kleiner als max_frame_timestamps
+    // und lückenlos ab 0; sonst und ohne Zeitstempel auf der GPU geschieht nichts. Die Werte
+    // liefert Frame::timestamps, wenn derselbe Platz wieder an der Reihe ist.
+    virtual void write_timestamp(u32 index) = 0;
 };
 
 struct Frame {
@@ -356,6 +366,9 @@ struct Frame {
     // Platz dieses Frames unter den Frames im Flug (0 bis frames_in_flight() - 1). Ressourcen, die
     // der Frame mit demselben Index benutzt hat, sind jetzt wieder frei.
     u32 index = 0;
+    // Zeitstempel (in Ticks, siehe Capabilities::timestamp_period), die der letzte Frame mit
+    // demselben Platz geschrieben hat, nach Index; gültig bis end_frame().
+    std::span<const u64> timestamps;
 };
 
 // Ein Device darf nur von einem Thread zugleich benutzt werden. Ressourcen dürfen jederzeit
@@ -404,6 +417,10 @@ public:
     // Liest eine Textur mit TransferSrc zurück, Zeile für Zeile ohne Abstand. state ist ihr
     // Zustand vorher und nachher.
     [[nodiscard]] virtual std::vector<u8> read_texture(Texture& texture, ResourceState state) = 0;
+
+    // Aktueller Zeitstempel der GPU in Ticks; wartet auf die GPU. Zum Abgleich der Zeitachsen von
+    // CPU und GPU (Profiler). 0 ohne Zeitstempel.
+    [[nodiscard]] virtual u64 gpu_timestamp() = 0;
 
     virtual void wait_idle() = 0;
 

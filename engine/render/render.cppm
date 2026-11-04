@@ -1,6 +1,7 @@
 // Renderer der Engine (Laufzeit-Schicht). Er kennt nur die RHI, nie die Grafik-API dahinter
 // (ADR 0004, ADR 0026).
 //   :pool        transiente Texturen, über Frames hinweg wiederverwendet
+//   :profiler    GPU-Zonen in Tracy über Zeitstempel
 //   :graph       Render-Graph: Passes, Ressourcen, Barrieren
 //   :components  Camera und MeshRenderer für die Welt
 //   :materials   Materialien, Texturen und Sampler (MaterialStore)
@@ -9,6 +10,7 @@
 export module ngine.render;
 
 export import :pool;
+export import :profiler;
 export import :graph;
 export import :components;
 export import :materials;

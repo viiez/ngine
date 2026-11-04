@@ -17,6 +17,7 @@ export module ngine.render:graph;
 import ngine.core;
 import ngine.rhi;
 import :pool;
+import :profiler;
 
 export namespace ngine::render {
 
@@ -153,8 +154,9 @@ public:
     }
 
     // Plant bei Bedarf und zeichnet alle Passes mit ihren Barrieren auf. Transiente Texturen
-    // kommen aus pool; der Aufrufer ruft pool.end_frame(), wenn der Frame aufgezeichnet ist.
-    void execute(rhi::CommandList& commands, TexturePool& pool);
+    // kommen aus pool; der Aufrufer ruft pool.end_frame(), wenn der Frame aufgezeichnet ist. Mit
+    // profiler bekommt jeder Pass eine GPU-Zone.
+    void execute(rhi::CommandList& commands, TexturePool& pool, GpuProfiler* profiler = nullptr);
 
     // Leert den Graph für den nächsten Frame.
     void reset();

@@ -2,6 +2,7 @@ module;
 
 #include "vk.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -195,10 +196,33 @@ public:
         vkCmdDispatch(cmd_, groups_x, groups_y, groups_z);
     }
 
+    void write_timestamp(u32 index) override {
+        if (timestamps_ == VK_NULL_HANDLE || index >= max_frame_timestamps ||
+            index > timestamp_count_) {
+            return;
+        }
+        vkCmdWriteTimestamp2(cmd_, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, timestamps_,
+                             timestamp_base_ + index);
+        timestamp_count_ = std::max(timestamp_count_, index + 1);
+    }
+
+    // Zeitstempel dieses Command Buffers landen ab base im Pool; ohne Pool keine.
+    void set_timestamps(VkQueryPool pool, u32 base) {
+        timestamps_ = pool;
+        timestamp_base_ = base;
+        timestamp_count_ = 0;
+    }
+    [[nodiscard]] u32 timestamp_count() const {
+        return timestamp_count_;
+    }
+
 private:
     const BindlessHeap* bindless_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
     bool bound_ = false;
+    VkQueryPool timestamps_ = VK_NULL_HANDLE;
+    u32 timestamp_base_ = 0;
+    u32 timestamp_count_ = 0;
     std::vector<VkImageMemoryBarrier2> image_barriers_;
     std::vector<VkBufferMemoryBarrier2> buffer_barriers_;
 };

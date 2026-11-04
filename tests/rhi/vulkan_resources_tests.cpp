@@ -379,3 +379,46 @@ TEST_CASE("Vulkan swapchain rebuilds on resize without stalling", "[rhi][vulkan]
     device->wait_idle();
     CHECK(device->validation_errors() == 0);
 }
+
+TEST_CASE("Vulkan frames return their timestamps when the slot comes around",
+          "[rhi][vulkan][gpu]") {
+    const auto device = make_device(ngine::rhi::vulkan::headless_surface({32, 32}));
+    if (device->capabilities().timestamp_period <= 0.0f) {
+        SKIP("Die GPU hat keine Zeitstempel");
+    }
+    const ngine::u64 before = device->gpu_timestamp();
+    CHECK(before > 0);
+
+    const ngine::u32 slots = device->frames_in_flight();
+    bool checked = false;
+    for (ngine::u32 i = 0; i < slots * 2 + 1; ++i) {
+        auto frame = device->begin_frame();
+        REQUIRE(frame);
+        if (i >= slots) {
+            // Der Frame vor slots Frames schrieb drei Zeitstempel, in dieser Reihenfolge.
+            REQUIRE(frame->timestamps.size() == 3);
+            CHECK(frame->timestamps[0] >= before);
+            CHECK(frame->timestamps[0] <= frame->timestamps[1]);
+            CHECK(frame->timestamps[1] <= frame->timestamps[2]);
+            checked = true;
+        } else {
+            CHECK(frame->timestamps.empty());
+        }
+        frame->commands.write_timestamp(0);
+        frame->commands.barrier(frame->backbuffer, ResourceState::Undefined,
+                                ResourceState::ColorTarget);
+        frame->commands.begin_rendering(frame->backbuffer, ngine::rhi::Color{0.1f, 0.2f, 0.3f, 1});
+        frame->commands.end_rendering();
+        frame->commands.write_timestamp(1);
+        frame->commands.barrier(frame->backbuffer, ResourceState::ColorTarget,
+                                ResourceState::Present);
+        frame->commands.write_timestamp(2);
+        // Lücken und Werte über der Grenze werden ignoriert.
+        frame->commands.write_timestamp(7);
+        frame->commands.write_timestamp(ngine::rhi::max_frame_timestamps);
+        device->end_frame();
+    }
+    CHECK(checked);
+    device->wait_idle();
+    CHECK(device->validation_errors() == 0);
+}
