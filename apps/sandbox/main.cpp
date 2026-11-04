@@ -1,6 +1,13 @@
 // Sandbox: kleine Testanwendung, an der jede Iteration sichtbar wird.
 //
+// Ohne Demo-Option zeigt die Sandbox ein Raster aus Kugeln mit steigendem Metallic- (nach oben)
+// und Roughness-Wert (nach rechts) oder mit --model ein glTF-Modell. Freie Kamera: rechte
+// Maustaste halten und Maus bewegen, W/A/S/D fliegen, E/Q hoch und runter, Shift schneller.
+//
 // Optionen:
+//   --model <pfad>  glTF-Modell (.gltf oder .glb) statt des Kugelrasters
+//   --image <pfad>  ohne Fenster offscreen zeichnen und als PPM-Bild speichern (mit Kugelraster,
+//                   Modell oder --voxel-demo)
 //   --headless      ohne Fenster und GPU starten (wie später der dedizierte Server)
 //   --frames <n>    nach n Frames beenden (für automatische Tests)
 //   --no-vsync      ohne vertikale Synchronisation präsentieren
@@ -12,9 +19,9 @@
 //   --voxel-demo    Voxel-Terrain vorführen: Hügel aus Surface Nets, mit der Maus veränderbar
 //                   (links abtragen, rechts auftragen, Mitte glätten, Rad zoomt, Leertaste hält
 //                   die Kamera an). Mit --frames ändert sich das Terrain automatisch; mit
-//                   --headless ohne GPU, mit --image <pfad> offscreen als PPM-Bild.
-//   --far           Voxel-Terrain 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen
-//                   mit 64-Bit-Positionen nicht zittert
+//                   --headless ohne GPU.
+//   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
+//                   64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
 //   --net-demo      Netzwerk vorführen: Server und Client im selben Prozess über localhost
 //   --server        dedizierter Server ohne Fenster (Port mit --port, Standard 27020); ohne
@@ -25,6 +32,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -43,6 +51,7 @@ import sandbox.jobs_demo;
 import sandbox.scene_demo;
 import sandbox.frame_stats;
 import sandbox.voxel_demo;
+import sandbox.model_demo;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import ngine.voxel;
@@ -65,6 +74,7 @@ struct Options {
     std::optional<ngine::u16> port;
     std::optional<std::string> client_address;
     std::optional<std::string> image_path;
+    std::optional<std::string> model_path;
     bool baseline = false;
     bool far = false;
     std::optional<ngine::u64> frames;
@@ -99,6 +109,8 @@ Options parse_options(std::span<char*> args) {
             }
         } else if (arg == "--voxel-demo") {
             options.voxel_demo = true;
+        } else if (arg == "--model" && i + 1 < args.size()) {
+            options.model_path = std::string{args[++i]};
         } else if (arg == "--image" && i + 1 < args.size()) {
             options.image_path = std::string{args[++i]};
         } else if (arg == "--no-vsync") {
@@ -157,24 +169,9 @@ int run_windowed(const Options& options) {
     int exit_code = 0;
     {
         // Ressourcen leben in diesem Block, damit sie vor dem Device zerstört werden.
-        auto vertex = (*device)->create_shader(ngine::shaders::triangle_vertex());
-        auto fragment = (*device)->create_shader(ngine::shaders::triangle_fragment());
-        if (!vertex || !fragment) {
-            ngine::log::fatal("Shader: {}", !vertex ? vertex.error() : fragment.error());
-            return 1;
-        }
-        auto pipeline = (*device)->create_pipeline({
-            .vertex = vertex->get(),
-            .fragment = fragment->get(),
-            .color_format = (*device)->swapchain_format(),
-        });
-        if (!pipeline) {
-            ngine::log::fatal("Pipeline: {}", pipeline.error());
-            return 1;
-        }
-
-        // Voxel-Demo statt Dreieck (Durchstich D1).
+        // Voxel-Demo (Durchstich D1) oder Standardansicht mit Renderer und Welt (R1.3).
         std::optional<sandbox::VoxelScene> voxels;
+        std::unique_ptr<sandbox::ModelScene> scene;
         if (options.voxel_demo) {
             voxels.emplace(32u, sandbox::voxel_origin(options.far));
             if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format());
@@ -182,56 +179,28 @@ int run_windowed(const Options& options) {
                 ngine::log::fatal("Voxel-Demo: {}", result.error());
                 return 1;
             }
+        } else {
+            auto created =
+                sandbox::ModelScene::create(**device, (*device)->swapchain_format(),
+                                            options.model_path, sandbox::voxel_origin(options.far));
+            if (!created) {
+                ngine::log::fatal("{}", created.error());
+                return 1;
+            }
+            scene = *std::move(created);
         }
 
         ngine::render::TexturePool pool{**device};
         ngine::u64 frame_count = 0;
         bool running = true;
+        sandbox::FlyInput fly;
+        bool looking = false;
         auto last_time = std::chrono::steady_clock::now();
         auto last_report = last_time;
-        while (running) {
-            namespace event = ngine::platform::event;
-            for (const auto& e : window->poll_events()) {
-                std::visit(
-                    [&](const auto& ev) {
-                        using T = std::decay_t<decltype(ev)>;
-                        if constexpr (std::is_same_v<T, event::Quit>) {
-                            running = false;
-                        } else if constexpr (std::is_same_v<T, event::Resized>) {
-                            (*device)->resize({ev.framebuffer.width, ev.framebuffer.height});
-                        } else if constexpr (std::is_same_v<T, event::KeyPressed>) {
-                            if (ev.key == ngine::platform::Key::Escape) {
-                                running = false;
-                            } else if (ev.key == ngine::platform::Key::Space && voxels) {
-                                voxels->toggle_rotation();
-                            }
-                        } else if constexpr (std::is_same_v<T, event::MouseMoved>) {
-                            if (voxels) {
-                                voxels->set_cursor(ev.x, ev.y);
-                            }
-                        } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
-                            if (voxels) {
-                                using ngine::platform::MouseButton;
-                                using ngine::voxel::BrushMode;
-                                voxels->set_cursor(ev.x, ev.y);
-                                voxels->set_brush(ev.button == MouseButton::Left ? BrushMode::Remove
-                                                  : ev.button == MouseButton::Right
-                                                      ? BrushMode::Add
-                                                      : BrushMode::Smooth);
-                            }
-                        } else if constexpr (std::is_same_v<T, event::MouseButtonReleased>) {
-                            if (voxels) {
-                                voxels->set_brush(std::nullopt);
-                            }
-                        } else if constexpr (std::is_same_v<T, event::MouseWheel>) {
-                            if (voxels) {
-                                voxels->zoom(ev.delta);
-                            }
-                        }
-                    },
-                    e);
-            }
 
+        // Ein ganzer Frame: Zeit, Szene, Zeichnen. Läuft aus der Hauptschleife und, unter
+        // Windows, aus dem Rückruf beim Ziehen des Fensters (TD-19).
+        const auto run_frame = [&] {
             const auto now = std::chrono::steady_clock::now();
             const auto dt = std::chrono::duration<float>(now - last_time).count();
             last_time = now;
@@ -243,10 +212,15 @@ int run_windowed(const Options& options) {
                     voxels->scripted_edit(frame_count / 10);
                 }
                 voxels->remesh_if_needed();
-                if (now - last_report > std::chrono::seconds{3}) {
-                    ngine::log::info("Voxel-Netz: {}", voxels->stats());
-                    last_report = now;
-                }
+            } else {
+                scene->update(dt, fly);
+                fly.look_x = 0.0f;
+                fly.look_y = 0.0f;
+            }
+            if (now - last_report > std::chrono::seconds{3}) {
+                ngine::log::info("{}", voxels ? "Voxel-Netz: " + voxels->stats()
+                                              : "Szene: " + scene->stats());
+                last_report = now;
             }
 
             if (auto frame = (*device)->begin_frame()) {
@@ -259,19 +233,7 @@ int run_windowed(const Options& options) {
                 if (voxels) {
                     voxels->add_passes(**device, graph, backbuffer);
                 } else {
-                    graph.add_pass(
-                        "Dreieck",
-                        [&](ngine::render::PassBuilder& pass) {
-                            pass.write(backbuffer, ngine::rhi::ResourceState::ColorTarget);
-                        },
-                        [&](ngine::render::PassContext& context) {
-                            context.commands.begin_rendering(
-                                context.texture(backbuffer),
-                                ngine::rhi::Color{0.02f, 0.02f, 0.04f, 1.0f});
-                            context.commands.bind_pipeline(**pipeline);
-                            context.commands.draw(3);
-                            context.commands.end_rendering();
-                        });
+                    scene->add_passes(graph, backbuffer);
                 }
                 graph.execute(frame->commands, pool);
                 pool.end_frame();
@@ -281,18 +243,95 @@ int run_windowed(const Options& options) {
                 // Minimiert oder Swapchain wird neu aufgebaut: nicht im Leerlauf kreiseln.
                 std::this_thread::sleep_for(std::chrono::milliseconds{16});
             }
-
             sandbox::report_memory();
             ngine::profile::frame_mark();
+        };
+        window->set_redraw_callback([&](ngine::platform::Extent extent) {
+            (*device)->resize({extent.width, extent.height});
+            run_frame();
+        });
+
+        while (running) {
+            namespace event = ngine::platform::event;
+            using ngine::platform::Key;
+            const auto set_key = [&](Key key, bool down) {
+                switch (key) {
+                case Key::W: fly.forward = down; break;
+                case Key::S: fly.back = down; break;
+                case Key::A: fly.left = down; break;
+                case Key::D: fly.right = down; break;
+                case Key::E: fly.up = down; break;
+                case Key::Q: fly.down = down; break;
+                case Key::Shift: fly.fast = down; break;
+                default: break;
+                }
+            };
+            for (const auto& e : window->poll_events()) {
+                std::visit(
+                    [&](const auto& ev) {
+                        using T = std::decay_t<decltype(ev)>;
+                        using ngine::platform::MouseButton;
+                        if constexpr (std::is_same_v<T, event::Quit>) {
+                            running = false;
+                        } else if constexpr (std::is_same_v<T, event::Resized>) {
+                            (*device)->resize({ev.framebuffer.width, ev.framebuffer.height});
+                        } else if constexpr (std::is_same_v<T, event::KeyPressed>) {
+                            if (ev.key == Key::Escape) {
+                                running = false;
+                            } else if (ev.key == Key::Space && voxels) {
+                                voxels->toggle_rotation();
+                            }
+                            set_key(ev.key, true);
+                        } else if constexpr (std::is_same_v<T, event::KeyReleased>) {
+                            set_key(ev.key, false);
+                        } else if constexpr (std::is_same_v<T, event::MouseMoved>) {
+                            if (voxels) {
+                                voxels->set_cursor(ev.x, ev.y);
+                            } else if (looking) {
+                                fly.look_x += ev.dx;
+                                fly.look_y += ev.dy;
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
+                            if (voxels) {
+                                using ngine::voxel::BrushMode;
+                                voxels->set_cursor(ev.x, ev.y);
+                                voxels->set_brush(ev.button == MouseButton::Left ? BrushMode::Remove
+                                                  : ev.button == MouseButton::Right
+                                                      ? BrushMode::Add
+                                                      : BrushMode::Smooth);
+                            } else if (ev.button == MouseButton::Right) {
+                                looking = true;
+                                window->set_relative_mouse(true);
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseButtonReleased>) {
+                            if (voxels) {
+                                voxels->set_brush(std::nullopt);
+                            } else if (ev.button == MouseButton::Right) {
+                                looking = false;
+                                window->set_relative_mouse(false);
+                            }
+                        } else if constexpr (std::is_same_v<T, event::MouseWheel>) {
+                            if (voxels) {
+                                voxels->zoom(ev.delta);
+                            }
+                        }
+                    },
+                    e);
+            }
+
+            run_frame();
             if (options.frames && frame_count >= *options.frames) {
                 running = false;
             }
         }
 
+        window->set_redraw_callback({});
         (*device)->wait_idle();
         if (voxels) {
             ngine::log::info("Voxel-Netz: {}", voxels->stats());
             voxels->release_gpu();
+        } else {
+            ngine::log::info("Szene: {}", scene->stats());
         }
         ngine::log::info("{} Frames gezeichnet", frame_count);
     }
@@ -331,6 +370,10 @@ int main(int argc, char** argv) {
     } else if (options.voxel_demo && options.image_path) {
         exit_code = sandbox::run_voxel_demo_offscreen(
             options.frames.value_or(60), *options.image_path, options.baseline, options.far);
+    } else if (options.image_path && !options.voxel_demo) {
+        exit_code =
+            sandbox::run_model_offscreen(options.model_path, *options.image_path, options.baseline,
+                                         sandbox::voxel_origin(options.far));
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {
