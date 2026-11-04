@@ -28,7 +28,7 @@ struct WindowDesc {
 // Tasten nach ihrer Lage auf einer US-Tastatur (Scancodes): W, A, S, D liegen auch auf einer
 // französischen Tastatur dort, wo die freie Kamera sie erwartet. Die Abbildung auf Aktionen kommt
 // mit PLAT-02 in R2.
-enum class Key : u8 { Unknown, Escape, Space, W, A, S, D, Q, E, Shift };
+enum class Key : u8 { Unknown, Escape, Space, W, A, S, D, Q, E, Shift, F1, F2 };
 enum class MouseButton : u8 { Left, Middle, Right, Other };
 
 namespace event {

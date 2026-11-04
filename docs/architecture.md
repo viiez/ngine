@@ -39,9 +39,9 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten mit Loslassen, Maus mit relativem Modus, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Überblenden) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
-| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera` und `MeshRenderer`, `MeshStore`, `MaterialStore`, `Renderer` (PBR vorwärts in ein HDR-Ziel, Tone Mapping), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | vorhanden (ab R1.2) |
+| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer`, `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Tone Mapping, Debug-Linien), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Tone Mapping); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
 
 Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
@@ -200,14 +200,44 @@ flowchart LR
   Frame-Daten (Kamera, Sonne, Himmel- und Bodenfarbe; ein Puffer pro Frame im Flug) und des
   Materialfelds sowie der Index des Materials. Texturen und Sampler stehen als bindlose Indizes im
   Material ([ADR 0027](adr/0027-gltf-assets-material-store.md)).
-- Licht in R1.3: eine Sonne und ein Umgebungslicht aus Himmel- und Bodenfarbe, diffus entlang der
-  Normale und glänzend entlang der Spiegelung. Punktlichter und Schatten kommen in R1.4,
-  bildbasiertes Licht mit dem Himmel in R3.
+- Umgebungslicht aus Himmel- und Bodenfarbe (`Renderer::lighting`), diffus entlang der Normale und
+  glänzend entlang der Spiegelung; bildbasiertes Licht kommt mit dem Himmel in R3. Sonne und
+  weitere Lichter siehe unten.
 - Undurchsichtige Materialien zuerst, Alpha-Maske über `discard`, durchsichtige danach ohne
   Sortierung (TD-20). Vier Pipelines: mit und ohne Überblenden, mit und ohne Rückseiten.
 - GPU-Zonen: Der `GpuProfiler` schreibt vor und nach jedem Pass des Graphs einen Zeitstempel; die
   Werte kommen über `Frame::timestamps`, wenn der Platz unter den Frames im Flug wieder dran ist,
   und gehen über `ngine.profile` an Tracy.
+
+### Licht, Schatten und Debug-Zeichnen
+
+Lichter sind Komponenten (REND-09, [ADR 0028](adr/0028-lights-cascaded-shadows.md)) und leuchten
+entlang der lokalen -z-Achse. `collect_lights()` macht daraus pro Frame die Sonne (erstes aktives
+`DirectionalLight`) und eine Liste aller übrigen Lichter, kamerarelativ in einem Puffer pro Frame
+im Flug. Vor dem Vorwärts-Pass zeichnen vier Pässe die Schattenkarten der Sonne.
+
+```mermaid
+flowchart LR
+    world["Welt"] -->|"collect_lights()"| list["Sonne + Lichtliste"]
+    world -->|"fit_cascades()"| cascades["4 Kaskaden<br/>Kugel, auf Texel eingerastet"]
+    cascades --> shadow["Pässe Schatten<br/>nur Tiefe, D32"]
+    shadow --> fwd["Pass Vorwärts<br/>PCF über Gather, Lichtliste,<br/>Debug-Linien"]
+    list --> fwd
+    debug["DebugDraw<br/>Linien in 64 Bit"] -->|"prepare_lines()"| fwd
+```
+
+- `fit_cascades()` (`:shadows`) ist reine Rechnung: Aufteilung des Stumpfs, kleinste Kugel um
+  jeden Ausschnitt, Einrasten des Mittelpunkts in 64 Bit, Matrix von kamerarelativen
+  Weltkoordinaten in den Raum der Schattenkarte. Werfer prüft `Cascade::may_cast()` über
+  Hüllkugeln; durchsichtige Materialien werfen keine Schatten.
+- Der Vorwärts-Pass wählt die Kaskade nach der Entfernung entlang der Blickrichtung, filtert mit
+  PCF und geht am Ende jeder Kaskade weich in die nächste über. `Renderer::show_cascades` färbt
+  die Kaskaden zur Prüfung ein. `ShadowSettings` steuert Entfernung, Auflösung und Versatz.
+- `DebugDraw` (`Renderer::debug()`, REND-15) sammelt Linien, Quader, Kugeln und Achsenkreuze für
+  einen Frame. Der Renderer schneidet sie an der nahen Ebene ab und zeichnet sie im Vorwärts-Pass
+  mit Tiefentest; der Vertex-Shader zieht jede Linie zu einem Rechteck fester Pixelbreite auf.
+- Die Szenen-Shader teilen ihre Datenstrukturen über `scene.slang` (Eckpunkt, Material, Licht,
+  Frame, Push Constants).
 
 ### Lebensdauer von GPU-Ressourcen
 

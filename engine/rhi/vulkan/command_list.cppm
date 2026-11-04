@@ -117,13 +117,16 @@ public:
     }
 
     void begin_rendering(const RenderingDesc& desc) override {
-        verify(desc.color != nullptr, "begin_rendering braucht ein Farbziel");
-        const auto& texture = static_cast<const VulkanTexture&>(*desc.color);
+        verify(desc.color != nullptr || desc.depth != nullptr,
+               "begin_rendering braucht ein Farbziel oder einen Tiefenpuffer");
+        // Die Größe kommt vom Farbziel, ohne eines vom Tiefenpuffer.
+        const auto& texture =
+            static_cast<const VulkanTexture&>(desc.color != nullptr ? *desc.color : *desc.depth);
 
         const Color color = desc.clear_color.value_or(Color{});
         const VkRenderingAttachmentInfo attachment{
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-            .imageView = texture.view(),
+            .imageView = desc.color != nullptr ? texture.view() : VK_NULL_HANDLE,
             .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .loadOp = desc.clear_color ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -147,8 +150,8 @@ public:
             .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
             .renderArea = {{0, 0}, extent},
             .layerCount = 1,
-            .colorAttachmentCount = 1,
-            .pColorAttachments = &attachment,
+            .colorAttachmentCount = desc.color != nullptr ? 1u : 0u,
+            .pColorAttachments = desc.color != nullptr ? &attachment : nullptr,
             .pDepthAttachment = desc.depth != nullptr ? &depth_attachment : nullptr,
         };
         vkCmdBeginRendering(cmd_, &rendering);

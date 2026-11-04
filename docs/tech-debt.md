@@ -21,6 +21,8 @@ Bekannte Abkürzungen und Probleme mit Grund und Plan. Regeln und Ablauf stehen 
 | TD-21 | Erzeugte Tangenten sind pro Dreieck gemittelt, nicht nach MikkTSpace | Einfach und ohne weitere Bibliothek; die meisten glTF-Modelle bringen Tangenten mit | MikkTSpace in der Asset-Pipeline, wenn ein Modell sichtbare Nähte zeigt | R2 |
 | TD-22 | GPU-Zonen gleichen die Zeitachsen von CPU und GPU nur einmal beim Start ab | Für kurze Messungen genau genug; ohne `VK_EXT_calibrated_timestamps` gibt es keinen günstigen Abgleich | Mit `VK_EXT_calibrated_timestamps` regelmäßig nachkalibrieren (`___tracy_emit_gpu_calibration`), wo vorhanden | R2 |
 | TD-23 | Jedes Mesh hat eigene Eckpunkt- und Indexpuffer | Einfachster Weg für R1.3; wenige Modelle | Gemeinsame Puffer für alle Meshes mit Verwaltung freier Bereiche, passend zum Culling auf der GPU | R3 |
+| TD-24 | Der Vorwärts-Pass geht für jedes Pixel alle Lichter der Liste durch (bis 256) | Für Szenen mit wenigen Dutzend Lichtern schnell genug und ohne zusätzlichen Pass | Clustered Shading: Lichter per Compute in Zellen des Stumpfs einsortieren, pro Pixel nur die Zelle lesen | R3 |
+| TD-25 | Punkt- und Spotlichter werfen keine Schatten | R1 braucht Schatten nur von der Sonne; Würfel- und Spot-Schattenkarten kosten Pässe und Speicher | Schattenkarten für ausgewählte Spot- und Punktlichter (Atlas), passend zu Taschenlampe und Fackeln im Spiel | R3 |
 
 ## Abgebaut
 

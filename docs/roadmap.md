@@ -11,7 +11,8 @@ Konstruktion mit R1 (Rendering-Grundlagen), aufgeteilt in vier Iterationen
 (Mathematik und Transforms) ist abgeschlossen,
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
 GPU-Speicher) ist abgeschlossen, [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes,
-Materialien, Kamera) ist abgeschlossen, als Nächstes folgt R1.4 (Licht und Schatten).
+Materialien, Kamera) ist abgeschlossen, [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht
+und Schatten) ist in Arbeit.
 
 ## Phasen und Iterationen
 

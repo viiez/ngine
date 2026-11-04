@@ -422,3 +422,68 @@ TEST_CASE("Vulkan frames return their timestamps when the slot comes around",
     device->wait_idle();
     CHECK(device->validation_errors() == 0);
 }
+
+TEST_CASE("Vulkan draws depth only and samples the depth texture", "[rhi][vulkan][gpu]") {
+    const auto device = make_device();
+    constexpr ngine::rhi::Extent2D extent{16, 16};
+    auto depth =
+        device->create_texture({.extent = extent,
+                                .format = Format::D32Float,
+                                .usage = TextureUsage::RenderTarget | TextureUsage::Sampled});
+    auto color = device->create_texture({.extent = extent, .format = Format::RGBA8Unorm});
+    auto sampler = device->create_sampler({.mag_filter = ngine::rhi::Filter::Nearest,
+                                           .min_filter = ngine::rhi::Filter::Nearest,
+                                           .mip_filter = ngine::rhi::Filter::Nearest,
+                                           .address_u = ngine::rhi::AddressMode::ClampToEdge,
+                                           .address_v = ngine::rhi::AddressMode::ClampToEdge});
+    auto triangle = device->create_shader(ngine::shaders::triangle_vertex());
+    auto vertex = device->create_shader(ngine::shaders::fullscreen_vertex());
+    auto fragment = device->create_shader(ngine::shaders::fullscreen_fragment());
+    REQUIRE(depth);
+    REQUIRE(color);
+    REQUIRE(sampler);
+    REQUIRE(triangle);
+    REQUIRE(vertex);
+    REQUIRE(fragment);
+
+    // Nur Tiefe: kein Farbformat, kein Fragment-Shader, mit Tiefenversatz.
+    auto depth_only = device->create_pipeline({.vertex = triangle->get(),
+                                               .depth_format = Format::D32Float,
+                                               .depth_bias_constant = 1.0f,
+                                               .depth_bias_slope = 1.0f});
+    REQUIRE(depth_only);
+    auto blit = device->create_pipeline(
+        {.vertex = vertex->get(), .fragment = fragment->get(), .color_format = Format::RGBA8Unorm});
+    REQUIRE(blit);
+    // Ohne Farbziel und ohne Tiefe gibt es nichts zu zeichnen.
+    CHECK_FALSE(device->create_pipeline({.vertex = triangle->get()}));
+
+    const BlitPush push{(*depth)->sampled_index(), (*sampler)->index()};
+    device->execute([&](ngine::rhi::CommandList& commands) {
+        const std::array to_depth{ngine::rhi::TextureBarrier{depth->get(), ResourceState::Undefined,
+                                                             ResourceState::DepthTarget}};
+        commands.barrier(to_depth);
+        commands.begin_rendering({.depth = depth->get(), .clear_depth = 1.0f});
+        commands.bind_pipeline(**depth_only);
+        commands.draw(3);
+        commands.end_rendering();
+
+        const std::array to_read{ngine::rhi::TextureBarrier{depth->get(),
+                                                            ResourceState::DepthTarget,
+                                                            ResourceState::ShaderRead},
+                                 ngine::rhi::TextureBarrier{color->get(), ResourceState::Undefined,
+                                                            ResourceState::ColorTarget}};
+        commands.barrier(to_read);
+        commands.begin_rendering(**color, ngine::rhi::Color{0, 0, 0, 1});
+        commands.bind_pipeline(**blit);
+        commands.push_constants(std::as_bytes(std::span{&push, 1}));
+        commands.draw(3);
+        commands.end_rendering();
+    });
+    const auto pixels = device->read_texture(**color, ResourceState::ColorTarget);
+    const auto red = [&](u32 x, u32 y) { return pixels[(ngine::usize{y} * extent.width + x) * 4]; };
+    // Das Dreieck liegt bei Tiefe 0 in der Mitte; die Ecken behalten die gelöschte Tiefe 1.
+    CHECK(red(8, 8) < 8);
+    CHECK(red(0, 0) == 255);
+    CHECK(device->validation_errors() == 0);
+}

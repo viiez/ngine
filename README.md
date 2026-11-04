@@ -53,8 +53,10 @@ bringt der Grafiktreiber mit; die Validation Layers kommen mit dem Vulkan SDK.
 
 Optionen der Sandbox: `--headless` (ohne Fenster und GPU), `--frames <n>` (nach n Frames beenden),
 `--no-vsync`, `--baseline` (ohne Mesh Shader und Raytracing, auch wenn die GPU sie kann). Ohne
-Demo-Option zeigt die Sandbox ein Raster aus PBR-Kugeln, mit `--model <pfad>` ein glTF-Modell
-(`.gltf` oder `.glb`); freie Kamera mit gedrückter rechter Maustaste, WASD, Q/E und Shift; mit
+Demo-Option zeigt die Sandbox ein Raster aus PBR-Kugeln auf einem Boden mit Säulen, Sonne mit
+Schatten und acht kreisenden Punktlichtern, mit `--model <pfad>` ein glTF-Modell (`.gltf` oder
+`.glb`); freie Kamera mit gedrückter rechter Maustaste, WASD, Q/E und Shift; F1 schaltet
+Debug-Zeichnen um (von Anfang an mit `--debug-draw`), F2 färbt die Kaskaden der Schatten ein; mit
 `--image <pfad>` offscreen als Bild, mit `--far` 10 000 km vom Ursprung. Demos:
 `--jobs-demo`, `--scene-demo`, `--script-demo` (C#-Skripte), `--net-demo` (Server und Client in
 einem Prozess) und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit

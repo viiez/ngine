@@ -125,4 +125,36 @@ Primitive make_sphere(f32 radius, u32 segments, u32 rings) {
     return sphere;
 }
 
+Primitive make_box(Vec3 half_extents) {
+    struct Face {
+        Vec3 normal;
+        Vec3 u;
+        Vec3 v;
+    };
+    // u und v spannen die Seite auf; cross(u, v) zeigt nach außen.
+    constexpr Face faces[6] = {
+        {{1, 0, 0}, {0, 0, -1}, {0, 1, 0}}, {{-1, 0, 0}, {0, 0, 1}, {0, 1, 0}},
+        {{0, 1, 0}, {1, 0, 0}, {0, 0, -1}}, {{0, -1, 0}, {1, 0, 0}, {0, 0, 1}},
+        {{0, 0, 1}, {1, 0, 0}, {0, 1, 0}},  {{0, 0, -1}, {-1, 0, 0}, {0, 1, 0}},
+    };
+    const auto scaled = [&](Vec3 d) {
+        return Vec3{d.x * half_extents.x, d.y * half_extents.y, d.z * half_extents.z};
+    };
+    Primitive box;
+    for (const Face& face : faces) {
+        const u32 base = static_cast<u32>(box.vertices.size());
+        constexpr f32 corners[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+        for (const auto& corner : corners) {
+            const Vec3 direction = face.normal + face.u * corner[0] + face.v * corner[1];
+            box.vertices.push_back({.position = scaled(direction),
+                                    .normal = face.normal,
+                                    .tangent = {face.u.x, face.u.y, face.u.z, 1.0f},
+                                    .uv = {corner[0] * 0.5f + 0.5f, 0.5f - corner[1] * 0.5f}});
+        }
+        box.indices.insert(box.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+    }
+    generate_tangents(box.vertices, box.indices);
+    return box;
+}
+
 } // namespace ngine::asset

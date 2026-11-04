@@ -261,30 +261,35 @@ Result<std::unique_ptr<Shader>> create_shader(VkDevice device, const ShaderDesc&
 
 Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
                                                   const GraphicsPipelineDesc& desc) {
-    if (desc.vertex == nullptr || desc.fragment == nullptr) {
+    const VkFormat color_format = to_vk(desc.color_format);
+    const bool with_color = color_format != VK_FORMAT_UNDEFINED;
+    if (desc.vertex == nullptr || (with_color && desc.fragment == nullptr)) {
         return std::unexpected("Pipeline braucht Vertex- und Fragment-Shader");
     }
-    const VkFormat color_format = to_vk(desc.color_format);
-    if (color_format == VK_FORMAT_UNDEFINED) {
-        return std::unexpected("Pipeline braucht ein Farbformat");
+    if (!with_color && desc.depth_format == Format::Unknown) {
+        return std::unexpected("Pipeline braucht ein Farb- oder Tiefenformat");
     }
 
     const auto& vertex = static_cast<const VulkanShader&>(*desc.vertex);
-    const auto& fragment = static_cast<const VulkanShader&>(*desc.fragment);
-    const std::array stages{
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{
         VkPipelineShaderStageCreateInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
             .module = vertex.module(),
             .pName = vertex.entry_point().c_str(),
         },
-        VkPipelineShaderStageCreateInfo{
+        {},
+    };
+    u32 stage_count = 1;
+    if (desc.fragment != nullptr) {
+        const auto& fragment = static_cast<const VulkanShader&>(*desc.fragment);
+        stages[stage_count++] = VkPipelineShaderStageCreateInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
             .module = fragment.module(),
             .pName = fragment.entry_point().c_str(),
-        },
-    };
+        };
+    }
 
     const VkPipelineVertexInputStateCreateInfo vertex_input{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -309,6 +314,10 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
         .cullMode = desc.cull_mode == CullMode::Back ? VkCullModeFlags{VK_CULL_MODE_BACK_BIT}
                                                      : VkCullModeFlags{VK_CULL_MODE_NONE},
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable =
+            desc.depth_bias_constant != 0.0f || desc.depth_bias_slope != 0.0f ? VK_TRUE : VK_FALSE,
+        .depthBiasConstantFactor = desc.depth_bias_constant,
+        .depthBiasSlopeFactor = desc.depth_bias_slope,
         .lineWidth = 1.0f,
     };
     const VkPipelineMultisampleStateCreateInfo multisample{
@@ -341,8 +350,8 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
     };
     const VkPipelineColorBlendStateCreateInfo blend{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &blend_attachment,
+        .attachmentCount = with_color ? 1u : 0u,
+        .pAttachments = with_color ? &blend_attachment : nullptr,
     };
     const std::array dynamic_states{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     const VkPipelineDynamicStateCreateInfo dynamic{
@@ -352,15 +361,15 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
     };
     const VkPipelineRenderingCreateInfo rendering{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-        .colorAttachmentCount = 1,
-        .pColorAttachmentFormats = &color_format,
+        .colorAttachmentCount = with_color ? 1u : 0u,
+        .pColorAttachmentFormats = with_color ? &color_format : nullptr,
         .depthAttachmentFormat = depth_format,
     };
 
     const VkGraphicsPipelineCreateInfo pipeline_info{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = &rendering,
-        .stageCount = static_cast<u32>(stages.size()),
+        .stageCount = stage_count,
         .pStages = stages.data(),
         .pVertexInputState = &vertex_input,
         .pInputAssemblyState = &input_assembly,

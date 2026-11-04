@@ -96,6 +96,8 @@ Key to_key(SDL_Scancode key) {
     case SDL_SCANCODE_E: return Key::E;
     case SDL_SCANCODE_LSHIFT:
     case SDL_SCANCODE_RSHIFT: return Key::Shift;
+    case SDL_SCANCODE_F1: return Key::F1;
+    case SDL_SCANCODE_F2: return Key::F2;
     default: return Key::Unknown;
     }
 }
