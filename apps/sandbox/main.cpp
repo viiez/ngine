@@ -34,6 +34,7 @@
 #include <variant>
 
 import ngine.core;
+import ngine.render;
 import ngine.rhi;
 import ngine.rhi.vulkan;
 import ngine.shaders;
@@ -183,6 +184,7 @@ int run_windowed(const Options& options) {
             }
         }
 
+        ngine::render::TexturePool pool{**device};
         ngine::u64 frame_count = 0;
         bool running = true;
         auto last_time = std::chrono::steady_clock::now();
@@ -248,15 +250,31 @@ int run_windowed(const Options& options) {
             }
 
             if (auto frame = (*device)->begin_frame()) {
+                // Jeder Frame ist ein Render-Graph; er setzt alle Barrieren, auch die für die
+                // Präsentation am Ende.
+                ngine::render::RenderGraph graph;
+                const auto backbuffer = graph.import_texture("Backbuffer", frame->backbuffer,
+                                                             ngine::rhi::ResourceState::Undefined,
+                                                             ngine::rhi::ResourceState::Present);
                 if (voxels) {
-                    voxels->record(**device, frame->commands, frame->backbuffer, frame->index);
+                    voxels->add_passes(**device, graph, backbuffer);
                 } else {
-                    frame->commands.begin_rendering(frame->backbuffer,
-                                                    ngine::rhi::Color{0.02f, 0.02f, 0.04f, 1.0f});
-                    frame->commands.bind_pipeline(**pipeline);
-                    frame->commands.draw(3);
-                    frame->commands.end_rendering();
+                    graph.add_pass(
+                        "Dreieck",
+                        [&](ngine::render::PassBuilder& pass) {
+                            pass.write(backbuffer, ngine::rhi::ResourceState::ColorTarget);
+                        },
+                        [&](ngine::render::PassContext& context) {
+                            context.commands.begin_rendering(
+                                context.texture(backbuffer),
+                                ngine::rhi::Color{0.02f, 0.02f, 0.04f, 1.0f});
+                            context.commands.bind_pipeline(**pipeline);
+                            context.commands.draw(3);
+                            context.commands.end_rendering();
+                        });
                 }
+                graph.execute(frame->commands, pool);
+                pool.end_frame();
                 (*device)->end_frame();
                 ++frame_count;
             } else {

@@ -8,6 +8,7 @@ module;
 #include <expected>
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
 
 module ngine.rhi.vulkan;
@@ -15,6 +16,7 @@ module ngine.rhi.vulkan;
 import ngine.core;
 import ngine.rhi;
 import :common;
+import :context;
 import :resources;
 
 namespace ngine::rhi::vulkan {
@@ -36,11 +38,38 @@ Result<VkImageView> create_view(VkDevice device, VkImage image, VkFormat format,
     return view;
 }
 
-Result<std::unique_ptr<Texture>> create_texture(VkDevice device, VmaAllocator allocator,
-                                                const TextureDesc& desc) {
+Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const TextureDesc& desc) {
     const VkFormat format = to_vk(desc.format);
     if (format == VK_FORMAT_UNDEFINED || desc.extent.width == 0 || desc.extent.height == 0) {
         return std::unexpected("Ungültige Textur-Beschreibung");
+    }
+    const bool depth = is_depth(desc.format);
+
+    VkImageUsageFlags usage = 0;
+    if (has(desc.usage, TextureUsage::RenderTarget)) {
+        usage |= depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                       : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
+    if (has(desc.usage, TextureUsage::Sampled)) {
+        usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    }
+    if (has(desc.usage, TextureUsage::Storage)) {
+        // sRGB- und Tiefenformate können GPUs meist nicht als Storage-Bild schreiben.
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(context.physical_device, format, &properties);
+        if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) == 0) {
+            return std::unexpected("Das Format taugt auf dieser GPU nicht als Storage-Textur");
+        }
+        usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+    }
+    if (has(desc.usage, TextureUsage::TransferSrc)) {
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+    if (has(desc.usage, TextureUsage::TransferDst)) {
+        usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
+    if (usage == 0) {
+        return std::unexpected("Textur ohne Verwendung");
     }
 
     const VkImageCreateInfo image_info{
@@ -52,50 +81,71 @@ Result<std::unique_ptr<Texture>> create_texture(VkDevice device, VmaAllocator al
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = is_depth(desc.format)
-                     ? VkImageUsageFlags{VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT}
-                     : VkImageUsageFlags{VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT},
+        .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
     const VmaAllocationCreateInfo allocation_info{.usage = VMA_MEMORY_USAGE_AUTO};
-    VkImage image = VK_NULL_HANDLE;
-    VmaAllocation allocation = nullptr;
-    if (const VkResult result =
-            vmaCreateImage(allocator, &image_info, &allocation_info, &image, &allocation, nullptr);
+    VulkanTexture::Parts parts;
+    if (const VkResult result = vmaCreateImage(context.allocator, &image_info, &allocation_info,
+                                               &parts.image, &parts.allocation, nullptr);
         result != VK_SUCCESS) {
         return std::unexpected(failed("vmaCreateImage", result));
     }
 
-    auto view =
-        create_view(device, image, format,
-                    is_depth(desc.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
+    auto view = create_view(context.device, parts.image, format,
+                            depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
     if (!view) {
-        vmaDestroyImage(allocator, image, allocation);
+        vmaDestroyImage(context.allocator, parts.image, parts.allocation);
         return std::unexpected(std::move(view).error());
     }
-    return std::make_unique<VulkanTexture>(device, allocator, image, allocation, *view, desc.extent,
-                                           desc.format);
+    parts.view = *view;
+
+    const auto fail = [&](std::string message) -> Result<std::unique_ptr<Texture>> {
+        context.bindless.release(BindlessKind::SampledImage, parts.sampled_index);
+        vkDestroyImageView(context.device, parts.view, nullptr);
+        vmaDestroyImage(context.allocator, parts.image, parts.allocation);
+        return std::unexpected(std::move(message));
+    };
+    if (has(desc.usage, TextureUsage::Sampled)) {
+        parts.sampled_index = context.bindless.allocate(BindlessKind::SampledImage);
+        if (parts.sampled_index == invalid_index) {
+            return fail("Kein freier Platz für Texturen im bindlosen Satz");
+        }
+        context.bindless.write_image(BindlessKind::SampledImage, parts.sampled_index, parts.view);
+    }
+    if (has(desc.usage, TextureUsage::Storage)) {
+        parts.storage_index = context.bindless.allocate(BindlessKind::StorageImage);
+        if (parts.storage_index == invalid_index) {
+            return fail("Kein freier Platz für Storage-Texturen im bindlosen Satz");
+        }
+        context.bindless.write_image(BindlessKind::StorageImage, parts.storage_index, parts.view);
+    }
+    return std::make_unique<VulkanTexture>(context, desc, parts);
 }
 
 void VulkanBuffer::write(u64 offset, std::span<const std::byte> data) {
-    verify(offset <= size_ && data.size() <= size_ - offset, "Schreiben über das Ende des Puffers");
+    verify(desc_.memory == MemoryUsage::CpuWrite,
+           "write() nur für Puffer mit MemoryUsage::CpuWrite, sonst Device::upload()");
+    verify(offset <= desc_.size && data.size() <= desc_.size - offset,
+           "Schreiben über das Ende des Puffers");
     if (data.empty()) {
         return;
     }
     std::memcpy(static_cast<std::byte*>(mapped_) + offset, data.data(), data.size());
     // Auf Speicher ohne HOST_COHERENT muss die Änderung ausdrücklich sichtbar werden.
-    check(vmaFlushAllocation(allocator_, allocation_, offset, data.size()), "vmaFlushAllocation");
+    check(vmaFlushAllocation(context_->allocator, allocation_, offset, data.size()),
+          "vmaFlushAllocation");
 }
 
-Result<std::unique_ptr<Buffer>> create_buffer(VkDevice device, VmaAllocator allocator,
-                                              const BufferDesc& desc) {
+Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context, const BufferDesc& desc) {
     if (desc.size == 0) {
         return std::unexpected("Puffer mit Größe 0");
     }
-    VkBufferUsageFlags usage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    // Jeder Puffer kann Ziel einer Kopie sein (upload()); das kostet nichts.
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                               VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                               VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     if (has(desc.usage, BufferUsage::Index)) {
         usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     }
@@ -105,18 +155,20 @@ Result<std::unique_ptr<Buffer>> create_buffer(VkDevice device, VmaAllocator allo
         .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
-    // Sequentielles Schreiben von der CPU: Mit Resizable BAR landet der Puffer im GPU-Speicher,
-    // sonst im Systemspeicher, den die GPU über PCIe liest.
-    const VmaAllocationCreateInfo allocation_info{
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO,
-    };
+    VmaAllocationCreateInfo allocation_info{.usage = VMA_MEMORY_USAGE_AUTO};
+    if (desc.memory == MemoryUsage::CpuWrite) {
+        // Sequentielles Schreiben von der CPU: Mit Resizable BAR landet der Puffer im
+        // GPU-Speicher, sonst im Systemspeicher, den die GPU über PCIe liest.
+        allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    } else {
+        allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    }
     VkBuffer buffer = VK_NULL_HANDLE;
     VmaAllocation allocation = nullptr;
     VmaAllocationInfo allocated{};
-    if (const VkResult result = vmaCreateBuffer(allocator, &buffer_info, &allocation_info, &buffer,
-                                                &allocation, &allocated);
+    if (const VkResult result = vmaCreateBuffer(context.allocator, &buffer_info, &allocation_info,
+                                                &buffer, &allocation, &allocated);
         result != VK_SUCCESS) {
         return std::unexpected(failed("vmaCreateBuffer", result));
     }
@@ -124,9 +176,39 @@ Result<std::unique_ptr<Buffer>> create_buffer(VkDevice device, VmaAllocator allo
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
         .buffer = buffer,
     };
-    const VkDeviceAddress address = vkGetBufferDeviceAddress(device, &address_info);
-    return std::make_unique<VulkanBuffer>(allocator, buffer, allocation, allocated.pMappedData,
-                                          desc.size, address);
+    const VkDeviceAddress address = vkGetBufferDeviceAddress(context.device, &address_info);
+    return std::make_unique<VulkanBuffer>(context, buffer, allocation, allocated.pMappedData, desc,
+                                          address);
+}
+
+Result<std::unique_ptr<Sampler>> create_sampler(DeviceContext& context, const SamplerDesc& desc) {
+    const VkFilter filter = desc.filter == Filter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    const VkSamplerAddressMode address = desc.address == AddressMode::Repeat
+                                             ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                             : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    const VkSamplerCreateInfo sampler_info{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = filter,
+        .minFilter = filter,
+        .mipmapMode = desc.filter == Filter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                                    : VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        .addressModeU = address,
+        .addressModeV = address,
+        .addressModeW = address,
+        .maxLod = VK_LOD_CLAMP_NONE,
+    };
+    VkSampler sampler = VK_NULL_HANDLE;
+    if (const VkResult result = vkCreateSampler(context.device, &sampler_info, nullptr, &sampler);
+        result != VK_SUCCESS) {
+        return std::unexpected(failed("vkCreateSampler", result));
+    }
+    const u32 index = context.bindless.allocate(BindlessKind::Sampler);
+    if (index == invalid_index) {
+        vkDestroySampler(context.device, sampler, nullptr);
+        return std::unexpected("Kein freier Platz für Sampler im bindlosen Satz");
+    }
+    context.bindless.write_sampler(index, sampler);
+    return std::make_unique<VulkanSampler>(context, sampler, index);
 }
 
 Result<std::unique_ptr<Shader>> create_shader(VkDevice device, const ShaderDesc& desc) {
@@ -146,7 +228,7 @@ Result<std::unique_ptr<Shader>> create_shader(VkDevice device, const ShaderDesc&
     return std::make_unique<VulkanShader>(device, module, desc.stage, desc.entry_point);
 }
 
-Result<std::unique_ptr<Pipeline>> create_pipeline(VkDevice device,
+Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
                                                   const GraphicsPipelineDesc& desc) {
     if (desc.vertex == nullptr || desc.fragment == nullptr) {
         return std::unexpected("Pipeline braucht Vertex- und Fragment-Shader");
@@ -230,22 +312,6 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(VkDevice device,
         .depthAttachmentFormat = depth_format,
     };
 
-    const VkPushConstantRange push_constants{
-        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS,
-        .offset = 0,
-        .size = max_push_constant_size,
-    };
-    const VkPipelineLayoutCreateInfo layout_info{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &push_constants,
-    };
-    VkPipelineLayout layout = VK_NULL_HANDLE;
-    if (const VkResult result = vkCreatePipelineLayout(device, &layout_info, nullptr, &layout);
-        result != VK_SUCCESS) {
-        return std::unexpected(failed("vkCreatePipelineLayout", result));
-    }
-
     const VkGraphicsPipelineCreateInfo pipeline_info{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = &rendering,
@@ -259,16 +325,44 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(VkDevice device,
         .pDepthStencilState = &depth_stencil,
         .pColorBlendState = &blend,
         .pDynamicState = &dynamic,
-        .layout = layout,
+        .layout = context.bindless.pipeline_layout(),
     };
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (const VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info,
-                                                          nullptr, &pipeline);
+    if (const VkResult result = vkCreateGraphicsPipelines(context.device, VK_NULL_HANDLE, 1,
+                                                          &pipeline_info, nullptr, &pipeline);
         result != VK_SUCCESS) {
-        vkDestroyPipelineLayout(device, layout, nullptr);
         return std::unexpected(failed("vkCreateGraphicsPipelines", result));
     }
-    return std::make_unique<VulkanPipeline>(device, layout, pipeline);
+    return std::make_unique<VulkanPipeline>(context, pipeline, VK_PIPELINE_BIND_POINT_GRAPHICS);
+}
+
+Result<std::unique_ptr<Pipeline>> create_compute_pipeline(DeviceContext& context,
+                                                          const ComputePipelineDesc& desc) {
+    if (desc.compute == nullptr) {
+        return std::unexpected("Compute-Pipeline braucht einen Shader");
+    }
+    const auto& shader = static_cast<const VulkanShader&>(*desc.compute);
+    if (shader.stage() != ShaderStage::Compute) {
+        return std::unexpected("Der Shader der Compute-Pipeline ist kein Compute-Shader");
+    }
+    const VkComputePipelineCreateInfo pipeline_info{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = shader.module(),
+                .pName = shader.entry_point().c_str(),
+            },
+        .layout = context.bindless.pipeline_layout(),
+    };
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    if (const VkResult result = vkCreateComputePipelines(context.device, VK_NULL_HANDLE, 1,
+                                                         &pipeline_info, nullptr, &pipeline);
+        result != VK_SUCCESS) {
+        return std::unexpected(failed("vkCreateComputePipelines", result));
+    }
+    return std::make_unique<VulkanPipeline>(context, pipeline, VK_PIPELINE_BIND_POINT_COMPUTE);
 }
 
 } // namespace ngine::rhi::vulkan

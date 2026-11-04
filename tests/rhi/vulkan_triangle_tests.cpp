@@ -98,13 +98,15 @@ TEST_CASE("Vulkan zeichnet ein Dreieck offscreen", "[rhi][vulkan][gpu]") {
     });
     REQUIRE(pipeline);
 
+    using ngine::rhi::ResourceState;
     device->execute([&](ngine::rhi::CommandList& commands) {
+        commands.barrier(**target, ResourceState::Undefined, ResourceState::ColorTarget);
         commands.begin_rendering(**target, ngine::rhi::Color{0.0f, 0.0f, 0.0f, 1.0f});
         commands.bind_pipeline(**pipeline);
         commands.draw(3);
         commands.end_rendering();
     });
-    const auto pixels = device->read_texture(**target);
+    const auto pixels = device->read_texture(**target, ResourceState::ColorTarget);
     REQUIRE(pixels.size() == static_cast<ngine::usize>(size) * size * 4);
 
     // Die Mitte liegt im Dreieck und ist farbig.
@@ -204,7 +206,15 @@ TEST_CASE("Vulkan zeichnet indiziert mit Tiefe, Puffern und Push Constants", "[r
     };
     static_assert(sizeof(push) <= ngine::rhi::max_push_constant_size);
 
+    using ngine::rhi::ResourceState;
     device->execute([&](ngine::rhi::CommandList& commands) {
+        const std::array barriers{
+            ngine::rhi::TextureBarrier{target->get(), ResourceState::Undefined,
+                                       ResourceState::ColorTarget},
+            ngine::rhi::TextureBarrier{depth->get(), ResourceState::Undefined,
+                                       ResourceState::DepthTarget},
+        };
+        commands.barrier(barriers);
         commands.begin_rendering({.color = target->get(),
                                   .clear_color = ngine::rhi::Color{0, 0, 0, 1},
                                   .depth = depth->get(),
@@ -215,7 +225,7 @@ TEST_CASE("Vulkan zeichnet indiziert mit Tiefe, Puffern und Push Constants", "[r
         commands.draw_indexed(static_cast<ngine::u32>(indices.size()));
         commands.end_rendering();
     });
-    const auto pixels = device->read_texture(**target);
+    const auto pixels = device->read_texture(**target, ResourceState::ColorTarget);
 
     // Mitte: Fels (Blauanteil 0.28), Rand: Erde (Blauanteil 0.12).
     const Pixel center = pixel_at(pixels, size / 2, size / 2);

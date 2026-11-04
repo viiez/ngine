@@ -8,76 +8,99 @@ module;
 #include <string>
 #include <utility>
 
-// GPU-Ressourcen des Vulkan-Backends: Texturen, Puffer, Shader und Pipelines.
+// GPU-Ressourcen des Vulkan-Backends: Texturen, Puffer, Sampler, Shader und Pipelines. Ihre
+// Destruktoren geben die Vulkan-Objekte über die Löschliste frei, wenn die GPU fertig ist.
 module ngine.rhi.vulkan:resources;
 
 import ngine.core;
 import ngine.rhi;
+import :context;
 
 namespace ngine::rhi::vulkan {
 
 class VulkanTexture final : public Texture {
 public:
-    // Ohne allocation gehört das Bild einem anderen Objekt (der Swapchain).
-    VulkanTexture(VkDevice device, VmaAllocator allocator, VkImage image, VmaAllocation allocation,
-                  VkImageView view, Extent2D extent, Format format)
-        : device_{device}, allocator_{allocator}, image_{image}, allocation_{allocation},
-          view_{view}, extent_{extent}, format_{format} {}
+    struct Parts {
+        VkImage image = VK_NULL_HANDLE;
+        // Ohne Allokation gehört das Bild einem anderen Objekt (der Swapchain).
+        VmaAllocation allocation = nullptr;
+        VkImageView view = VK_NULL_HANDLE;
+        u32 sampled_index = invalid_index;
+        u32 storage_index = invalid_index;
+        // Weitere Abgaben, die die Freigabe abwartet (Swapchain-Bilder, siehe Swapchain).
+        u64 retire_delay = 0;
+    };
+
+    VulkanTexture(DeviceContext& context, const TextureDesc& desc, const Parts& parts)
+        : context_{&context}, desc_{desc}, parts_{parts} {}
 
     ~VulkanTexture() override {
-        vkDestroyImageView(device_, view_, nullptr);
-        if (allocation_ != nullptr) {
-            vmaDestroyImage(allocator_, image_, allocation_);
-        }
+        context_->retire(
+            [context = context_, parts = parts_] {
+                vkDestroyImageView(context->device, parts.view, nullptr);
+                if (parts.allocation != nullptr) {
+                    vmaDestroyImage(context->allocator, parts.image, parts.allocation);
+                }
+                context->bindless.release(BindlessKind::SampledImage, parts.sampled_index);
+                context->bindless.release(BindlessKind::StorageImage, parts.storage_index);
+            },
+            parts_.retire_delay);
     }
 
     [[nodiscard]] Extent2D extent() const override {
-        return extent_;
+        return desc_.extent;
     }
     [[nodiscard]] Format format() const override {
-        return format_;
+        return desc_.format;
+    }
+    [[nodiscard]] TextureUsage usage() const override {
+        return desc_.usage;
+    }
+    [[nodiscard]] u32 sampled_index() const override {
+        return parts_.sampled_index;
+    }
+    [[nodiscard]] u32 storage_index() const override {
+        return parts_.storage_index;
     }
 
     [[nodiscard]] VkImage image() const {
-        return image_;
+        return parts_.image;
     }
     [[nodiscard]] VkImageView view() const {
-        return view_;
+        return parts_.view;
     }
     [[nodiscard]] VkImageAspectFlags aspect() const {
-        return is_depth(format_) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        return is_depth(desc_.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
     }
 
-    // Aktuelles Layout, damit Übergänge automatisch eingefügt werden können.
-    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
-
 private:
-    VkDevice device_;
-    VmaAllocator allocator_;
-    VkImage image_;
-    VmaAllocation allocation_;
-    VkImageView view_;
-    Extent2D extent_;
-    Format format_;
+    DeviceContext* context_;
+    TextureDesc desc_;
+    Parts parts_;
 };
 
-// Puffer im CPU-sichtbaren Speicher, dauerhaft abgebildet (TD-11).
 class VulkanBuffer final : public Buffer {
 public:
-    VulkanBuffer(VmaAllocator allocator, VkBuffer buffer, VmaAllocation allocation, void* mapped,
-                 u64 size, u64 address)
-        : allocator_{allocator}, buffer_{buffer}, allocation_{allocation}, mapped_{mapped},
-          size_{size}, address_{address} {}
+    VulkanBuffer(DeviceContext& context, VkBuffer buffer, VmaAllocation allocation, void* mapped,
+                 const BufferDesc& desc, u64 address)
+        : context_{&context}, buffer_{buffer}, allocation_{allocation}, mapped_{mapped},
+          desc_{desc}, address_{address} {}
 
     ~VulkanBuffer() override {
-        vmaDestroyBuffer(allocator_, buffer_, allocation_);
+        context_->retire(
+            [allocator = context_->allocator, buffer = buffer_, allocation = allocation_] {
+                vmaDestroyBuffer(allocator, buffer, allocation);
+            });
     }
 
     [[nodiscard]] u64 size() const override {
-        return size_;
+        return desc_.size;
     }
     [[nodiscard]] u64 device_address() const override {
         return address_;
+    }
+    [[nodiscard]] MemoryUsage memory() const override {
+        return desc_.memory;
     }
     void write(u64 offset, std::span<const std::byte> data) override;
 
@@ -86,14 +109,37 @@ public:
     }
 
 private:
-    VmaAllocator allocator_;
+    DeviceContext* context_;
     VkBuffer buffer_;
     VmaAllocation allocation_;
     void* mapped_;
-    u64 size_;
+    BufferDesc desc_;
     u64 address_;
 };
 
+class VulkanSampler final : public Sampler {
+public:
+    VulkanSampler(DeviceContext& context, VkSampler sampler, u32 index)
+        : context_{&context}, sampler_{sampler}, index_{index} {}
+
+    ~VulkanSampler() override {
+        context_->retire([context = context_, sampler = sampler_, index = index_] {
+            vkDestroySampler(context->device, sampler, nullptr);
+            context->bindless.release(BindlessKind::Sampler, index);
+        });
+    }
+
+    [[nodiscard]] u32 index() const override {
+        return index_;
+    }
+
+private:
+    DeviceContext* context_;
+    VkSampler sampler_;
+    u32 index_;
+};
+
+// Shader-Module braucht nur das Erzeugen von Pipelines; sie werden sofort zerstört.
 class VulkanShader final : public Shader {
 public:
     VulkanShader(VkDevice device, VkShaderModule module, ShaderStage stage, std::string entry_point)
@@ -120,40 +166,46 @@ private:
     std::string entry_point_;
 };
 
+// Das Layout gehört dem bindlosen Satz und ist für alle Pipelines gleich.
 class VulkanPipeline final : public Pipeline {
 public:
-    VulkanPipeline(VkDevice device, VkPipelineLayout layout, VkPipeline pipeline)
-        : device_{device}, layout_{layout}, pipeline_{pipeline} {}
+    VulkanPipeline(DeviceContext& context, VkPipeline pipeline, VkPipelineBindPoint bind_point)
+        : context_{&context}, pipeline_{pipeline}, bind_point_{bind_point} {}
 
     ~VulkanPipeline() override {
-        vkDestroyPipeline(device_, pipeline_, nullptr);
-        vkDestroyPipelineLayout(device_, layout_, nullptr);
+        context_->retire([device = context_->device, pipeline = pipeline_] {
+            vkDestroyPipeline(device, pipeline, nullptr);
+        });
     }
 
     [[nodiscard]] VkPipeline handle() const {
         return pipeline_;
     }
-    [[nodiscard]] VkPipelineLayout layout() const {
-        return layout_;
+    [[nodiscard]] VkPipelineBindPoint bind_point() const {
+        return bind_point_;
     }
 
 private:
-    VkDevice device_;
-    VkPipelineLayout layout_;
+    DeviceContext* context_;
     VkPipeline pipeline_;
+    VkPipelineBindPoint bind_point_;
 };
 
 // Erzeugt die Image-View eines 2D-Bilds.
 [[nodiscard]] Result<VkImageView> create_view(VkDevice device, VkImage image, VkFormat format,
                                               VkImageAspectFlags aspect);
 
-[[nodiscard]] Result<std::unique_ptr<Texture>>
-create_texture(VkDevice device, VmaAllocator allocator, const TextureDesc& desc);
-[[nodiscard]] Result<std::unique_ptr<Buffer>> create_buffer(VkDevice device, VmaAllocator allocator,
+[[nodiscard]] Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context,
+                                                              const TextureDesc& desc);
+[[nodiscard]] Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context,
                                                             const BufferDesc& desc);
+[[nodiscard]] Result<std::unique_ptr<Sampler>> create_sampler(DeviceContext& context,
+                                                              const SamplerDesc& desc);
 [[nodiscard]] Result<std::unique_ptr<Shader>> create_shader(VkDevice device,
                                                             const ShaderDesc& desc);
-[[nodiscard]] Result<std::unique_ptr<Pipeline>> create_pipeline(VkDevice device,
+[[nodiscard]] Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
                                                                 const GraphicsPipelineDesc& desc);
+[[nodiscard]] Result<std::unique_ptr<Pipeline>>
+create_compute_pipeline(DeviceContext& context, const ComputePipelineDesc& desc);
 
 } // namespace ngine::rhi::vulkan

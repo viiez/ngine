@@ -7,11 +7,14 @@ if(NOT NGINE_SLANGC)
     message(FATAL_ERROR "slangc nicht gefunden. Über vcpkg (shader-slang) installieren oder NGINE_SLANGC setzen.")
 endif()
 
-# ngine_compile_shader(<target> SOURCE <datei.slang> ENTRY <name> STAGE <vertex|fragment> NAME <name>)
+# ngine_compile_shader(<target> SOURCE <datei.slang> ENTRY <name> STAGE <vertex|fragment|compute>
+#                      NAME <name> [DEPENDS <eingebundene Dateien>...])
 # Erzeugt <name>.spv und <name>.spv.inc im Build-Verzeichnis von <target> und hängt
-# die .inc-Datei an das Ziel, damit sie vor dem Kompilieren entsteht.
+# die .inc-Datei an das Ziel, damit sie vor dem Kompilieren entsteht. DEPENDS nennt Dateien, die
+# der Shader mit #include einbindet, damit Änderungen daran ihn neu übersetzen.
 function(ngine_compile_shader target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "SOURCE;ENTRY;STAGE;NAME" "")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "SOURCE;ENTRY;STAGE;NAME" "DEPENDS")
+    list(TRANSFORM arg_DEPENDS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     set(source "${CMAKE_CURRENT_SOURCE_DIR}/${arg_SOURCE}")
     set(spirv "${CMAKE_CURRENT_BINARY_DIR}/${arg_NAME}.spv")
     set(include "${CMAKE_CURRENT_BINARY_DIR}/${arg_NAME}.spv.inc")
@@ -23,7 +26,7 @@ function(ngine_compile_shader target)
             -entry "${arg_ENTRY}" -stage "${arg_STAGE}"
             -fvk-use-entrypoint-name
             -o "${spirv}"
-        DEPENDS "${source}"
+        DEPENDS "${source}" ${arg_DEPENDS}
         COMMENT "Slang: ${arg_SOURCE} (${arg_ENTRY}) -> SPIR-V"
         VERBATIM)
 

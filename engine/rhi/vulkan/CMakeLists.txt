@@ -12,10 +12,12 @@ target_sources(ngine_rhi_vulkan
         FILE_SET internal_partitions TYPE CXX_MODULES
         FILES
             common.cppm
+            context.cppm
             instance.cppm
             physical_device.cppm
             resources.cppm
             command_list.cppm
+            upload.cppm
             swapchain.cppm
     PRIVATE
         device.cpp

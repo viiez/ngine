@@ -28,7 +28,7 @@ eine Komponente.
 | CORE-04 | Prüfungen | `ngine::verify()` bricht mit Meldung, Datei und Zeile ab | A2 | fertig |
 | CORE-05 | Job-System | Tasks mit Abhängigkeiten auf allen Kernen: Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | A3 | fertig |
 | CORE-06 | Speicher-Allokatoren | Frame-, Pool- und Linear-Allokatoren mit Budget-Tracking (`ngine.memory`, `std::pmr`) | A3 | fertig |
-| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (mit dem Render-Graph in R1), Thread-Namen, Plots | A3 / R1 | in Arbeit |
+| CORE-07 | Profiling | Tracy-Zonen für CPU (A3) und GPU (pro Pass des Render-Graphs, verschoben von R1.2 nach R1.3), Thread-Namen, Plots | A3 / R1.3 | in Arbeit |
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C#: `ngine.reflect` mit Builder-API ([ADR 0018](adr/0018-own-reflection.md)); Enums, Arrays und Entity-Verweise folgen bei Bedarf | A4 | fertig |
 | CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
 | CORE-10 | Mathematik | Eigene Vektoren, Matrizen, Quaternionen und Projektionen in `ngine.math`, gegen GLM getestet; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | R1.1 | fertig |
@@ -51,12 +51,12 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | REND-01 | RHI | Schmale Schnittstelle über Vulkan; später D3D12 und Metal ([ADR 0013](adr/0013-rhi-design.md)); Puffer, Tiefe, Push Constants und indiziertes Zeichnen seit D1 | A2 / D1 | fertig |
-| REND-16 | Vertex Pulling | Geometrie über Buffer Device Address statt Vertex-Attribute ([ADR 0022](adr/0022-vertex-pulling-bda.md)); Puffer bisher nur CPU-sichtbar (TD-11) | D1 / R1 | in Arbeit |
+| REND-16 | Vertex Pulling | Geometrie über Buffer Device Address statt Vertex-Attribute ([ADR 0022](adr/0022-vertex-pulling-bda.md)); statische Geometrie im GPU-Speicher über `upload()` (R1.2) | D1 / R1.2 | in Arbeit |
 | REND-02 | Vulkan-Backend | Vulkan 1.3 (1.4, wo vorhanden), Dynamic Rendering, Synchronization2, volk, VMA, Swapchain | A2 | fertig |
 | REND-03 | Mindestanforderung und Feature-Stufen | GPU beim Start gegen [ADR 0017](adr/0017-platform-baseline-feature-tiers.md) prüfen, Fehlendes protokollieren; Mesh Shader und Raytracing erkennen, einschalten und in `Capabilities::features` melden, abschaltbar für Tests | A2 / A3 | fertig |
 | REND-04 | Shader mit Slang | Beim Bauen zu SPIR-V kompiliert und eingebettet; Reflection folgt in R1 | A2 | fertig |
-| REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren automatisch | R1 | geplant |
-| REND-06 | Bindless | Ressourcen über Indizes statt Descriptor-Sets pro Draw | R1 | geplant |
+| REND-05 | Render-Graph | Passes und Ressourcen deklarieren, Barrieren, Verwerfen und transiente Texturen automatisch (`ngine.render`, [ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | in Arbeit |
+| REND-06 | Bindless | Texturen und Sampler über Indizes in einem Descriptor-Satz statt Sätzen pro Draw ([ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | in Arbeit |
 | REND-07 | PBR-Materialien | Physikalisch basiertes Shading, Material-Instanzen | R1 | geplant |
 | REND-08 | Kamera | Perspektive, Steuerung, kamerarelatives Rendering | R1 | geplant |
 | REND-09 | Licht und Schatten | Sonne mit Cascaded Shadow Maps, Punkt- und Spotlichter | R1 | geplant |

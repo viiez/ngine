@@ -38,12 +38,13 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tastatur, Maus; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Farbe und Tiefe), Buffer (mit Geräteadresse), Shader, Pipeline, CommandList mit Push Constants und indiziertem Zeichnen; `Capabilities` mit den optionalen `Features` der GPU | vorhanden |
-| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar), interne Partitionen `common`, `instance`, `physical_device`, `resources`, `command_list`, `swapchain` | vorhanden |
-| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler, Shader, Grafik- und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Push Constants, Zeichnen und Dispatch; `upload()` über Staging; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
+| `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
+| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt nur die RHI): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden (ab R1.2) |
+| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
 
 Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
-`ngine.math` (R1.1) und der Renderer (ab R1.2) dazu.
+`ngine.math` (R1.1) und der Renderer `ngine.render` (ab R1.2) dazu.
 
 ```mermaid
 flowchart BT
@@ -65,6 +66,7 @@ flowchart BT
     replication["ngine.replication"]
     sandbox["Sandbox"]
     math["ngine.math"]
+    render["ngine.render"]
     math --> core
     world --> math
     voxel --> math
@@ -82,6 +84,8 @@ flowchart BT
     rhi --> core
     vulkan --> rhi
     shaders --> rhi
+    render --> rhi
+    sandbox --> render
     sandbox --> platform
     sandbox --> vulkan
     sandbox --> shaders
@@ -126,16 +130,54 @@ bleiben ein gebundener Indexpuffer mit 32 Bit.
 
 ```mermaid
 flowchart LR
-    cpu["CPU: Netz<br/>voxel::Mesh"] -->|"write()"| vb["Buffer<br/>Eckpunkte"]
-    cpu -->|"write()"| ib["Buffer<br/>Indizes"]
+    cpu["CPU: Netz<br/>voxel::Mesh"] -->|"upload()"| staging["Staging-Ring"]
+    staging -->|"Kopie vor der<br/>nächsten Abgabe"| vb["Buffer (Gpu)<br/>Eckpunkte"]
+    staging --> ib["Buffer (Gpu)<br/>Indizes"]
     vb -->|"device_address()"| push["Push Constants<br/>Matrix, Licht, Adresse"]
     push --> vs["Vertex-Shader<br/>vertices[SV_VertexID]"]
     ib -->|"bind_index_buffer"| vs
 ```
 
-Puffer liegen vorerst im CPU-sichtbaren Speicher (TD-11). Wer einen Puffer ändert, während die GPU
-ihn noch lesen kann, hält einen pro Frame im Flug: `Frame::index` nennt den Platz, und Ressourcen
-desselben Platzes sind beim Beginn des Frames wieder frei.
+Statische Geometrie liegt im GPU-Speicher (`MemoryUsage::Gpu`) und wird über `Device::upload()`
+gefüllt: Die Daten landen in einem Staging-Ring, die Kopien in einem eigenen Command Buffer, der vor
+der nächsten Abgabe auf derselben Queue läuft. Barrieren davor und danach sorgen dafür, dass frühere
+Frames mit dem Puffer fertig sind und spätere die neuen Daten sehen; die CPU wartet nie.
+`MemoryUsage::CpuWrite` bleibt für Daten, die die CPU jeden Frame schreibt; davon hält man einen
+Puffer pro Frame im Flug (`Frame::index`).
+
+### Render-Graph, Barrieren und Bindless
+
+Die RHI setzt keine Barrieren von selbst und merkt sich keine Zustände. Wer aufzeichnet, beschreibt
+Übergänge mit `ResourceState` vorher und nachher; das Vulkan-Backend übersetzt sie in Stufen,
+Zugriffe und Layouts ([ADR 0026](adr/0026-render-graph-bindless.md)). Im Renderer übernimmt das der
+Render-Graph:
+
+```mermaid
+flowchart LR
+    decl["Frame deklariert<br/>import_texture, create_texture,<br/>add_pass(setup, execute)"] --> compile["compile()<br/>ohne GPU"]
+    compile --> plan["Plan<br/>Passes, Barrieren,<br/>Lebensdauer, Verwendungen"]
+    plan --> exec["execute()<br/>Barrieren und Passes<br/>in die CommandList"]
+    pool["TexturePool<br/>transiente Texturen"] --> exec
+```
+
+- `compile()` verwirft Passes ohne Abnehmer (nur Schreiben auf Ressourcen, die niemand braucht),
+  setzt vor jedem Pass die nötigen Barrieren (Zustandswechsel und jedes Schreiben nach einem
+  Schreiben) und am Ende die Endzustände importierter Ressourcen, z. B. `Present` für den
+  Backbuffer.
+- Transiente Texturen beschreibt man nur mit Größe und Format; die Verwendungen folgen aus den
+  Zuständen. Der `TexturePool` gibt dieselbe Textur im nächsten Frame wieder aus.
+- Shader erreichen Texturen und Sampler über einen bindlosen Descriptor-Satz (`bindless.slang`):
+  Satz 0 mit Texturen zum Lesen, Samplern und Storage-Texturen. Die Indizes vergibt die RHI beim
+  Erzeugen (`sampled_index()`, `storage_index()`, `Sampler::index()`).
+
+### Lebensdauer von GPU-Ressourcen
+
+Jede Abgabe an die Queue signalisiert den nächsten Wert eines Timeline Semaphores. Daran hängen
+die Frames im Flug (ein Frame wartet auf den Wert seines Vorgängers mit demselben Platz), der
+Staging-Speicher und die Löschliste: Zerstört der Aufrufer eine Ressource, gibt das Backend sie und
+ihren bindlosen Index erst frei, wenn die GPU alle Abgaben bis dahin abgearbeitet hat. Auch die
+alte Swapchain kommt nach einem Neuaufbau in die Löschliste, mit zwei Abgaben Abstand für die
+Präsentation (TD-18); `vkDeviceWaitIdle` gibt es nur noch beim Beenden.
 
 ## Regeln
 
@@ -280,7 +322,7 @@ flowchart LR
     grid --> mesher["Mesher<br/>Surface Nets"]
     mesher --> mesh["Mesh<br/>Vertex (32 Bytes), Indizes"]
     grid --> ray["raycast()<br/>Maus, Werkzeuge"]
-    mesh --> renderer["Renderer<br/>(D1: Sandbox)"]
+    mesh --> renderer["Renderer<br/>(bisher: Sandbox über den Render-Graph)"]
 ```
 
 - Ein `Sample` speichert den Abstand zur Oberfläche in 8 Bit (positiv innen, 1/32 Voxel pro
