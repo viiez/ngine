@@ -1,6 +1,6 @@
 # 0029: Editor als eigene Anwendung, Dear ImGui hinter `ngine.editor_ui`, gezeichnet über die RHI
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-05
 
 ## Kontext

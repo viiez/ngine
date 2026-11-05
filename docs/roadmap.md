@@ -10,8 +10,9 @@ Konstruktion ist der erste Reifegrad [R1](iterations/R1-rendering-grundlagen.md)
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
 GPU-Speicher), [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes, Materialien, Kamera)
 und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Als
-Nächstes folgt [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) mit fünf Iterationen; der
-Plan ist in Abstimmung.
+Nächstes folgt [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) mit fünf Iterationen; davon
+ist [R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und Viewport)
+abgeschlossen, als Nächstes kommt R2.2 (Szenenbaum, Inspector, Undo).
 
 ## Phasen und Iterationen
 

@@ -62,6 +62,8 @@ werden übersprungen (in der CI mit `NGINE_REQUIRE_DOTNET` nicht). Shader sind S
   Die primäre Schnittstelle exportiert alle Partitionen.
 - Header (Standardbibliothek, Fremdbibliotheken) nur im globalen Modulfragment (`module;` … ).
   Kein `import std;`, bis alle Zielcompiler es zuverlässig können.
+- Schwere Header der Standardbibliothek (z. B. `<mutex>`, `<thread>`) nicht in Schnittstellen von
+  Modulen, die viele importieren, sondern hinter einem Pimpl: MSVC bricht sonst beim Import ab (R2.1).
 - Einzige eigene Header-Datei: `<ngine/profile.hpp>` mit den Profiling-Makros, weil Module keine
   Makros exportieren (ADR 0016). Sie enthält nur Makros.
 - Komponenten sind Structs, die in der Reflection registriert sind (`types.add<T>("T").field(...)`,
