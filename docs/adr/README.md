@@ -37,4 +37,4 @@ betroffene Code einreichen.
 | [0026](0026-render-graph-bindless.md) | Render-Graph über explizite Zustände, ein bindloser Descriptor-Satz | angenommen |
 | [0027](0027-gltf-assets-material-store.md) | glTF über fastgltf, Bilder über stb_image, Materialien als Feld im GPU-Speicher | angenommen |
 | [0028](0028-lights-cascaded-shadows.md) | Lichter als Komponenten, Cascaded Shadow Maps mit eingerasteten Kugeln, Lichtliste vorwärts | angenommen |
-| [0029](0029-editor-imgui-over-rhi.md) | Editor als eigene Anwendung, Dear ImGui hinter `ngine.editor_ui`, gezeichnet über die RHI | vorgeschlagen |
+| [0029](0029-editor-imgui-over-rhi.md) | Editor als eigene Anwendung, Dear ImGui hinter `ngine.editor_ui`, gezeichnet über die RHI | angenommen |
