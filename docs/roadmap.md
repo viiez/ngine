@@ -3,16 +3,14 @@
 Die Roadmap ordnet die Arbeit in die Phasen des [Prozesses](process.md). Sie ist ein Plan, kein
 Versprechen: Nach jeder Iteration prüfen wir sie und schieben Iterationen, wenn sich Erkenntnisse ändern.
 
-**Aktuell:** Die Phase Ausarbeitung ist abgeschlossen: Die Iterationen A1 bis A4 und die Durchstiche
-[D1](iterations/D1-voxel-meshing.md) (Voxel-Meshing), [D2](iterations/D2-csharp-hosting.md)
-(C#-Hosting) und [D3](iterations/D3-netzwerk.md) (Netzwerk) sind fertig. Als Nächstes folgt die
-Konstruktion mit R1 (Rendering-Grundlagen), aufgeteilt in vier Iterationen
-([Plan](iterations/R1-rendering-grundlagen.md)); [R1.1](iterations/R1.1-mathematik-und-transforms.md)
-(Mathematik und Transforms) ist abgeschlossen,
+**Aktuell:** Die Phase Ausarbeitung ist abgeschlossen (A1 bis A4, Durchstiche D1 bis D3). In der
+Konstruktion ist der erste Reifegrad [R1](iterations/R1-rendering-grundlagen.md)
+(Rendering-Grundlagen) mit seinen Iterationen
+[R1.1](iterations/R1.1-mathematik-und-transforms.md) (Mathematik und Transforms),
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
-GPU-Speicher) ist abgeschlossen, [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes,
-Materialien, Kamera) ist abgeschlossen, [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht
-und Schatten) ist in Arbeit.
+GPU-Speicher), [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes, Materialien, Kamera)
+und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Als
+Nächstes folgt R2 (Welt und Editor).
 
 ## Phasen und Iterationen
 
@@ -30,7 +28,7 @@ flowchart TB
         A4 --> D3["D3 Durchstich Netzwerk ✓"]
     end
     subgraph B["Konstruktion: Reifegrade"]
-        R1["R1 Rendering-Grundlagen"] --> R2["R2 Welt und Editor"]
+        R1["R1 Rendering-Grundlagen ✓"] --> R2["R2 Welt und Editor"]
         R2 --> R3["R3 Voxel-Terrain"]
         R3 --> R4["R4 Gameplay-Systeme"]
         R4 --> R5["R5 Multiplayer"]
@@ -65,7 +63,7 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 | --- | --- |
 | R1 Rendering-Grundlagen | Render-Graph, Bindless, Meshes aus glTF, PBR-Materialien, Kamera, Licht und Schatten; Mathematik, 64-Bit-Positionen und Transform-Propagation. Iterationen R1.1 Mathematik und Transforms, R1.2 Render-Graph, Bindless, GPU-Speicher, R1.3 Meshes, Materialien, Kamera, R1.4 Licht und Schatten ([Plan](iterations/R1-rendering-grundlagen.md)) |
 | R2 Welt und Editor | Szenenbaum, Inspector, Viewport, Spielen im Editor, Asset-Pipeline |
-| R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas |
+| R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas; dazu Mesh Shader und GPU-Culling aus R1 |
 | R4 Gameplay-Systeme | Physik (Jolt), C#-Scripting vollständig, Audio, Animation |
 | R5 Multiplayer | Listen- und dedizierter Server, Replikation, Vorhersage, Voxel-Deltas übers Netz |
 

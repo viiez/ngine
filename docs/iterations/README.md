@@ -12,11 +12,11 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [D1](D1-voxel-meshing.md) | Ausarbeitung | Durchstich Voxel-Meshing | abgeschlossen |
 | [D2](D2-csharp-hosting.md) | Ausarbeitung | Durchstich C#-Hosting | abgeschlossen |
 | [D3](D3-netzwerk.md) | Ausarbeitung | Durchstich Netzwerk | abgeschlossen |
-| [R1](R1-rendering-grundlagen.md) | Konstruktion | Reifegrad Rendering-Grundlagen (R1.1 bis R1.4) | in Arbeit |
+| [R1](R1-rendering-grundlagen.md) | Konstruktion | Reifegrad Rendering-Grundlagen (R1.1 bis R1.4) | abgeschlossen |
 | [R1.1](R1.1-mathematik-und-transforms.md) | Konstruktion | Mathematik und Transforms | abgeschlossen |
 | [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) | Konstruktion | Render-Graph, Bindless, GPU-Speicher | abgeschlossen |
 | [R1.3](R1.3-meshes-materialien-kamera.md) | Konstruktion | Meshes, Materialien, Kamera | abgeschlossen |
-| [R1.4](R1.4-licht-und-schatten.md) | Konstruktion | Licht und Schatten | in Arbeit |
+| [R1.4](R1.4-licht-und-schatten.md) | Konstruktion | Licht und Schatten | abgeschlossen |
 
 ## Vorlage
 
