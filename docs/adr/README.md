@@ -36,3 +36,4 @@ betroffene Code einreichen.
 | [0025](0025-own-math-mixed-precision.md) | Eigene Mathematik in `ngine.math`, Weltlage mit gemischter Genauigkeit | angenommen |
 | [0026](0026-render-graph-bindless.md) | Render-Graph über explizite Zustände, ein bindloser Descriptor-Satz | angenommen |
 | [0027](0027-gltf-assets-material-store.md) | glTF über fastgltf, Bilder über stb_image, Materialien als Feld im GPU-Speicher | angenommen |
+| [0028](0028-lights-cascaded-shadows.md) | Lichter als Komponenten, Cascaded Shadow Maps mit eingerasteten Kugeln, Lichtliste vorwärts | vorgeschlagen |

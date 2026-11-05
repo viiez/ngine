@@ -23,6 +23,7 @@ add_executable(ngine_tests
     render/render_graph_tests.cpp
     render/render_gpu_tests.cpp
     render/renderer_tests.cpp
+    render/lighting_tests.cpp
     asset/gltf_tests.cpp
     world/world_tests.cpp
     world/schedule_tests.cpp

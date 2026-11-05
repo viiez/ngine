@@ -1,13 +1,16 @@
 // Sandbox: kleine Testanwendung, an der jede Iteration sichtbar wird.
 //
 // Ohne Demo-Option zeigt die Sandbox ein Raster aus Kugeln mit steigendem Metallic- (nach oben)
-// und Roughness-Wert (nach rechts) oder mit --model ein glTF-Modell. Freie Kamera: rechte
-// Maustaste halten und Maus bewegen, W/A/S/D fliegen, E/Q hoch und runter, Shift schneller.
+// und Roughness-Wert (nach rechts) auf einem Boden mit Säulen, Sonne, Schatten und acht
+// kreisenden Punktlichtern, oder mit --model ein glTF-Modell. Freie Kamera: rechte Maustaste
+// halten und Maus bewegen, W/A/S/D fliegen, E/Q hoch und runter, Shift schneller. F1 schaltet
+// Debug-Zeichnen um, F2 färbt die Kaskaden der Schatten ein.
 //
 // Optionen:
 //   --model <pfad>  glTF-Modell (.gltf oder .glb) statt des Kugelrasters
 //   --image <pfad>  ohne Fenster offscreen zeichnen und als PPM-Bild speichern (mit Kugelraster,
 //                   Modell oder --voxel-demo)
+//   --debug-draw    Debug-Zeichnen von Anfang an (Hüllquader, Lichter, Achsenkreuz)
 //   --headless      ohne Fenster und GPU starten (wie später der dedizierte Server)
 //   --frames <n>    nach n Frames beenden (für automatische Tests)
 //   --no-vsync      ohne vertikale Synchronisation präsentieren
@@ -77,6 +80,7 @@ struct Options {
     std::optional<std::string> model_path;
     bool baseline = false;
     bool far = false;
+    bool debug_draw = false;
     std::optional<ngine::u64> frames;
 };
 
@@ -119,6 +123,8 @@ Options parse_options(std::span<char*> args) {
             options.baseline = true;
         } else if (arg == "--far") {
             options.far = true;
+        } else if (arg == "--debug-draw") {
+            options.debug_draw = true;
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u64 frames = 0;
@@ -188,6 +194,7 @@ int run_windowed(const Options& options) {
                 return 1;
             }
             scene = *std::move(created);
+            scene->set_debug_draw(options.debug_draw);
         }
 
         ngine::render::TexturePool pool{**device};
@@ -283,6 +290,10 @@ int run_windowed(const Options& options) {
                                 running = false;
                             } else if (ev.key == Key::Space && voxels) {
                                 voxels->toggle_rotation();
+                            } else if (ev.key == Key::F1 && scene) {
+                                scene->toggle_debug_draw();
+                            } else if (ev.key == Key::F2 && scene) {
+                                scene->toggle_cascades();
                             }
                             set_key(ev.key, true);
                         } else if constexpr (std::is_same_v<T, event::KeyReleased>) {
@@ -376,7 +387,7 @@ int main(int argc, char** argv) {
     } else if (options.image_path && !options.voxel_demo) {
         exit_code =
             sandbox::run_model_offscreen(options.model_path, *options.image_path, options.baseline,
-                                         sandbox::voxel_origin(options.far));
+                                         sandbox::voxel_origin(options.far), options.debug_draw);
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {

@@ -113,12 +113,8 @@ TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
     auto renderer = render::Renderer::create(*device, rhi::Format::RGBA8Unorm);
     REQUIRE(renderer);
     render::Renderer& r = **renderer;
-    // Sonne von rechts, kaum Umgebungslicht: Die linke Seite bleibt dunkel.
-    r.lighting = {.sun_direction = {1.0f, 0.0f, 0.0f},
-                  .sun_color = {1.0f, 1.0f, 1.0f},
-                  .sun_intensity = 3.0f,
-                  .sky_color = {0.02f, 0.02f, 0.02f},
-                  .ground_color = {0.02f, 0.02f, 0.02f}};
+    // Kaum Umgebungslicht; die Sonne (unten) kommt von rechts, die linke Seite bleibt dunkel.
+    r.lighting = {.sky_color = {0.02f, 0.02f, 0.02f}, .ground_color = {0.02f, 0.02f, 0.02f}};
 
     const asset::Primitive sphere = asset::make_sphere(1.0f, 32, 16);
     const u32 material = r.materials().add(
@@ -138,7 +134,12 @@ TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
     world.create("Kamera")
         .set(world::Transform{.position = origin + math::DVec3{0.0, 0.0, 3.0}})
         .set(render::Camera{.fov_y = math::radians(45.0f)});
+    // Leuchtet entlang -x, also von rechts.
+    world.create("Sonne")
+        .set(world::Transform{.rotation = math::look_rotation({-1.0f, 0.0f, 0.0f}, {0, 1, 0})})
+        .set(render::DirectionalLight{.intensity = 3.0f});
     world::update_transforms(world);
+    r.shadows.resolution = 256;
 
     render::TexturePool pool{*device};
     for (int frame = 0; frame < 2; ++frame) {

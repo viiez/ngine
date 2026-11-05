@@ -42,6 +42,22 @@ constexpr u32 pbr_fragment[] = {
 #include "pbr_fragment.spv.inc"
 };
 
+constexpr u32 shadow_vertex[] = {
+#include "shadow_vertex.spv.inc"
+};
+
+constexpr u32 shadow_fragment[] = {
+#include "shadow_fragment.spv.inc"
+};
+
+constexpr u32 debug_vertex[] = {
+#include "debug_vertex.spv.inc"
+};
+
+constexpr u32 debug_fragment[] = {
+#include "debug_fragment.spv.inc"
+};
+
 constexpr u32 tonemap_fragment[] = {
 #include "tonemap_fragment.spv.inc"
 };
@@ -84,13 +100,33 @@ rhi::ShaderDesc fullscreen_fragment() {
 
 // PBR-Materialien im Vorwärts-Pass (pbr.slang). Push Constants wie render::DrawPush: Modellmatrix
 // in drei Zeilen (48 Bytes), Adressen der Eckpunkte, des Frames und der Materialien (je 8) und
-// der Index des Materials (4).
+// der Index des Materials (4); der Frame wie render::GpuFrame.
 rhi::ShaderDesc pbr_vertex() {
     return {rhi::ShaderStage::Vertex, detail::pbr_vertex, "vertex_main"};
 }
 
 rhi::ShaderDesc pbr_fragment() {
     return {rhi::ShaderStage::Fragment, detail::pbr_fragment, "fragment_main"};
+}
+
+// Schattenkarten der Sonne (shadow.slang): nur Tiefe. Push Constants wie render::DrawPush mit der
+// Kaskade im letzten Feld. Den Fragment-Shader brauchen nur Materialien mit Alpha-Maske.
+rhi::ShaderDesc shadow_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::shadow_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc shadow_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::shadow_fragment, "fragment_main"};
+}
+
+// Debug-Linien (debug.slang), sechs Eckpunkte pro Linie. Push Constants: Adressen der Linien und
+// des Frames (je 8), Größe des Ziels in Pixeln (2 × f32), Breite in Pixeln (f32).
+rhi::ShaderDesc debug_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::debug_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc debug_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::debug_fragment, "fragment_main"};
 }
 
 // Tone Mapping (tonemap.slang) mit dem Vertex-Shader von fullscreen_vertex(). Push Constants:

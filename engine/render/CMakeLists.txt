@@ -10,6 +10,9 @@ target_sources(ngine_render
             profiler.cppm
             graph.cppm
             components.cppm
+            lights.cppm
+            shadows.cppm
+            debug_draw.cppm
             materials.cppm
             meshes.cppm
             renderer.cppm
@@ -18,6 +21,9 @@ target_sources(ngine_render
         profiler.cpp
         graph.cpp
         stores.cpp
+        lights.cpp
+        shadows.cpp
+        debug_draw.cpp
         renderer.cpp)
 
 # Laufzeit-Schicht: kennt die RHI (nie Vulkan), die Welt für Kamera und MeshRenderer und die

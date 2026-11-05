@@ -201,20 +201,30 @@ jobs:
 
       # Kugelraster (R1.3) offscreen: PBR-Materialien, Tone Mapping und Kamera als Komponente.
       # Wie bei der Voxel-Demo muss das Bild 10 000 km vom Ursprung bis auf Rundung gleich bleiben.
-      - name: Kugelraster als Bild (Linux)
+      - name: Standardszene als Bild (Linux)
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: |
           exe=build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox
           out=build/${{ matrix.preset }}
-          "$exe" --image $out/spheres.ppm
-          "$exe" --far --image $out/spheres-far.ppm
-          "$exe" --baseline --image $out/spheres-baseline.ppm
-          size=$(stat -c %s $out/spheres.ppm)
-          diff=$(cmp -l $out/spheres.ppm $out/spheres-far.ppm | wc -l || true)
-          echo "Abweichende Bytes mit --far: $diff von $size"
-          test "$diff" -le $((size / 1000))
+          "$exe" --image $out/scene.ppm
+          "$exe" --far --image $out/scene-far.ppm
+          "$exe" --baseline --image $out/scene-baseline.ppm
+          "$exe" --debug-draw --image $out/scene-debug.ppm
+          # 10 000 km vom Ursprung rasten die Schattenkarten auf ein anderes Texelgitter ein:
+          # Schattenkanten verschieben sich um Bruchteile eines Texels, sonst bleibt das Bild gleich.
+          python3 - $out/scene.ppm $out/scene-far.ppm <<'PY'
+          import sys
+          a = open(sys.argv[1], 'rb').read()
+          b = open(sys.argv[2], 'rb').read()
+          assert len(a) == len(b), 'Bilder unterschiedlich groß'
+          changed = sum(x != y for x, y in zip(a, b))
+          large = sum(abs(x - y) > 8 for x, y in zip(a, b))
+          print(f'Abweichende Bytes mit --far: {changed} von {len(a)}, davon {large} um mehr als 8')
+          assert changed <= len(a) * 0.03, 'zu viele abweichende Bytes'
+          assert large <= len(a) * 0.003, 'zu viele stark abweichende Bytes'
+          PY
           # Ohne optionale Stufen zeichnet der Renderer denselben Pfad: gleiches Bild.
-          cmp $out/spheres.ppm $out/spheres-baseline.ppm
+          cmp $out/scene.ppm $out/scene-baseline.ppm
 
       - name: Bilder hochladen
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
@@ -222,6 +232,7 @@ jobs:
         with:
           name: bilder-${{ matrix.preset }}
           path: |
-            build/${{ matrix.preset }}/spheres.ppm
+            build/${{ matrix.preset }}/scene.ppm
+            build/${{ matrix.preset }}/scene-debug.ppm
             build/${{ matrix.preset }}/voxel-demo.ppm
           if-no-files-found: error

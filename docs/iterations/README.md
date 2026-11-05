@@ -16,6 +16,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R1.1](R1.1-mathematik-und-transforms.md) | Konstruktion | Mathematik und Transforms | abgeschlossen |
 | [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) | Konstruktion | Render-Graph, Bindless, GPU-Speicher | abgeschlossen |
 | [R1.3](R1.3-meshes-materialien-kamera.md) | Konstruktion | Meshes, Materialien, Kamera | abgeschlossen |
+| [R1.4](R1.4-licht-und-schatten.md) | Konstruktion | Licht und Schatten | in Arbeit |
 
 ## Vorlage
 

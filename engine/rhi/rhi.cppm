@@ -281,13 +281,19 @@ enum class BlendMode : u8 {
 // Constants für alle Stufen.
 struct GraphicsPipelineDesc {
     const Shader* vertex = nullptr;
+    // Darf nur bei einer Pipeline ohne Farbziel fehlen (nur Tiefe, z. B. Schattenkarten).
     const Shader* fragment = nullptr;
+    // Ohne Farbformat schreibt die Pipeline nur Tiefe; dann braucht sie ein Tiefenformat.
     Format color_format = Format::Unknown;
     // Mit Tiefenformat prüft die Pipeline Tiefe mit depth_compare und schreibt sie, wenn
     // depth_write gesetzt ist.
     Format depth_format = Format::Unknown;
     CompareOp depth_compare = CompareOp::LessOrEqual;
     bool depth_write = true;
+    // Tiefenversatz gegen Schattenakne: konstant (in kleinsten Tiefenschritten) und nach Steigung
+    // des Dreiecks. Beide null schalten ihn ab.
+    f32 depth_bias_constant = 0.0f;
+    f32 depth_bias_slope = 0.0f;
     CullMode cull_mode = CullMode::None;
     BlendMode blend = BlendMode::None;
 };
@@ -311,6 +317,7 @@ struct BufferBarrier {
 };
 
 struct RenderingDesc {
+    // Ohne Farbziel wird nur in den Tiefenpuffer gezeichnet; dann ist depth Pflicht.
     Texture* color = nullptr;
     // Ohne Löschfarbe bleibt der alte Inhalt erhalten.
     std::optional<Color> clear_color;
