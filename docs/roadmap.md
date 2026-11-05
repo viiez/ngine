@@ -10,7 +10,8 @@ Konstruktion ist der erste Reifegrad [R1](iterations/R1-rendering-grundlagen.md)
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
 GPU-Speicher), [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes, Materialien, Kamera)
 und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Als
-Nächstes folgt R2 (Welt und Editor).
+Nächstes folgt [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) mit fünf Iterationen; der
+Plan ist in Abstimmung.
 
 ## Phasen und Iterationen
 
@@ -62,7 +63,7 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 | Reifegrad | Inhalt |
 | --- | --- |
 | R1 Rendering-Grundlagen | Render-Graph, Bindless, Meshes aus glTF, PBR-Materialien, Kamera, Licht und Schatten; Mathematik, 64-Bit-Positionen und Transform-Propagation. Iterationen R1.1 Mathematik und Transforms, R1.2 Render-Graph, Bindless, GPU-Speicher, R1.3 Meshes, Materialien, Kamera, R1.4 Licht und Schatten ([Plan](iterations/R1-rendering-grundlagen.md)) |
-| R2 Welt und Editor | Szenenbaum, Inspector, Viewport, Spielen im Editor, Asset-Pipeline |
+| R2 Welt und Editor | Szenenbaum, Inspector, Viewport, Spielen im Editor, Asset-Pipeline. Iterationen R2.1 Editor-Gerüst und Viewport, R2.2 Szenenbaum, Inspector, Undo, R2.3 Gizmos und Spielen im Editor, R2.4 Asset-IDs, Ressourcen, Hot Reload, R2.5 Kochen, KTX2, Prefabs ([Plan](iterations/R2-welt-und-editor.md)) |
 | R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas; dazu Mesh Shader und GPU-Culling aus R1 |
 | R4 Gameplay-Systeme | Physik (Jolt), C#-Scripting vollständig, Audio, Animation |
 | R5 Multiplayer | Listen- und dedizierter Server, Replikation, Vorhersage, Voxel-Deltas übers Netz |
