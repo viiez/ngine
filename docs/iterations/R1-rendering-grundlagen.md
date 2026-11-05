@@ -131,7 +131,7 @@ GeForce RTX 3060 Ti, Debug-Build, `--no-vsync`):
 | 1920 × 1009 (maximiert) | etwa 2,5 bis 5,0 ms |
 
 Damit bleibt selbst der Debug-Build weit unter 16,7 ms (60 Bilder pro Sekunde). Die Zeit wächst
-mit der Auflösung nur wenig; der Großteil hängt also nicht an den Pixeln, sondern an festen
+mit der Auflösung nur wenig; der Großteil hängt vermutlich nicht an den Pixeln, sondern an festen
 Kosten wie den vier Schattenkarten und der Arbeit auf der CPU. Die GPU-Zonen pro Pass in Tracy
 zeigen genauer, welcher Pass wie viel kostet; ein Vergleich mit dem Release-Build folgt bei
 Bedarf. Auf lavapipe sind Zeiten nicht aussagekräftig.
