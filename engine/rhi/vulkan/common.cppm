@@ -63,6 +63,7 @@ VkFormat to_vk(Format format) {
     case Format::BGRA8Srgb: return VK_FORMAT_B8G8R8A8_SRGB;
     case Format::RGBA16Float: return VK_FORMAT_R16G16B16A16_SFLOAT;
     case Format::R32Float: return VK_FORMAT_R32_SFLOAT;
+    case Format::R32Uint: return VK_FORMAT_R32_UINT;
     case Format::D32Float: return VK_FORMAT_D32_SFLOAT;
     case Format::Unknown: break;
     }
@@ -77,6 +78,7 @@ Format from_vk(VkFormat format) {
     case VK_FORMAT_B8G8R8A8_SRGB: return Format::BGRA8Srgb;
     case VK_FORMAT_R16G16B16A16_SFLOAT: return Format::RGBA16Float;
     case VK_FORMAT_R32_SFLOAT: return Format::R32Float;
+    case VK_FORMAT_R32_UINT: return Format::R32Uint;
     case VK_FORMAT_D32_SFLOAT: return Format::D32Float;
     default: return Format::Unknown;
     }
@@ -163,6 +165,9 @@ StateInfo state_info(ResourceState state) {
         // allen Stufen, ohne Speicherzugriff.
         return {VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
                 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR};
+    case ResourceState::HostRead:
+        // Macht Schreibzugriffe der GPU für die CPU sichtbar; die CPU wartet über die Timeline.
+        return {VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED};
     }
     return {};
 }

@@ -52,6 +52,7 @@ public:
         return rhi::MemoryUsage::Gpu;
     }
     void write(u64, std::span<const std::byte>) override {}
+    void read(u64, std::span<std::byte>) const override {}
 };
 
 ResourceRef ref(render::TextureHandle texture) {

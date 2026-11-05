@@ -227,6 +227,18 @@ usize World::entity_count() const {
     return static_cast<usize>(ecs_count_id(impl_->world, impl_->tag));
 }
 
+u64 World::entity_from_index(u32 index) const {
+    if (index == 0) {
+        return 0;
+    }
+    const ecs_entity_t entity = ecs_get_alive(impl_->world, index);
+    // Nur Spiel-Entities, keine internen von flecs (Komponenten usw.).
+    if (entity == 0 || !ecs_has_id(impl_->world, entity, impl_->tag)) {
+        return 0;
+    }
+    return entity;
+}
+
 std::vector<u64> World::entity_ids() const {
     std::vector<u64> ids;
     ecs_iter_t it = ecs_each_id(impl_->world, impl_->tag);

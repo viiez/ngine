@@ -160,6 +160,19 @@ void VulkanBuffer::write(u64 offset, std::span<const std::byte> data) {
           "vmaFlushAllocation");
 }
 
+void VulkanBuffer::read(u64 offset, std::span<std::byte> data) const {
+    verify(desc_.memory == MemoryUsage::CpuRead, "read() nur für Puffer mit MemoryUsage::CpuRead");
+    verify(offset <= desc_.size && data.size() <= desc_.size - offset,
+           "Lesen über das Ende des Puffers");
+    if (data.empty()) {
+        return;
+    }
+    // Auf Speicher ohne HOST_COHERENT müssen Schreibzugriffe der GPU ausdrücklich sichtbar werden.
+    check(vmaInvalidateAllocation(context_->allocator, allocation_, offset, data.size()),
+          "vmaInvalidateAllocation");
+    std::memcpy(data.data(), static_cast<const std::byte*>(mapped_) + offset, data.size());
+}
+
 Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context, const BufferDesc& desc) {
     if (desc.size == 0) {
         return std::unexpected("Puffer mit Größe 0");
@@ -183,6 +196,12 @@ Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context, const Buff
         // GPU-Speicher, sonst im Systemspeicher, den die GPU über PCIe liest.
         allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                                 VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    } else if (desc.memory == MemoryUsage::CpuRead) {
+        // Zufälliger Zugriff der CPU: Speicher mit Cache im System, den die GPU über PCIe
+        // beschreibt.
+        allocation_info.flags =
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
     } else {
         allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     }

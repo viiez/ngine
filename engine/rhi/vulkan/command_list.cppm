@@ -203,6 +203,37 @@ public:
         vkCmdDrawIndexed(cmd_, index_count, instance_count, first_index, 0, 0);
     }
 
+    void copy_texture_to_buffer(const Texture& texture, const Rect& region, const Buffer& buffer,
+                                u64 offset) override {
+        const auto& source = static_cast<const VulkanTexture&>(texture);
+        verify(!is_depth(source.format()), "copy_texture_to_buffer: nur Farbformate");
+        verify(region.x >= 0 && region.y >= 0 &&
+                   static_cast<u32>(region.x) + region.width <= source.extent().width &&
+                   static_cast<u32>(region.y) + region.height <= source.extent().height,
+               "copy_texture_to_buffer: Rechteck außerhalb der Textur");
+        verify(offset + u64{region.width} * region.height * bytes_per_pixel(source.format()) <=
+                   buffer.size(),
+               "copy_texture_to_buffer: Puffer zu klein");
+        const VkBufferImageCopy2 copy{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+            .bufferOffset = offset,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .imageOffset = {region.x, region.y, 0},
+            .imageExtent = {region.width, region.height, 1},
+        };
+        const VkCopyImageToBufferInfo2 info{
+            .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2,
+            .srcImage = source.image(),
+            .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .dstBuffer = static_cast<const VulkanBuffer&>(buffer).handle(),
+            .regionCount = 1,
+            .pRegions = &copy,
+        };
+        vkCmdCopyImageToBuffer2(cmd_, &info);
+    }
+
     void dispatch(u32 groups_x, u32 groups_y, u32 groups_z) override {
         vkCmdDispatch(cmd_, groups_x, groups_y, groups_z);
     }

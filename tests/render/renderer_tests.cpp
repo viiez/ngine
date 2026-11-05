@@ -172,3 +172,82 @@ TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
     CHECK(sky[0] == sky[2]);
     CHECK(device->validation_errors() == 0);
 }
+
+TEST_CASE("Renderer picks the entity under a pixel from the ID buffer", "[render][gpu]") {
+    auto created =
+        rhi::vulkan::create_device({.application_name = "NGine Tests", .enable_validation = true});
+    if (!created) {
+        if (gpu_required()) {
+            FAIL("Kein nutzbares Vulkan-Gerät: " + created.error());
+        }
+        SKIP("Kein nutzbares Vulkan-Gerät: " + created.error());
+    }
+    const std::unique_ptr<rhi::Device> device = *std::move(created);
+    constexpr u32 size = 64;
+    auto target = device->create_texture(
+        {.extent = {size, size},
+         .format = rhi::Format::RGBA8Unorm,
+         .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::TransferSrc});
+    REQUIRE(target);
+    auto renderer = render::Renderer::create(*device, rhi::Format::RGBA8Unorm);
+    REQUIRE(renderer);
+    render::Renderer& r = **renderer;
+
+    const asset::Primitive box = asset::make_box({0.5f, 0.5f, 0.5f});
+    const std::vector<render::SubmeshData> submeshes{
+        {.vertices = box.vertices, .indices = box.indices, .material = 0}};
+    const auto mesh = r.meshes().add(submeshes);
+    REQUIRE(mesh);
+
+    const auto types = make_types();
+    world::World world{types};
+    // Zwei Würfel nebeneinander, der rechte steht vor einem dritten, der verdeckt bleibt.
+    const world::Entity left =
+        world.create("Links").set(world::Transform{.position = {-1.0, 0.0, 0.0}}).set(
+            render::MeshRenderer{.mesh = *mesh});
+    const world::Entity right =
+        world.create("Rechts").set(world::Transform{.position = {1.0, 0.0, 0.0}}).set(
+            render::MeshRenderer{.mesh = *mesh});
+    world.create("Verdeckt")
+        .set(world::Transform{.position = {1.0, 0.0, -3.0}})
+        .set(render::MeshRenderer{.mesh = *mesh});
+    world.create("Kamera")
+        .set(world::Transform{.position = {0.0, 0.0, 5.0}})
+        .set(render::Camera{.fov_y = math::radians(45.0f)});
+    world::update_transforms(world);
+
+    render::TexturePool pool{*device};
+    const auto pick = [&](u32 x, u32 y) -> std::optional<render::PickResult> {
+        r.request_pick(x, y);
+        // Das Ergebnis kommt, wenn derselbe Platz wieder an der Reihe ist.
+        for (u32 frame = 0; frame < device->frames_in_flight() + 1; ++frame) {
+            render::RenderGraph graph;
+            const auto output = graph.import_texture(
+                "Ziel", **target, rhi::ResourceState::Undefined, rhi::ResourceState::TransferSrc);
+            r.add_passes(graph, world, output);
+            device->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+            pool.end_frame();
+            if (auto result = r.take_pick(world)) {
+                return result;
+            }
+        }
+        return std::nullopt;
+    };
+
+    // Bildmitte des linken bzw. rechten Würfels: x = 32 -+ 1 / tan(22,5°) / 5 * 32.
+    const auto on_left = pick(14, 32);
+    REQUIRE(on_left);
+    CHECK(on_left->x == 14);
+    CHECK(on_left->entity == left.id());
+    const auto on_right = pick(50, 32);
+    REQUIRE(on_right);
+    CHECK(on_right->entity == right.id());
+    const auto sky = pick(32, 2);
+    REQUIRE(sky);
+    CHECK(sky->entity == 0);
+    // Außerhalb des Ziels: sofort nichts.
+    const auto outside = pick(size + 5, 0);
+    REQUIRE(outside);
+    CHECK(outside->entity == 0);
+    CHECK(device->validation_errors() == 0);
+}

@@ -19,6 +19,8 @@ ngine_compile_shader(ngine_shaders SOURCE shadow.slang ENTRY vertex_main STAGE v
 ngine_compile_shader(ngine_shaders SOURCE shadow.slang ENTRY fragment_main STAGE fragment NAME shadow_fragment DEPENDS bindless.slang scene.slang)
 ngine_compile_shader(ngine_shaders SOURCE debug.slang ENTRY vertex_main STAGE vertex NAME debug_vertex DEPENDS bindless.slang scene.slang)
 ngine_compile_shader(ngine_shaders SOURCE debug.slang ENTRY fragment_main STAGE fragment NAME debug_fragment DEPENDS bindless.slang scene.slang)
+ngine_compile_shader(ngine_shaders SOURCE id.slang ENTRY vertex_main STAGE vertex NAME id_vertex DEPENDS bindless.slang scene.slang)
+ngine_compile_shader(ngine_shaders SOURCE id.slang ENTRY fragment_main STAGE fragment NAME id_fragment DEPENDS bindless.slang scene.slang)
 ngine_compile_shader(ngine_shaders SOURCE tonemap.slang ENTRY fragment_main STAGE fragment NAME tonemap_fragment DEPENDS bindless.slang)
 ngine_compile_shader(ngine_shaders SOURCE ui.slang ENTRY vertex_main STAGE vertex NAME ui_vertex DEPENDS bindless.slang)
 ngine_compile_shader(ngine_shaders SOURCE ui.slang ENTRY fragment_main STAGE fragment NAME ui_fragment DEPENDS bindless.slang)

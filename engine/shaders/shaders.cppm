@@ -58,6 +58,14 @@ constexpr u32 debug_fragment[] = {
 #include "debug_fragment.spv.inc"
 };
 
+constexpr u32 id_vertex[] = {
+#include "id_vertex.spv.inc"
+};
+
+constexpr u32 id_fragment[] = {
+#include "id_fragment.spv.inc"
+};
+
 constexpr u32 tonemap_fragment[] = {
 #include "tonemap_fragment.spv.inc"
 };
@@ -135,6 +143,17 @@ rhi::ShaderDesc debug_vertex() {
 
 rhi::ShaderDesc debug_fragment() {
     return {rhi::ShaderStage::Fragment, detail::debug_fragment, "fragment_main"};
+}
+
+// ID-Puffer für die Auswahl im Editor (id.slang): schreibt eine Kennung pro Draw in ein
+// R32Uint-Ziel. Push Constants: Modellmatrix in drei Zeilen (48 Bytes), Adressen der Eckpunkte und
+// des Frames (je 8), Kennung (u32).
+rhi::ShaderDesc id_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::id_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc id_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::id_fragment, "fragment_main"};
 }
 
 // Tone Mapping (tonemap.slang) mit dem Vertex-Shader von fullscreen_vertex(). Push Constants:

@@ -77,6 +77,14 @@ struct CameraView {
 // ferner Horizont.
 [[nodiscard]] math::Mat4 view_projection(const CameraView& view, f32 aspect);
 
+// Ergebnis einer Auswahl per Klick (Renderer::request_pick()).
+struct PickResult {
+    u32 x = 0;
+    u32 y = 0;
+    // Entity der Welt unter dem Pixel, 0 wenn dort nichts gezeichnet wurde.
+    u64 entity = 0;
+};
+
 struct RenderStats {
     u32 draws = 0;
     u32 triangles = 0;
@@ -116,6 +124,14 @@ public:
     void add_passes(RenderGraph& graph, world::World& world, TextureHandle target);
 
     [[nodiscard]] const RenderStats& stats() const noexcept;
+
+    // Auswahl per Klick (R2.2): Das nächste add_passes() zeichnet zusätzlich einen ID-Puffer
+    // (Entity pro Pixel in R32Uint) und liest das Pixel (x, y) des Ziels zurück (oben links 0, 0).
+    // Eine neue Anfrage ersetzt eine, die noch nicht gezeichnet ist.
+    void request_pick(u32 x, u32 y);
+    // Ergebnis, sobald die GPU fertig ist, also einige add_passes() später; sonst nichts. world
+    // muss die Welt sein, die gezeichnet wurde.
+    [[nodiscard]] std::optional<PickResult> take_pick(const world::World& world);
 
 private:
     struct Impl;

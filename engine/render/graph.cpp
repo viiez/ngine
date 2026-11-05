@@ -34,6 +34,7 @@ std::string_view state_name(ResourceState state) {
     case ResourceState::TransferSrc: return "TransferSrc";
     case ResourceState::TransferDst: return "TransferDst";
     case ResourceState::Present: return "Present";
+    case ResourceState::HostRead: return "HostRead";
     }
     return "?";
 }
