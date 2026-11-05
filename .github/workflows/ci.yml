@@ -176,6 +176,15 @@ jobs:
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60
 
+      # Editor (R2.1) im virtuellen Fenster: Docking, Viewport-Textur, UI-Pass über die RHI und
+      # Konsole, mit und ohne optionale Stufen, ohne Meldung der Validation Layers.
+      - name: Editor mit Fenster starten (Linux, Xvfb)
+        if: ${{ runner.os == 'Linux' && !matrix.tsan }}
+        run: |
+          exe=build/${{ matrix.preset }}/apps/editor/ngine_editor
+          xvfb-run -a "$exe" --frames 60 --no-ini
+          xvfb-run -a "$exe" --frames 60 --no-ini --baseline
+
       # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
       # GPUs laufen, die nur die Mindestanforderung erfüllen.
       - name: Sandbox ohne optionale Stufen starten (Linux, Xvfb)

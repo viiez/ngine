@@ -9,6 +9,10 @@
     "flecs",
     "glm",
     {
+      "name": "imgui",
+      "features": ["docking-experimental"]
+    },
+    {
       "name": "gamenetworkingsockets",
       "default-features": false
     },

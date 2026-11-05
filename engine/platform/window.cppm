@@ -26,10 +26,51 @@ struct WindowDesc {
 };
 
 // Tasten nach ihrer Lage auf einer US-Tastatur (Scancodes): W, A, S, D liegen auch auf einer
-// französischen Tastatur dort, wo die freie Kamera sie erwartet. Die Abbildung auf Aktionen kommt
-// mit PLAT-02 in R2.
-enum class Key : u8 { Unknown, Escape, Space, W, A, S, D, Q, E, Shift, F1, F2 };
+// französischen Tastatur dort, wo die freie Kamera sie erwartet. Für Text gibt es TextInput, das
+// die Belegung berücksichtigt. Linke und rechte Umschalttasten melden dieselbe Taste. Die
+// Abbildung auf Aktionen kommt mit PLAT-02.
+enum class Key : u8 {
+    Unknown,
+    // clang-format off
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    // clang-format on
+    Escape,
+    Enter,
+    Tab,
+    Backspace,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Left,
+    Right,
+    Up,
+    Down,
+    Space,
+    Shift,
+    Ctrl,
+    Alt,
+    Super,
+};
 enum class MouseButton : u8 { Left, Middle, Right, Other };
+
+// Form des Mauszeigers.
+enum class Cursor : u8 {
+    Arrow,
+    TextInput,
+    ResizeAll,
+    ResizeNS,
+    ResizeEW,
+    ResizeNESW,
+    ResizeNWSE,
+    Hand,
+    NotAllowed,
+    Hidden,
+};
 
 namespace event {
 // Der Nutzer will das Fenster schließen.
@@ -62,15 +103,25 @@ struct MouseButtonReleased {
     f32 x;
     f32 y;
 };
-// Positiv: vom Nutzer weg gedreht.
+// Positiv: vom Nutzer weg gedreht bzw. nach rechts geschoben.
 struct MouseWheel {
     f32 delta;
+    f32 delta_x = 0.0f;
+};
+// Eingegebener Text (UTF-8), nach Tastaturbelegung und Eingabemethode. Kommt nur, solange die
+// Texteingabe eingeschaltet ist (Window::set_text_input()).
+struct TextInput {
+    std::string text;
+};
+// Das Fenster hat den Tastaturfokus bekommen oder verloren.
+struct FocusChanged {
+    bool focused;
 };
 } // namespace event
 
 using Event = std::variant<event::Quit, event::Resized, event::KeyPressed, event::KeyReleased,
                            event::MouseMoved, event::MouseButtonPressed, event::MouseButtonReleased,
-                           event::MouseWheel>;
+                           event::MouseWheel, event::TextInput, event::FocusChanged>;
 
 class Window {
 public:
@@ -91,6 +142,21 @@ public:
     // Relativer Mausmodus: Der Zeiger verschwindet und bleibt im Fenster, MouseMoved meldet nur
     // noch Bewegungen (für eine Kamera, die man mit der Maus dreht).
     void set_relative_mouse(bool enabled);
+
+    // Form des Mauszeigers über dem Fenster; Hidden versteckt ihn.
+    void set_cursor(Cursor cursor);
+
+    // Schaltet TextInput-Ereignisse ein oder aus. Auf manchen Plattformen blendet das eine
+    // Bildschirmtastatur oder eine Eingabemethode ein, deshalb nur, solange ein Textfeld aktiv ist.
+    void set_text_input(bool enabled);
+
+    // Inhalt der Zwischenablage als UTF-8; leer, wenn sie keinen Text enthält.
+    [[nodiscard]] std::string clipboard_text() const;
+    void set_clipboard_text(const std::string& text);
+
+    // Skalierung des Bildschirms, auf dem das Fenster liegt (1 bei 100 %, 1.5 bei 150 %). Gilt für
+    // Größen in Pixeln der Zeichenfläche, z. B. Schrift und Abstände einer UI.
+    [[nodiscard]] f32 display_scale() const;
 
     // Wird aufgerufen, wenn das Fenster neu gezeichnet werden muss, während poll_events() nicht
     // zurückkehren kann: Unter Windows hält das System die Anwendung beim Ziehen am Fensterrand in

@@ -33,14 +33,14 @@ eine Komponente.
 | CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
 | CORE-10 | Mathematik | Eigene Vektoren, Matrizen, Quaternionen und Projektionen in `ngine.math`, gegen GLM getestet; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | R1.1 | fertig |
 | CORE-11 | Ereignisse | Lose gekoppelte Nachrichten zwischen Systemen | R2 | geplant |
-| CORE-12 | Log-Datei | Sink, der in eine Datei schreibt | R2 | geplant |
+| CORE-12 | Log-Datei | Sink, der in eine Datei schreibt (`log::FileSink`, der Editor schreibt in den Benutzerordner) | R2.1 | fertig |
 
 ## Plattform
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
-| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher Schließen, Escape, Leertaste, W/A/S/D/Q/E/Shift mit Loslassen, Maus (Bewegung, relativer Modus, Tasten, Rad) | A2 / D1 / R1.3 / R2 | in Arbeit |
+| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher Tasten nach Scancode (Buchstaben, Ziffern, F1 bis F12, Navigation, Umschalttasten) mit Loslassen, Texteingabe, Fokus, Maus (Bewegung, relativer Modus, Tasten, Rad, Zeigerform), Zwischenablage | A2 / D1 / R1.3 / R2.1 | in Arbeit |
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
 | PLAT-04 | Dateisystem | Dateien lesen und atomar schreiben, Benutzerordner, UTF-8-Pfade (`ngine.filesystem`, auch ohne Fenster) | A4 | fertig |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
@@ -170,8 +170,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| EDIT-01 | Editor-Gerüst | Eigene Anwendung mit Dear ImGui und Docking | R2 | geplant |
-| EDIT-02 | Viewport | Szene im Editor rendern, Kamera steuern | R2 | geplant |
+| EDIT-01 | Editor-Gerüst | Eigene Anwendung mit Dear ImGui und Docking (`apps/editor/`, `ngine.editor_ui`, [ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | R2.1 | fertig |
+| EDIT-02 | Viewport | Szene im Editor rendern, Kamera steuern (Textur, die dem Fenster folgt; freie Kamera wie in der Sandbox) | R2.1 | fertig |
 | EDIT-03 | Szenenbaum | Entities und Hierarchie | R2 | geplant |
 | EDIT-04 | Inspector | Komponenten über Reflection bearbeiten | R2 | geplant |
 | EDIT-05 | Gizmos | Verschieben, Drehen, Skalieren | R2 | geplant |
@@ -179,7 +179,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar | R2 | geplant |
 | EDIT-08 | Voxel-Werkzeuge | Terrain im Editor formen und bemalen | R3 | geplant |
 | EDIT-09 | Asset-Browser | Assets finden, importieren, Vorschau | R2 | geplant |
-| EDIT-10 | Log-Konsole | Log-Sink, der im Editor anzeigt | R2 | geplant |
+| EDIT-10 | Log-Konsole | Log-Sink, der im Editor anzeigt (`log::RingSink`, `editor_ui::LogConsole` mit Filter nach Stufe und Text) | R2.1 | fertig |
 
 ## Spiel-UI
 

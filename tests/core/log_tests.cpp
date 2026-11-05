@@ -1,7 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 import ngine.core;
@@ -82,4 +86,72 @@ TEST_CASE("Stufen haben lesbare Namen", "[core][log]") {
     CHECK(ngine::log::to_string(ngine::log::Level::Trace) == "trace");
     CHECK(ngine::log::to_string(ngine::log::Level::Warn) == "warn");
     CHECK(ngine::log::to_string(ngine::log::Level::Fatal) == "fatal");
+}
+
+namespace {
+
+ngine::log::Record record(ngine::log::Level level, std::string_view message) {
+    return {level, message, std::chrono::milliseconds{1500}};
+}
+
+} // namespace
+
+TEST_CASE("RingSink keeps the newest messages up to its capacity", "[core][log]") {
+    ngine::log::RingSink ring{3};
+    const auto start = ring.version();
+    for (const char* message : {"eins", "zwei", "drei", "vier"}) {
+        ring.write(record(ngine::log::Level::Info, message));
+    }
+
+    const auto entries = ring.snapshot();
+    REQUIRE(entries.size() == 3);
+    CHECK(entries[0].message == "zwei");
+    CHECK(entries[2].message == "vier");
+    CHECK(entries[2].uptime == std::chrono::milliseconds{1500});
+    CHECK(ring.dropped() == 1);
+    CHECK(ring.version() == start + 4);
+
+    ring.clear();
+    CHECK(ring.snapshot().empty());
+    CHECK(ring.version() == start + 5);
+}
+
+TEST_CASE("RingSink receives messages through the log", "[core][log]") {
+    const CaptureScope scope;
+    const auto ring = std::make_shared<ngine::log::RingSink>();
+    ngine::log::add_sink(ring);
+    ngine::log::warn("Achtung {}", 7);
+    ngine::log::remove_sink(ring);
+    ngine::log::warn("nicht mehr");
+
+    const auto entries = ring->snapshot();
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].level == ngine::log::Level::Warn);
+    CHECK(entries[0].message == "Achtung 7");
+    CHECK(scope.sink->records.size() == 2);
+}
+
+TEST_CASE("FileSink writes formatted lines into a file", "[core][log]") {
+    const auto dir = std::filesystem::temp_directory_path() / "ngine-log-tests";
+    std::filesystem::remove_all(dir);
+    const auto path = dir / "unter" / "test.log";
+    const auto utf8 = path.u8string();
+    {
+        auto sink = ngine::log::FileSink::create(
+            std::string_view{reinterpret_cast<const char*>(utf8.data()), utf8.size()});
+        REQUIRE(sink);
+        (*sink)->write(record(ngine::log::Level::Info, "Hallo Datei"));
+        (*sink)->write(record(ngine::log::Level::Error, "Fehler mit Ümlaut"));
+    }
+
+    std::ifstream file{path, std::ios::binary};
+    REQUIRE(file);
+    std::string first;
+    std::string second;
+    std::getline(file, first);
+    std::getline(file, second);
+    CHECK(first == "[     1.500] [info ] Hallo Datei");
+    CHECK(second == "[     1.500] [error] Fehler mit Ümlaut");
+    file.close();
+    std::filesystem::remove_all(dir);
 }
