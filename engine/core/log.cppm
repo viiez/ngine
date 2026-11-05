@@ -3,11 +3,9 @@ module;
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <deque>
 #include <expected>
 #include <format>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -81,7 +79,8 @@ public:
         std::string message;
     };
 
-    explicit RingSink(std::size_t capacity = 2000) : capacity_{capacity > 0 ? capacity : 1} {}
+    explicit RingSink(std::size_t capacity = 2000);
+    ~RingSink() override;
 
     void write(const Record& record) override;
 
@@ -96,11 +95,10 @@ public:
     void clear();
 
 private:
-    mutable std::mutex mutex_;
-    std::size_t capacity_;
-    std::deque<Entry> entries_;
-    std::uint64_t version_ = 0;
-    std::uint64_t dropped_ = 0;
+    // Zustand mit Mutex in der Implementierung: <mutex> im globalen Modulfragment der
+    // Schnittstelle bringt MSVC beim Import von ngine.core aus dem Tritt (C1116 mit <stop_token>).
+    struct State;
+    std::unique_ptr<State> state_;
 };
 
 void add_sink(std::shared_ptr<Sink> sink);

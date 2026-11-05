@@ -112,35 +112,49 @@ void FileSink::flush() {
     std::fflush(file_);
 }
 
+struct RingSink::State {
+    std::mutex mutex;
+    std::size_t capacity = 1;
+    std::deque<Entry> entries;
+    std::uint64_t version = 0;
+    std::uint64_t dropped = 0;
+};
+
+RingSink::RingSink(std::size_t capacity) : state_{std::make_unique<State>()} {
+    state_->capacity = capacity > 0 ? capacity : 1;
+}
+
+RingSink::~RingSink() = default;
+
 void RingSink::write(const Record& record) {
-    const std::scoped_lock lock{mutex_};
-    if (entries_.size() >= capacity_) {
-        entries_.pop_front();
-        ++dropped_;
+    const std::scoped_lock lock{state_->mutex};
+    if (state_->entries.size() >= state_->capacity) {
+        state_->entries.pop_front();
+        ++state_->dropped;
     }
-    entries_.push_back({record.level, record.uptime, std::string{record.message}});
-    ++version_;
+    state_->entries.push_back({record.level, record.uptime, std::string{record.message}});
+    ++state_->version;
 }
 
 std::vector<RingSink::Entry> RingSink::snapshot() const {
-    const std::scoped_lock lock{mutex_};
-    return {entries_.begin(), entries_.end()};
+    const std::scoped_lock lock{state_->mutex};
+    return {state_->entries.begin(), state_->entries.end()};
 }
 
 std::uint64_t RingSink::version() const {
-    const std::scoped_lock lock{mutex_};
-    return version_;
+    const std::scoped_lock lock{state_->mutex};
+    return state_->version;
 }
 
 std::uint64_t RingSink::dropped() const {
-    const std::scoped_lock lock{mutex_};
-    return dropped_;
+    const std::scoped_lock lock{state_->mutex};
+    return state_->dropped;
 }
 
 void RingSink::clear() {
-    const std::scoped_lock lock{mutex_};
-    entries_.clear();
-    ++version_;
+    const std::scoped_lock lock{state_->mutex};
+    state_->entries.clear();
+    ++state_->version;
 }
 
 void add_sink(std::shared_ptr<Sink> sink) {
