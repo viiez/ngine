@@ -2,10 +2,16 @@ module;
 
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <deque>
+#include <expected>
 #include <format>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 export module ngine.core:log;
 
@@ -43,7 +49,63 @@ public:
     void flush() override;
 };
 
+// Zeile, wie ConsoleSink und FileSink sie schreiben: Zeit seit dem Start, Stufe, Text, ohne
+// Zeilenumbruch.
+[[nodiscard]] std::string format_line(const Record& record);
+
+// Schreibt alle Meldungen in eine Datei (CORE-12), UTF-8, eine Zeile pro Meldung. Ab Error wird
+// sofort auf die Platte geschrieben, damit die Meldung einen Absturz übersteht.
+class FileSink final : public Sink {
+public:
+    // Legt die Datei neu an (ein vorhandener Inhalt geht verloren), fehlende Ordner auch. Der Pfad
+    // ist UTF-8.
+    [[nodiscard]] static std::expected<std::shared_ptr<FileSink>, std::string>
+    create(std::string_view path);
+    ~FileSink() override;
+
+    void write(const Record& record) override;
+    void flush() override;
+
+private:
+    explicit FileSink(std::FILE* file) : file_{file} {}
+    std::FILE* file_;
+};
+
+// Hält die letzten Meldungen im Speicher, z. B. für die Log-Konsole des Editors (EDIT-10). Darf
+// aus jedem Thread beschrieben und gelesen werden.
+class RingSink final : public Sink {
+public:
+    struct Entry {
+        Level level = Level::Info;
+        std::chrono::steady_clock::duration uptime{};
+        std::string message;
+    };
+
+    explicit RingSink(std::size_t capacity = 2000) : capacity_{capacity > 0 ? capacity : 1} {}
+
+    void write(const Record& record) override;
+
+    // Kopie der gehaltenen Meldungen, älteste zuerst. Eine Kopie, damit wer sie anzeigt, dabei
+    // selbst loggen darf.
+    [[nodiscard]] std::vector<Entry> snapshot() const;
+    // Zählt jede neue Meldung und jedes clear(); ändert sich der Wert nicht, ist auch der Inhalt
+    // gleich geblieben.
+    [[nodiscard]] std::uint64_t version() const;
+    // Meldungen, die wegen der Kapazität verworfen wurden.
+    [[nodiscard]] std::uint64_t dropped() const;
+    void clear();
+
+private:
+    mutable std::mutex mutex_;
+    std::size_t capacity_;
+    std::deque<Entry> entries_;
+    std::uint64_t version_ = 0;
+    std::uint64_t dropped_ = 0;
+};
+
 void add_sink(std::shared_ptr<Sink> sink);
+// Trägt einen Sink wieder aus; danach bekommt er keine Meldungen mehr.
+void remove_sink(const std::shared_ptr<Sink>& sink);
 void clear_sinks();
 
 void set_level(Level level) noexcept;

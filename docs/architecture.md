@@ -24,7 +24,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
-| `ngine.core` | `ngine::core` | Partitionen `types`, `log`, `check`, `version`; interne Partition `console` stellt die Windows-Konsole auf UTF-8 (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
+| `ngine.core` | `ngine::core` | Partitionen `types`, `log` (Sinks für Konsole, Datei `FileSink` und Ringpuffer `RingSink`), `check`, `version`; interne Partition `console` stellt die Windows-Konsole auf UTF-8 und öffnet Log-Dateien mit UTF-8-Pfad (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
 | `ngine.math` | `ngine::math` | Eigene Mathematik: `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
@@ -38,14 +38,16 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
-| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten mit Loslassen, Maus mit relativem Modus, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
+| `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten nach Scancode mit Loslassen, Texteingabe, Fokus, Maus mit relativem Modus und Zeigerform, Zwischenablage, Bildschirmskalierung, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Scissor, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
 | `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer`, `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Tone Mapping, Debug-Linien), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
-| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Tone Mapping); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
+| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Schatten, Debug-Linien, Tone Mapping, Editor-UI); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
+| `ngine.editor_ui` | `ngine::editor_ui` | Editor-UI: Adapter für Dear ImGui mit Docking (`:context`, `:widgets`; nur `context.cpp` und `widgets.cpp` kennen ImGui), Zeichenliste in Engine-Typen (`:draw`), `UiRenderer` als Pass im Render-Graph über die RHI (`:pass`), Log-Konsole (`:console`) und Viewport-Größe (`:viewport`); ohne Fenster und GPU testbar ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | vorhanden (ab R2.1) |
 
 Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
-`ngine.math` (R1.1), der Renderer `ngine.render` (ab R1.2) und `ngine.asset` (R1.3) dazu.
+`ngine.math` (R1.1), der Renderer `ngine.render` (ab R1.2) und `ngine.asset` (R1.3) dazu, in R2
+`ngine.editor_ui` (R2.1) für den Editor.
 
 ```mermaid
 flowchart BT
@@ -66,6 +68,9 @@ flowchart BT
     net["ngine.net<br/>(GameNetworkingSockets)"]
     replication["ngine.replication"]
     sandbox["Sandbox"]
+    editor["Editor"]
+    common["apps/common<br/>(Standardszene)"]
+    editor_ui["ngine.editor_ui<br/>(Dear ImGui)"]
     math["ngine.math"]
     render["ngine.render"]
     asset["ngine.asset<br/>(fastgltf, stb_image)"]
@@ -105,10 +110,19 @@ flowchart BT
     replication --> net
     replication --> world
     sandbox --> replication
+    editor_ui --> render
+    sandbox --> common
+    editor --> common
+    common --> render
+    editor --> editor_ui
+    editor --> platform
+    editor --> vulkan
 ```
 
-Plattform und RHI kennen sich nicht. Die Sandbox verbindet sie: Sie übergibt der RHI eine
+Plattform und RHI kennen sich nicht. Sandbox und Editor verbinden sie: Sie übergeben der RHI eine
 `SurfaceDesc`, deren Funktionen das Fenster bereitstellt ([ADR 0013](adr/0013-rhi-design.md)).
+Ebenso kennen sich Plattform und Editor-UI nicht; der Editor übersetzt Ereignisse des Fensters in
+Eingaben der UI (`apps/editor/input.cppm`).
 
 ### Feature-Stufen der GPU
 
@@ -239,6 +253,36 @@ flowchart LR
 - Die Szenen-Shader teilen ihre Datenstrukturen über `scene.slang` (Eckpunkt, Material, Licht,
   Frame, Push Constants).
 
+### Editor und Editor-UI
+
+Der Editor ist eine eigene Anwendung ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)). Jeder Frame
+baut zuerst die UI, dann zeichnet der Render-Graph die Szene in die Viewport-Textur und die UI in
+den Backbuffer:
+
+```mermaid
+flowchart LR
+    events["platform::Window<br/>Ereignisse"] --> input["editor.input<br/>(Tasten, Maus, Zeiger)"]
+    input --> ctx["editor_ui::Context<br/>(ImGui)"]
+    input --> fly["FlyInput<br/>(rechte Maustaste im Viewport)"]
+    ctx --> panels["Fenster: Viewport, Konsole,<br/>Statistik, Menü, Andocken"]
+    panels --> list["UiDrawData"]
+    fly --> scene["ModelScene<br/>(apps/common)"]
+    scene --> rpass["Renderer::add_passes()<br/>in die Viewport-Textur"]
+    rpass --> upass["UiRenderer::add_pass()<br/>in den Backbuffer"]
+    list --> upass
+```
+
+- Die Viewport-Textur (`RGBA8Srgb`, RenderTarget und Sampled) wird importiert: neu angelegt im
+  Zustand Undefined, danach ShaderRead am Anfang und Ende jedes Frames. Der UI-Pass liest sie im
+  Zustand ShaderRead; die Barriere setzt der Graph.
+- Die Größe folgt dem Fenster mit einem Frame Verzug (`editor_ui::ViewportSize`): Die Zeichenliste
+  eines Frames zeigt auf die Textur, die beim Aufbau der UI galt.
+- Texturen der UI selbst (Schriftatlas) legt der `UiRenderer` als `TextureHost` an; die Kennung ist
+  der bindlose Index plus eins.
+- Die Konsole liest einen `log::RingSink`, der vor allem anderen eingetragen wird; dazu schreibt
+  ein `log::FileSink` nach `editor.log` im Benutzerordner. Lage und Andocken der Fenster speichert
+  ImGui in `editor.ini` daneben.
+
 ### Lebensdauer von GPU-Ressourcen
 
 Jede Abgabe an die Queue signalisiert den nächsten Wert eines Timeline Semaphores. Daran hängen
@@ -268,7 +312,8 @@ Präsentation (TD-18); `vkDeviceWaitIdle` gibt es nur noch beim Beenden.
 | --- | --- |
 | `engine/<system>/` | Ein Engine-System |
 | `apps/sandbox/` | Testanwendung, an der jede Iteration sichtbar wird |
-| `apps/editor/` | Editor (ab R2) |
+| `apps/editor/` | Editor (ab R2.1) |
+| `apps/common/` | Gemeinsamer Code von Sandbox und Editor (Standardszene) |
 | `tests/<system>/` | Catch2-Tests, gespiegelt zur Engine |
 | `cmake/` | Gemeinsame CMake-Funktionen |
 | `docs/` | Diese Dokumentation |

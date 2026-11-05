@@ -46,6 +46,7 @@ cmake --preset linux-clang-debug
 cmake --build --preset linux-clang-debug
 ctest --preset linux-clang-debug
 ./build/linux-clang-debug/apps/sandbox/ngine_sandbox
+./build/linux-clang-debug/apps/editor/ngine_editor
 ```
 
 Unter Windows dieselben Befehle mit `windows-msvc-debug` in einer Developer-Konsole. Den Vulkan-Treiber
@@ -63,6 +64,13 @@ einem Prozess) und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit
 `--headless` ohne GPU, mit `--image <pfad>` offscreen als Bild). Netzwerk: `--server [--port n]`
 startet einen dedizierten Server ohne Fenster, `--client <adresse>` verbindet sich mit ihm. Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3, mit `-DNGINE_WITH_DOTNET=OFF` einer ohne
 C#-Assemblies.
+
+Der Editor (ab R2.1, braucht ein Fenster) zeigt die Standardszene im Viewport-Fenster, dazu eine
+Konsole mit dem Log und eine Statistik; alle Fenster lassen sich andocken und lösen, „Ansicht →
+Layout zurücksetzen“ stellt die Anordnung wieder her. Kamera wie in der Sandbox mit gedrückter
+rechter Maustaste im Viewport. Optionen: `--model <pfad>`, `--frames <n>`, `--no-vsync`,
+`--baseline`, `--no-ini` (Lage der Fenster weder laden noch speichern). Log und Lage der Fenster
+liegen im Benutzerordner unter `NGine/editor.log` und `NGine/editor.ini`.
 
 ## Dokumentation
 

@@ -169,6 +169,14 @@ public:
         vkCmdEndRendering(cmd_);
     }
 
+    void set_scissor(const Rect& rect) override {
+        verify(rect.x >= 0 && rect.y >= 0, "set_scissor: negativer Ursprung");
+        // Der Scissor gilt im Framebuffer (Ursprung oben links); die Spiegelung des Viewports
+        // betrifft ihn nicht.
+        const VkRect2D scissor{{rect.x, rect.y}, {rect.width, rect.height}};
+        vkCmdSetScissor(cmd_, 0, 1, &scissor);
+    }
+
     void bind_pipeline(const Pipeline& pipeline) override {
         const auto& vulkan_pipeline = static_cast<const VulkanPipeline&>(pipeline);
         vkCmdBindPipeline(cmd_, vulkan_pipeline.bind_point(), vulkan_pipeline.handle());

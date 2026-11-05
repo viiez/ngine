@@ -62,6 +62,14 @@ constexpr u32 tonemap_fragment[] = {
 #include "tonemap_fragment.spv.inc"
 };
 
+constexpr u32 ui_vertex[] = {
+#include "ui_vertex.spv.inc"
+};
+
+constexpr u32 ui_fragment[] = {
+#include "ui_fragment.spv.inc"
+};
+
 constexpr u32 gradient_compute[] = {
 #include "gradient_compute.spv.inc"
 };
@@ -133,6 +141,18 @@ rhi::ShaderDesc debug_fragment() {
 // Index der HDR-Textur (u32), Belichtung (f32), 1 für eigene sRGB-Kodierung (u32).
 rhi::ShaderDesc tonemap_fragment() {
     return {rhi::ShaderStage::Fragment, detail::tonemap_fragment, "fragment_main"};
+}
+
+// Editor-UI (ui.slang): Dreiecke aus der Zeichenliste von Dear ImGui. Push Constants: Adresse der
+// Eckpunkte (8, wie editor_ui::UiVertex), Skalierung und Verschiebung von Pixeln in
+// Clip-Koordinaten (je 2 × f32), Index der Textur und des Samplers, 1 für eigene sRGB-Kodierung
+// (je u32).
+rhi::ShaderDesc ui_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::ui_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc ui_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::ui_fragment, "fragment_main"};
 }
 
 // Testmuster: Farbverlauf in eine Storage-Textur, Gruppen zu 8×8. Push Constants: Index der

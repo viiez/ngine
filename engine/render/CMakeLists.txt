@@ -24,7 +24,9 @@ target_sources(ngine_render
         lights.cpp
         shadows.cpp
         debug_draw.cpp
-        renderer.cpp)
+        renderer.cpp
+        scene.cpp
+        models.cpp)
 
 # Laufzeit-Schicht: kennt die RHI (nie Vulkan), die Welt für Kamera und MeshRenderer und die
 # Ressourcen-Schicht für Modelle.

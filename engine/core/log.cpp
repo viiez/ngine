@@ -3,10 +3,15 @@ module;
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <deque>
+#include <expected>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -53,11 +58,16 @@ std::string_view to_string(Level level) noexcept {
     return "unknown";
 }
 
-void ConsoleSink::write(const Record& record) {
+std::string format_line(const Record& record) {
     const auto millis =
         std::chrono::duration_cast<std::chrono::milliseconds>(record.uptime).count();
-    const auto line = std::format("[{:>6}.{:03}] [{:<5}] {}\n", millis / 1000, millis % 1000,
-                                  to_string(record.level), record.message);
+    return std::format("[{:>6}.{:03}] [{:<5}] {}", millis / 1000, millis % 1000,
+                       to_string(record.level), record.message);
+}
+
+void ConsoleSink::write(const Record& record) {
+    std::string line = format_line(record);
+    line += '\n';
     std::FILE* stream = record.level >= Level::Warn ? stderr : stdout;
     if (stream == stderr) {
         // stdout ist gepuffert, stderr nicht. Ohne flush landen Warnungen vor älteren Zeilen.
@@ -71,6 +81,68 @@ void ConsoleSink::flush() {
     std::fflush(stderr);
 }
 
+std::expected<std::shared_ptr<FileSink>, std::string> FileSink::create(std::string_view utf8_path) {
+    // Der Konstruktor mit char8_t liest den Pfad auf jeder Plattform als UTF-8.
+    const std::filesystem::path path{std::u8string{utf8_path.begin(), utf8_path.end()}};
+    std::error_code error;
+    if (path.has_parent_path()) {
+        std::filesystem::create_directories(path.parent_path(), error);
+    }
+    std::FILE* file = detail::open_log_file(utf8_path);
+    if (file == nullptr) {
+        return std::unexpected(std::format("Log-Datei lässt sich nicht anlegen: {}", utf8_path));
+    }
+    return std::shared_ptr<FileSink>{new FileSink{file}};
+}
+
+FileSink::~FileSink() {
+    std::fclose(file_);
+}
+
+void FileSink::write(const Record& record) {
+    std::string line = format_line(record);
+    line += '\n';
+    std::fwrite(line.data(), 1, line.size(), file_);
+    if (record.level >= Level::Error) {
+        std::fflush(file_);
+    }
+}
+
+void FileSink::flush() {
+    std::fflush(file_);
+}
+
+void RingSink::write(const Record& record) {
+    const std::scoped_lock lock{mutex_};
+    if (entries_.size() >= capacity_) {
+        entries_.pop_front();
+        ++dropped_;
+    }
+    entries_.push_back({record.level, record.uptime, std::string{record.message}});
+    ++version_;
+}
+
+std::vector<RingSink::Entry> RingSink::snapshot() const {
+    const std::scoped_lock lock{mutex_};
+    return {entries_.begin(), entries_.end()};
+}
+
+std::uint64_t RingSink::version() const {
+    const std::scoped_lock lock{mutex_};
+    return version_;
+}
+
+std::uint64_t RingSink::dropped() const {
+    const std::scoped_lock lock{mutex_};
+    return dropped_;
+}
+
+void RingSink::clear() {
+    const std::scoped_lock lock{mutex_};
+    entries_.clear();
+    ++version_;
+}
+
 void add_sink(std::shared_ptr<Sink> sink) {
     if (!sink) {
         return;
@@ -78,6 +150,12 @@ void add_sink(std::shared_ptr<Sink> sink) {
     auto& s = state();
     const std::scoped_lock lock{s.mutex};
     s.sinks.push_back(std::move(sink));
+}
+
+void remove_sink(const std::shared_ptr<Sink>& sink) {
+    auto& s = state();
+    const std::scoped_lock lock{s.mutex};
+    std::erase(s.sinks, sink);
 }
 
 void clear_sinks() {

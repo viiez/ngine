@@ -82,6 +82,14 @@ struct Extent2D {
     u32 height = 0;
 };
 
+// Rechteck in Pixeln des Ziels, Ursprung oben links.
+struct Rect {
+    i32 x = 0;
+    i32 y = 0;
+    u32 width = 0;
+    u32 height = 0;
+};
+
 struct Color {
     f32 r = 0.0f;
     f32 g = 0.0f;
@@ -351,6 +359,10 @@ public:
         begin_rendering(RenderingDesc{.color = &target, .clear_color = clear});
     }
     virtual void end_rendering() = 0;
+    // Begrenzt das Zeichnen auf ein Rechteck des Ziels (Ursprung oben links, unabhängig von der
+    // y-Achse des Viewports). Gilt bis zum nächsten set_scissor() oder begin_rendering(). Nur
+    // innerhalb von begin_rendering(); x und y dürfen nicht negativ sein.
+    virtual void set_scissor(const Rect& rect) = 0;
     virtual void bind_pipeline(const Pipeline& pipeline) = 0;
     // Höchstens max_push_constant_size Bytes; gilt für die gebundene Pipeline.
     virtual void push_constants(std::span<const std::byte> data) = 0;

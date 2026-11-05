@@ -3,6 +3,7 @@ module;
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <expected>
@@ -21,6 +22,9 @@ namespace ngine::platform {
 
 struct Window::Impl {
     SDL_Window* window = nullptr;
+    // Systemzeiger nach Cursor, erst bei Bedarf erzeugt.
+    std::array<SDL_Cursor*, 10> cursors{};
+    Cursor cursor = Cursor::Arrow;
     std::function<void(Extent)> redraw;
     bool watching = false;
 
@@ -31,6 +35,11 @@ struct Window::Impl {
     ~Impl() {
         if (watching) {
             SDL_RemoveEventWatch(&Impl::watch, this);
+        }
+        for (SDL_Cursor* c : cursors) {
+            if (c != nullptr) {
+                SDL_DestroyCursor(c);
+            }
         }
         if (window != nullptr) {
             SDL_DestroyWindow(window);
@@ -85,20 +94,60 @@ Window::~Window() = default;
 namespace {
 
 Key to_key(SDL_Scancode key) {
+    // Buchstaben, Ziffern und F-Tasten liegen in SDL und in Key jeweils am Stück.
+    if (key >= SDL_SCANCODE_A && key <= SDL_SCANCODE_Z) {
+        return static_cast<Key>(static_cast<int>(Key::A) +
+                                (static_cast<int>(key) - static_cast<int>(SDL_SCANCODE_A)));
+    }
+    if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_9) {
+        return static_cast<Key>(static_cast<int>(Key::Num1) +
+                                (static_cast<int>(key) - static_cast<int>(SDL_SCANCODE_1)));
+    }
+    if (key >= SDL_SCANCODE_F1 && key <= SDL_SCANCODE_F12) {
+        return static_cast<Key>(static_cast<int>(Key::F1) +
+                                (static_cast<int>(key) - static_cast<int>(SDL_SCANCODE_F1)));
+    }
     switch (key) {
+    case SDL_SCANCODE_0: return Key::Num0;
     case SDL_SCANCODE_ESCAPE: return Key::Escape;
+    case SDL_SCANCODE_RETURN:
+    case SDL_SCANCODE_KP_ENTER: return Key::Enter;
+    case SDL_SCANCODE_TAB: return Key::Tab;
+    case SDL_SCANCODE_BACKSPACE: return Key::Backspace;
+    case SDL_SCANCODE_INSERT: return Key::Insert;
+    case SDL_SCANCODE_DELETE: return Key::Delete;
+    case SDL_SCANCODE_HOME: return Key::Home;
+    case SDL_SCANCODE_END: return Key::End;
+    case SDL_SCANCODE_PAGEUP: return Key::PageUp;
+    case SDL_SCANCODE_PAGEDOWN: return Key::PageDown;
+    case SDL_SCANCODE_LEFT: return Key::Left;
+    case SDL_SCANCODE_RIGHT: return Key::Right;
+    case SDL_SCANCODE_UP: return Key::Up;
+    case SDL_SCANCODE_DOWN: return Key::Down;
     case SDL_SCANCODE_SPACE: return Key::Space;
-    case SDL_SCANCODE_W: return Key::W;
-    case SDL_SCANCODE_A: return Key::A;
-    case SDL_SCANCODE_S: return Key::S;
-    case SDL_SCANCODE_D: return Key::D;
-    case SDL_SCANCODE_Q: return Key::Q;
-    case SDL_SCANCODE_E: return Key::E;
     case SDL_SCANCODE_LSHIFT:
     case SDL_SCANCODE_RSHIFT: return Key::Shift;
-    case SDL_SCANCODE_F1: return Key::F1;
-    case SDL_SCANCODE_F2: return Key::F2;
+    case SDL_SCANCODE_LCTRL:
+    case SDL_SCANCODE_RCTRL: return Key::Ctrl;
+    case SDL_SCANCODE_LALT:
+    case SDL_SCANCODE_RALT: return Key::Alt;
+    case SDL_SCANCODE_LGUI:
+    case SDL_SCANCODE_RGUI: return Key::Super;
     default: return Key::Unknown;
+    }
+}
+
+SDL_SystemCursor to_system_cursor(Cursor cursor) {
+    switch (cursor) {
+    case Cursor::TextInput: return SDL_SYSTEM_CURSOR_TEXT;
+    case Cursor::ResizeAll: return SDL_SYSTEM_CURSOR_MOVE;
+    case Cursor::ResizeNS: return SDL_SYSTEM_CURSOR_NS_RESIZE;
+    case Cursor::ResizeEW: return SDL_SYSTEM_CURSOR_EW_RESIZE;
+    case Cursor::ResizeNESW: return SDL_SYSTEM_CURSOR_NESW_RESIZE;
+    case Cursor::ResizeNWSE: return SDL_SYSTEM_CURSOR_NWSE_RESIZE;
+    case Cursor::Hand: return SDL_SYSTEM_CURSOR_POINTER;
+    case Cursor::NotAllowed: return SDL_SYSTEM_CURSOR_NOT_ALLOWED;
+    default: return SDL_SYSTEM_CURSOR_DEFAULT;
     }
 }
 
@@ -149,9 +198,19 @@ std::vector<Event> Window::poll_events() {
                                                            sdl_event.button.x * density,
                                                            sdl_event.button.y * density});
             break;
-        case SDL_EVENT_MOUSE_WHEEL:
-            events.emplace_back(event::MouseWheel{sdl_event.wheel.y});
+        case SDL_EVENT_MOUSE_WHEEL: {
+            const float sign = sdl_event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
+            events.emplace_back(
+                event::MouseWheel{sdl_event.wheel.y * sign, sdl_event.wheel.x * sign});
             break;
+        }
+        case SDL_EVENT_TEXT_INPUT:
+            if (sdl_event.text.text != nullptr) {
+                events.emplace_back(event::TextInput{sdl_event.text.text});
+            }
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED: events.emplace_back(event::FocusChanged{true}); break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST: events.emplace_back(event::FocusChanged{false}); break;
         default: break;
         }
     }
@@ -173,6 +232,57 @@ void Window::set_relative_mouse(bool enabled) {
     if (!SDL_SetWindowRelativeMouseMode(impl_->window, enabled)) {
         log::warn("Relativer Mausmodus nicht verfügbar: {}", SDL_GetError());
     }
+}
+
+void Window::set_cursor(Cursor cursor) {
+    if (cursor == impl_->cursor) {
+        return;
+    }
+    impl_->cursor = cursor;
+    if (cursor == Cursor::Hidden) {
+        SDL_HideCursor();
+        return;
+    }
+    SDL_Cursor*& system = impl_->cursors[static_cast<usize>(cursor)];
+    if (system == nullptr) {
+        system = SDL_CreateSystemCursor(to_system_cursor(cursor));
+    }
+    if (system != nullptr) {
+        SDL_SetCursor(system);
+    }
+    SDL_ShowCursor();
+}
+
+void Window::set_text_input(bool enabled) {
+    if (enabled == SDL_TextInputActive(impl_->window)) {
+        return;
+    }
+    const bool done =
+        enabled ? SDL_StartTextInput(impl_->window) : SDL_StopTextInput(impl_->window);
+    if (!done) {
+        log::warn("Texteingabe lässt sich nicht umschalten: {}", SDL_GetError());
+    }
+}
+
+std::string Window::clipboard_text() const {
+    char* text = SDL_GetClipboardText();
+    if (text == nullptr) {
+        return {};
+    }
+    std::string result{text};
+    SDL_free(text);
+    return result;
+}
+
+void Window::set_clipboard_text(const std::string& text) {
+    if (!SDL_SetClipboardText(text.c_str())) {
+        log::warn("Zwischenablage lässt sich nicht setzen: {}", SDL_GetError());
+    }
+}
+
+f32 Window::display_scale() const {
+    const float scale = SDL_GetWindowDisplayScale(impl_->window);
+    return scale > 0.0f ? scale : 1.0f;
 }
 
 void Window::set_redraw_callback(std::function<void(Extent framebuffer)> callback) {

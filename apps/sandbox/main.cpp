@@ -55,6 +55,7 @@ import sandbox.scene_demo;
 import sandbox.frame_stats;
 import sandbox.voxel_demo;
 import sandbox.model_demo;
+import app.model_scene;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import ngine.voxel;
@@ -177,7 +178,7 @@ int run_windowed(const Options& options) {
         // Ressourcen leben in diesem Block, damit sie vor dem Device zerstört werden.
         // Voxel-Demo (Durchstich D1) oder Standardansicht mit Renderer und Welt (R1.3).
         std::optional<sandbox::VoxelScene> voxels;
-        std::unique_ptr<sandbox::ModelScene> scene;
+        std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
             voxels.emplace(32u, sandbox::voxel_origin(options.far));
             if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format());
@@ -187,8 +188,8 @@ int run_windowed(const Options& options) {
             }
         } else {
             auto created =
-                sandbox::ModelScene::create(**device, (*device)->swapchain_format(),
-                                            options.model_path, sandbox::voxel_origin(options.far));
+                app::ModelScene::create(**device, (*device)->swapchain_format(), options.model_path,
+                                        sandbox::voxel_origin(options.far));
             if (!created) {
                 ngine::log::fatal("{}", created.error());
                 return 1;
@@ -202,7 +203,7 @@ int run_windowed(const Options& options) {
         ngine::render::GpuProfiler gpu_profiler{**device};
         ngine::u64 frame_count = 0;
         bool running = true;
-        sandbox::FlyInput fly;
+        app::FlyInput fly;
         bool looking = false;
         auto last_time = std::chrono::steady_clock::now();
         auto last_report = last_time;
