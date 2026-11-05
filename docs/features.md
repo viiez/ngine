@@ -59,11 +59,11 @@ eine Komponente.
 | REND-06 | Bindless | Texturen und Sampler über Indizes in einem Descriptor-Satz statt Sätzen pro Draw ([ADR 0026](adr/0026-render-graph-bindless.md)) | R1.2 | fertig |
 | REND-07 | PBR-Materialien | glTF Metallic-Roughness mit GGX, Smith und Schlick; Materialien als Feld im GPU-Speicher mit bindlosen Texturen (`MaterialStore`, [ADR 0027](adr/0027-gltf-assets-material-store.md)); Alpha-Maske und unsortiertes Überblenden | R1.3 | fertig |
 | REND-08 | Kamera | Komponente `Camera` mit umgekehrter Tiefe und unendlicher Ferne, kamerarelativ über `WorldTransform`; freie Steuerung in der Sandbox | R1.3 | fertig |
-| REND-09 | Licht und Schatten | Lichter als Komponenten (`DirectionalLight`, `PointLight`, `SpotLight`); Sonne mit vier Cascaded Shadow Maps, eingerastet gegen Flimmern; Punkt- und Spotlichter ohne Schatten aus einer Liste im GPU-Speicher ([ADR 0028](adr/0028-lights-cascaded-shadows.md)) | R1.4 | in Arbeit |
-| REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU | R1 | Idee |
+| REND-09 | Licht und Schatten | Lichter als Komponenten (`DirectionalLight`, `PointLight`, `SpotLight`); Sonne mit vier Cascaded Shadow Maps, eingerastet gegen Flimmern; Punkt- und Spotlichter ohne Schatten aus einer Liste im GPU-Speicher ([ADR 0028](adr/0028-lights-cascaded-shadows.md)) | R1.4 | fertig |
+| REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU | R3 | Idee |
 | REND-11 | Post-Processing | Tone Mapping (Khronos PBR Neutral, Belichtung aus der Kamera, R1.3), Bloom, Farbkorrektur | R1.3 / R3 | in Arbeit |
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
-| REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling | R1 | geplant |
+| REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling | R3 | geplant |
 | REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren | R2 | geplant |
 | REND-15 | Debug-Zeichnen | Linien, Boxen, Kugeln und Achsenkreuze in der Welt (`Renderer::debug()`, R1.4); Text folgt mit der Editor-UI in R2 | R1.4 / R2 | in Arbeit |
 

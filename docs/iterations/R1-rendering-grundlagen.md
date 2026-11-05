@@ -1,7 +1,7 @@
 # R1: Rendering-Grundlagen
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit
+- **Status:** abgeschlossen
 - **Pull Requests:** …
 
 R1 ist der erste Reifegrad der Konstruktion und zu groß für eine Iteration, die in wenigen Abenden
@@ -39,8 +39,8 @@ flowchart LR
 Nicht in R1, damit der Reifegrad in überschaubarer Zeit fertig wird:
 
 - **Mesh Shader und GPU-Culling** (REND-13, REND-10): bauen auf Render-Graph und Bindless auf und
-  lohnen sich erst mit großen Szenen. Vorschlag: eigene Iteration R1.5 nach dem Review von R1.4
-  oder Verschiebung nach R3, wo das Terrain viel Geometrie bringt.
+  lohnen sich erst mit großen Szenen. Nach dem Review von R1.4 entschieden: Verschiebung nach R3,
+  wo das Terrain viel Geometrie bringt.
 - **Bloom, Farbkorrektur, Himmel und Atmosphäre** (Rest von REND-11, NAT-04): nach R3, wo die
   Natur dazukommt.
 - **Hot Reload und KTX2** (PLAT-06, KTX2 aus ASSET-02): mit der Asset-Pipeline in R2.
@@ -73,4 +73,55 @@ Architektur-Review und Messung der Frame-Zeit auf dem PC.
 
 ## Review
 
-Folgt nach R1.4.
+**Ergebnis:** Die Sandbox zeigt eine Szene aus glTF-Modellen oder PBR-Kugeln mit Sonne, Schatten
+über vier Kaskaden und acht bewegten Punktlichtern, durch die man mit einer freien Kamera fliegt.
+Positionen sind 64 Bit und werden relativ zur Kamera gezeichnet, auch 10 000 km vom Ursprung ohne
+Zittern. Der Renderer baut jeden Frame als Render-Graph, der Barrieren, transiente Texturen und
+GPU-Zonen selbst verwaltet; Shader erreichen Texturen bindlos, Geometrie und Materialien liegen im
+GPU-Speicher.
+
+| Iteration | Pull Requests | Ergebnis |
+| --- | --- | --- |
+| [R1.1](R1.1-mathematik-und-transforms.md) Mathematik und Transforms | siehe Iteration | `ngine.math`, `Transform` mit 64-Bit-Position, Propagation, kamerarelative Matrizen |
+| [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) Render-Graph, Bindless, GPU-Speicher | #17, #18 | Render-Graph, bindloser Satz, Uploads und Swapchain ohne Warten |
+| [R1.3](R1.3-meshes-materialien-kamera.md) Meshes, Materialien, Kamera | #19, #20 | glTF, PBR, HDR mit Tone Mapping, Kamera, freie Steuerung, GPU-Zonen |
+| [R1.4](R1.4-licht-und-schatten.md) Licht und Schatten | #21, #22 | Lichter als Komponenten, Cascaded Shadow Maps, Debug-Zeichnen |
+
+Abnahme: Die Abnahmen aller vier Iterationen sind erfüllt, jede mit grüner CI auf Linux, unter
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Offen ist die Messung der Frame-Zeit
+auf dem PC (siehe Leistung).
+
+Abweichungen vom Plan:
+
+- Die GPU-Zonen (CORE-07) wanderten wie vorgesehen von R1.2 nach R1.3.
+- Die Voxel-Demo nutzt Kamera und umgekehrte Tiefe des Renderers, zeichnet aber weiter mit
+  eigener Pipeline. Sie zieht mit dem Voxel-Ausbau in R3 ganz auf den Renderer um.
+- Mesh Shader und GPU-Culling (REND-13, REND-10) wandern nach R3, wo das Terrain viel Geometrie
+  bringt; eine eigene Iteration R1.5 gibt es nicht.
+
+**Erkenntnisse:**
+
+- Vier Iterationen mit je eigenem PR und Test auf dem PC hielten den Reifegrad überschaubar. Jede
+  Iteration war in einem PR prüfbar, und Fehler kamen früh ans Licht (Barriere vor der
+  Präsentation in R1.2, Schreib-nach-Schreib-Gefahr in R1.3, Zeichnen beim Ziehen unter Windows).
+- Die Synchronisationsprüfung der Validation Layers in allen GPU-Tests ist das wertvollste
+  Werkzeug für Vulkan gewesen; lavapipe reicht für Bilder und Stichproben in der CI.
+- Was ohne GPU testbar ist (Mathematik, Planung des Graphs, glTF, Kaskaden, Lichtliste), wurde so
+  gebaut; die GPU-Tests prüfen nur noch das Zusammenspiel.
+- Bildvergleiche (`--far`, `--baseline`) sind billige Wächter für kamerarelatives Zeichnen und
+  Rückfallpfade; Referenzbilder auf der Platte wären zwischen Treibern zu empfindlich.
+
+**Architektur-Review des Reifegrads:**
+
+- Schichten wie geplant: `ngine.render` kennt nur die RHI, die RHI keine Vulkan-Typen in ihrer
+  Schnittstelle; fastgltf und stb_image stecken in Adaptern von `ngine.asset`. Neue ADRs: 0026
+  (Render-Graph und Bindless), 0027 (glTF und Materialien), 0028 (Licht und Schatten).
+- Größte Dateien: `renderer.cpp` (rund 770 Zeilen), `device.cpp` (rund 550), `rhi.cppm` (rund
+  440). Der Renderer ist der erste Kandidat zum Aufteilen.
+- Schulden: TD-02, TD-03, TD-10, TD-11 und TD-19 abgebaut; offen aus R1 sind TD-16 bis TD-18 und
+  TD-20 bis TD-25, alle mit Frist R2 oder R3.
+- 171 Tests, davon die GPU-Tests über lavapipe; Debug- und Release-Build ohne Warnung.
+
+**Leistung:** Die Frame-Zeit der Standardszene auf dem PC ist noch nicht gemessen; sie wird hier
+nachgetragen. Auf lavapipe sind Zeiten nicht aussagekräftig. Die GPU-Zonen pro Pass in Tracy
+zeigen auf dem PC, welcher Pass wie viel kostet.

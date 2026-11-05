@@ -1,6 +1,6 @@
 # 0028: Lichter als Komponenten, Cascaded Shadow Maps mit eingerasteten Kugeln, Lichtliste vorwärts
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-04
 
 ## Kontext
