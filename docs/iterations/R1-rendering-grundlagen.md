@@ -88,8 +88,8 @@ GPU-Speicher.
 | [R1.4](R1.4-licht-und-schatten.md) Licht und Schatten | #21, #22 | Lichter als Komponenten, Cascaded Shadow Maps, Debug-Zeichnen |
 
 Abnahme: Die Abnahmen aller vier Iterationen sind erfüllt, jede mit grüner CI auf Linux, unter
-ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Offen ist die Messung der Frame-Zeit
-auf dem PC (siehe Leistung).
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC; die Frame-Zeit auf dem PC ist
+gemessen (siehe Leistung).
 
 Abweichungen vom Plan:
 
@@ -122,6 +122,16 @@ Abweichungen vom Plan:
   TD-20 bis TD-25, alle mit Frist R2 oder R3.
 - 171 Tests, davon die GPU-Tests über lavapipe; Debug- und Release-Build ohne Warnung.
 
-**Leistung:** Die Frame-Zeit der Standardszene auf dem PC ist noch nicht gemessen; sie wird hier
-nachgetragen. Auf lavapipe sind Zeiten nicht aussagekräftig. Die GPU-Zonen pro Pass in Tracy
-zeigen auf dem PC, welcher Pass wie viel kostet.
+**Leistung:** Frame-Zeit der Standardszene auf dem PC, gemessen in Tracy (Windows 11, NVIDIA
+GeForce RTX 3060 Ti, Debug-Build, `--no-vsync`):
+
+| Auflösung | Frame-Zeit |
+| --- | --- |
+| 1280 × 720 | etwa 2,3 bis 3,9 ms |
+| 1920 × 1009 (maximiert) | etwa 2,5 bis 5,0 ms |
+
+Damit bleibt selbst der Debug-Build weit unter 16,7 ms (60 Bilder pro Sekunde). Die Zeit wächst
+mit der Auflösung nur wenig; der Großteil hängt also nicht an den Pixeln, sondern an festen
+Kosten wie den vier Schattenkarten und der Arbeit auf der CPU. Die GPU-Zonen pro Pass in Tracy
+zeigen genauer, welcher Pass wie viel kostet; ein Vergleich mit dem Release-Build folgt bei
+Bedarf. Auf lavapipe sind Zeiten nicht aussagekräftig.
