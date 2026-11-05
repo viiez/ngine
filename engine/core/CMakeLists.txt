@@ -15,10 +15,12 @@ target_sources(ngine_core
             check.cppm
             log.cppm
             console.cppm
+            events.cppm
             "${CMAKE_CURRENT_BINARY_DIR}/version.cppm"
     PRIVATE
         check.cpp
-        log.cpp)
+        log.cpp
+        events.cpp)
 # Plattformcode für die Konsole (UTF-8 unter Windows).
 if(WIN32)
     target_sources(ngine_core PRIVATE console_windows.cpp)

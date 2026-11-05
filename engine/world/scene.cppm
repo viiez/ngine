@@ -21,7 +21,8 @@ import :ecs;
 //   }
 //
 // Die IDs gelten nur in der Datei. Eltern stehen vor ihren Kindern, Kinder in der Reihenfolge ihrer
-// Kennungen; dieselbe Welt ergibt deshalb immer denselben Text.
+// Kennungen, Komponenten in der Reihenfolge der Registrierung; dieselbe Welt ergibt deshalb immer
+// denselben Text, und eine geladene Szene wird ohne Änderung textgleich gespeichert.
 export namespace ngine::world {
 
 template <typename T>

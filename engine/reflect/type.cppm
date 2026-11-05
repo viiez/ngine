@@ -2,6 +2,7 @@ module;
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -27,23 +28,54 @@ using TypeId = u64;
     return hash;
 }
 
-// Grundarten von Typen. Ganz- und Gleitkommazahlen unterscheiden sich nur in der Größe.
+// Grundarten von Typen. Ganz- und Gleitkommazahlen unterscheiden sich nur in der Größe; Enums
+// speichern ihren Wert als Ganzzahl der Größe TypeInfo::size.
 enum class Kind : u8 {
     Bool,
     Int,
     UInt,
     Float,
     String,
+    Enum,
     Struct,
 };
 
 struct TypeInfo;
+
+// Gültiger Bereich eines Zahlenfeldes, beide Grenzen eingeschlossen. Der Editor klemmt Eingaben
+// darauf; Laden und Netzwerk lassen Werte, wie sie sind. step ist die Schrittweite beim Ziehen im
+// Inspector (0: automatisch).
+struct Range {
+    f64 min = 0.0;
+    f64 max = 0.0;
+    f64 step = 0.0;
+};
+
+// Wie der Editor ein Feld darstellt, wenn die Art allein nicht reicht.
+enum class Hint : u8 {
+    None,
+    // Vektor aus drei oder vier Gleitkommazahlen als lineare Farbe (Farbwähler).
+    Color,
+    // Quaternion, im Editor als Eulerwinkel in Grad.
+    Rotation,
+    // Gleitkommazahl im Bogenmaß, im Editor in Grad.
+    Angle,
+};
 
 struct Field {
     std::string name;
     const TypeInfo* type = nullptr;
     // Abstand vom Anfang des Objekts in Bytes.
     usize offset = 0;
+    // Nur bei Zahlen sinnvoll; fehlt er, ist jeder Wert des Typs erlaubt.
+    std::optional<Range> range;
+    Hint hint = Hint::None;
+};
+
+// Ein benannter Wert eines Enums.
+struct Enumerator {
+    std::string name;
+    i64 value = 0;
 };
 
 // Lebenszyklus eines Typs, ohne ihn zu kennen. Alle Zeiger zeigen auf passend ausgerichteten
@@ -71,11 +103,33 @@ struct TypeInfo {
     TypeOps ops{};
     // Nur bei Kind::Struct, in der Reihenfolge der Registrierung.
     std::vector<Field> fields;
+    // Nur bei Kind::Enum, in der Reihenfolge der Registrierung.
+    std::vector<Enumerator> enumerators;
+    // Platz in der Reihenfolge der Registrierung (TypeRegistry::types()). Fest, solange die
+    // Registry lebt; taugt als Index in Arrays pro Typ.
+    u32 index = 0;
 
     [[nodiscard]] const Field* find_field(std::string_view field_name) const noexcept {
         for (const Field& field : fields) {
             if (field.name == field_name) {
                 return &field;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] const Enumerator* find_enumerator(std::string_view enumerator_name) const noexcept {
+        for (const Enumerator& enumerator : enumerators) {
+            if (enumerator.name == enumerator_name) {
+                return &enumerator;
+            }
+        }
+        return nullptr;
+    }
+    [[nodiscard]] const Enumerator* find_enumerator(i64 value) const noexcept {
+        for (const Enumerator& enumerator : enumerators) {
+            if (enumerator.value == value) {
+                return &enumerator;
             }
         }
         return nullptr;
@@ -126,6 +180,8 @@ template <Reflectable T>
         return Kind::Float;
     } else if constexpr (std::is_same_v<T, std::string>) {
         return Kind::String;
+    } else if constexpr (std::is_enum_v<T>) {
+        return Kind::Enum;
     } else {
         return Kind::Struct;
     }

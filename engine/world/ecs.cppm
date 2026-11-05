@@ -235,10 +235,12 @@ public:
 
     template <typename T>
     [[nodiscard]] ComponentId component() {
-        return component(types_->get<T>());
+        return component_by_key(reflect::type_key<T>());
     }
     // Meldet den Typ bei Bedarf als Komponente an. Er muss aus types() stammen.
     [[nodiscard]] ComponentId component(const reflect::TypeInfo& type);
+    // Wie component<T>() für einen Schlüssel aus reflect::type_key<T>().
+    [[nodiscard]] ComponentId component_by_key(reflect::TypeKey key);
     // Typ einer angemeldeten Komponente, sonst nullptr.
     [[nodiscard]] const reflect::TypeInfo* component_type(ComponentId component) const noexcept;
 

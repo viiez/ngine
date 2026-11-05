@@ -161,3 +161,54 @@ TEST_CASE("f32 fields are written in their shortest form", "[serialize][reflect]
     REQUIRE(serialize::from_json(value, read, types));
     CHECK(read == v);
 }
+
+namespace {
+
+enum class Weather : u8 { Sun, Rain, Fog };
+
+struct Forecast {
+    Weather today = Weather::Sun;
+    Weather tomorrow = Weather::Sun;
+    bool operator==(const Forecast&) const = default;
+};
+
+reflect::TypeRegistry make_weather_types() {
+    reflect::TypeRegistry types;
+    types.add<Weather>("Weather")
+        .value("Sonne", Weather::Sun)
+        .value("Regen", Weather::Rain)
+        .value("Nebel", Weather::Fog);
+    types.add<Forecast>("Forecast")
+        .field("today", &Forecast::today)
+        .field("tomorrow", &Forecast::tomorrow);
+    return types;
+}
+
+} // namespace
+
+TEST_CASE("Enums are written as names in JSON and as numbers in binary", "[serialize][reflect]") {
+    const reflect::TypeRegistry types = make_weather_types();
+    const Forecast forecast{.today = Weather::Fog, .tomorrow = Weather::Rain};
+    const json::Value value = serialize::to_json(forecast, types);
+    CHECK(json::write(value) == json::write(*json::parse(R"({"today":"Nebel","tomorrow":"Regen"})")));
+
+    Forecast read;
+    REQUIRE(serialize::from_json(value, read, types));
+    CHECK(read == forecast);
+
+    // Zahlen nimmt das Laden auch, unbekannte Namen nicht.
+    Forecast numbers;
+    REQUIRE(serialize::from_json(*json::parse(R"({"today":1})"), numbers, types));
+    CHECK(numbers.today == Weather::Rain);
+    auto bad = serialize::from_json(*json::parse(R"({"today":"Hagel"})"), numbers, types);
+    REQUIRE_FALSE(bad);
+    CHECK(bad.error().find("today") != std::string::npos);
+
+    serialize::BinaryWriter writer;
+    serialize::write_binary(writer, forecast, types);
+    CHECK(writer.bytes().size() == 2);
+    serialize::BinaryReader reader{writer.bytes()};
+    Forecast binary;
+    REQUIRE(serialize::read_binary(reader, binary, types));
+    CHECK(binary == forecast);
+}

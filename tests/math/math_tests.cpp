@@ -44,6 +44,19 @@ TEST_CASE("Quaternions rotate counter clockwise around their axis", "[math]") {
     CHECK(near(slerp(quat_identity(), q, 0.5f), angle_axis(radians(45.0f), Vec3{0, 1, 0}), 1e-6f));
 }
 
+TEST_CASE("Euler angles round trip in yaw, pitch, roll order", "[math]") {
+    const Vec3 angles{radians(20.0f), radians(-130.0f), radians(75.0f)};
+    const Quat q = from_euler(angles);
+    CHECK(near(q, angle_axis(angles.y, Vec3{0, 1, 0}) * angle_axis(angles.x, Vec3{1, 0, 0}) *
+                      angle_axis(angles.z, Vec3{0, 0, 1}),
+               1e-6f));
+    CHECK(near(to_euler(q), angles, 1e-5f));
+    CHECK(near(to_euler(quat_identity()), Vec3{}, 0.0f));
+    // Gimbal Lock: pitch 90 Grad, roll geht in yaw auf, die Drehung bleibt gleich.
+    const Quat locked = from_euler({radians(90.0f), radians(30.0f), radians(20.0f)});
+    CHECK(near(from_euler(to_euler(locked)), locked, 1e-5f));
+}
+
 TEST_CASE("look_rotation points minus z along the view direction", "[math]") {
     const Vec3 forward = normalize(Vec3{1, -1, -1});
     const Quat q = look_rotation(forward, Vec3{0, 1, 0});

@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <expected>
 #include <format>
 #include <optional>
@@ -30,12 +31,13 @@ void append_subtree(const World& world, u64 entity, std::vector<u64>& out) {
 }
 
 json::Value components_to_json(const World& world, u64 entity) {
-    json::Value components{json::Object{}};
+    // Reihenfolge der Registrierung statt der Anmeldung in der Welt: Welten, die Komponenten in
+    // anderer Reihenfolge angemeldet haben, schreiben so denselben Text.
+    std::vector<std::pair<const reflect::TypeInfo*, const void*>> found;
     auto visit = [&](const reflect::TypeInfo& type, ComponentId /*component*/, const void* data) {
-        if (type.transient) {
-            return;
+        if (!type.transient) {
+            found.emplace_back(&type, data);
         }
-        components[type.name] = serialize::to_json(data, type);
     };
     world.for_each_component(entity, ComponentVisitor{
                                          .context = &visit,
@@ -46,6 +48,11 @@ json::Value components_to_json(const World& world, u64 entity) {
                                                      type, component, data);
                                              },
                                      });
+    std::ranges::sort(found, {}, [](const auto& entry) { return entry.first->index; });
+    json::Value components{json::Object{}};
+    for (const auto& [type, data] : found) {
+        components[type->name] = serialize::to_json(data, *type);
+    }
     return components;
 }
 

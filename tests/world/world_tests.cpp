@@ -1,9 +1,11 @@
+#include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
 #include <vector>
 
 import ngine.core;
+import ngine.memory;
 import ngine.reflect;
 import ngine.world;
 
@@ -216,4 +218,36 @@ TEST_CASE("Components can be visited without knowing their type", "[world]") {
                                            }});
     // Die Beziehung zum Elternteil ist keine Komponente.
     CHECK(names == std::vector<std::string>{"Name", "Position"});
+}
+
+TEST_CASE("Memory that flecs allocates counts towards the world budget", "[world][memory]") {
+    const reflect::TypeRegistry types = make_types();
+    const memory::Stats before = memory::stats(memory::Category::World);
+    {
+        world::World world{types};
+        for (i32 i = 0; i < 1000; ++i) {
+            world.create().set(Position{static_cast<f32>(i), 0.0f}).set(Velocity{});
+        }
+        const memory::Stats during = memory::stats(memory::Category::World);
+        CHECK(during.current > before.current + 1000 * sizeof(Position));
+        CHECK(during.allocations > before.allocations);
+    }
+    // Andere Welten (z. B. in parallelen Tests) gibt es hier nicht: alles ist zurückgegeben.
+    CHECK(memory::stats(memory::Category::World).current == before.current);
+}
+
+TEST_CASE("Component lookup by type", "[world][.benchmark]") {
+    const reflect::TypeRegistry types = make_types();
+    world::World world{types};
+    std::vector<world::Entity> entities;
+    for (i32 i = 0; i < 1000; ++i) {
+        entities.push_back(world.create().set(Position{}).set(Velocity{}));
+    }
+    BENCHMARK("Entity::get<T>() for 1000 entities") {
+        f32 sum = 0.0f;
+        for (const world::Entity& entity : entities) {
+            sum += entity.get<Position>()->x + entity.get<Velocity>()->y;
+        }
+        return sum;
+    };
 }

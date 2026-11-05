@@ -26,33 +26,50 @@ math::Mat3 orthonormal(const math::Mat3& linear) {
 
 void register_types(reflect::TypeRegistry& types) {
     if (types.find<Camera>() == nullptr) {
+        // Bereiche und Hinweise für den Inspector (R2.2); Winkel speichern Bogenmaß.
         types.add<Camera>("Camera")
             .field("fov_y", &Camera::fov_y)
+            .hint(reflect::Hint::Angle)
+            .range(0.01, 3.1, 0.005)
             .field("near_plane", &Camera::near_plane)
+            .range(0.0001, 100.0, 0.01)
             .field("exposure", &Camera::exposure)
+            .range(0.0, 100.0, 0.01)
             .field("active", &Camera::active);
     }
     if (types.find<DirectionalLight>() == nullptr) {
         types.add<DirectionalLight>("DirectionalLight")
             .field("color", &DirectionalLight::color)
+            .hint(reflect::Hint::Color)
             .field("intensity", &DirectionalLight::intensity)
+            .range(0.0, 1000.0, 0.05)
             .field("cast_shadows", &DirectionalLight::cast_shadows)
             .field("active", &DirectionalLight::active);
     }
     if (types.find<PointLight>() == nullptr) {
         types.add<PointLight>("PointLight")
             .field("color", &PointLight::color)
+            .hint(reflect::Hint::Color)
             .field("intensity", &PointLight::intensity)
+            .range(0.0, 100000.0, 0.1)
             .field("range", &PointLight::range)
+            .range(0.0, 10000.0, 0.05)
             .field("active", &PointLight::active);
     }
     if (types.find<SpotLight>() == nullptr) {
         types.add<SpotLight>("SpotLight")
             .field("color", &SpotLight::color)
+            .hint(reflect::Hint::Color)
             .field("intensity", &SpotLight::intensity)
+            .range(0.0, 100000.0, 0.1)
             .field("range", &SpotLight::range)
+            .range(0.0, 10000.0, 0.05)
             .field("inner_angle", &SpotLight::inner_angle)
+            .hint(reflect::Hint::Angle)
+            .range(0.0, 1.5707963267948966, 0.005)
             .field("outer_angle", &SpotLight::outer_angle)
+            .hint(reflect::Hint::Angle)
+            .range(0.0, 1.5707963267948966, 0.005)
             .field("active", &SpotLight::active);
     }
     if (types.find<MeshRenderer>() == nullptr) {

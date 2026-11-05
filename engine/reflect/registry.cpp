@@ -53,6 +53,7 @@ TypeInfo& TypeRegistry::add_type(TypeKey key, TypeInfo info) {
                    info.name, it->second->name);
         verify(false, "Typname doppelt vergeben");
     }
+    info.index = static_cast<u32>(impl_->ordered.size());
     TypeInfo& stored = impl_->storage.emplace_back(std::move(info));
     impl_->ordered.push_back(&stored);
     impl_->by_key.emplace(key, &stored);
@@ -75,6 +76,32 @@ void TypeRegistry::add_field(TypeInfo& owner, std::string_view name, TypeKey fie
     verify(type->size == field_size && offset + field_size <= owner.size,
            "Feld passt nicht in seinen Typ");
     owner.fields.push_back(Field{.name = std::string{name}, .type = type, .offset = offset});
+}
+
+void TypeRegistry::set_range(TypeInfo& owner, Range range) {
+    verify(!owner.fields.empty(), "range() vor dem ersten Feld");
+    Field& field = owner.fields.back();
+    const Kind kind = field.type->kind;
+    if (kind != Kind::Int && kind != Kind::UInt && kind != Kind::Float) {
+        log::fatal("Reflection: Bereich für '{}.{}', das keine Zahl ist", owner.name, field.name);
+        verify(false, "Bereich für ein Feld ohne Zahl");
+    }
+    verify(range.min <= range.max && range.step >= 0.0, "Ungültiger Bereich");
+    field.range = range;
+}
+
+void TypeRegistry::set_hint(TypeInfo& owner, Hint hint) {
+    verify(!owner.fields.empty(), "hint() vor dem ersten Feld");
+    owner.fields.back().hint = hint;
+}
+
+void TypeRegistry::add_enumerator(TypeInfo& owner, std::string_view name, i64 value) {
+    verify(owner.kind == Kind::Enum, "value() nur für Enums");
+    if (owner.find_enumerator(name) != nullptr || owner.find_enumerator(value) != nullptr) {
+        log::fatal("Reflection: Wert '{}' von '{}' ist doppelt", name, owner.name);
+        verify(false, "Enum-Wert doppelt");
+    }
+    owner.enumerators.push_back(Enumerator{.name = std::string{name}, .value = value});
 }
 
 const TypeInfo* TypeRegistry::find_key(TypeKey key) const noexcept {

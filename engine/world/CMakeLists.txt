@@ -22,6 +22,6 @@ target_sources(ngine_world
 # flecs steckt nur in world.cpp (ADR 0009). Alle anderen sehen World, Entity und Query.
 target_link_libraries(ngine_world
     PUBLIC ngine::core ngine::math ngine::reflect ngine::jobs
-    PRIVATE ngine::serialize ngine::filesystem ngine::profile
+    PRIVATE ngine::serialize ngine::filesystem ngine::profile ngine::memory
             $<IF:$<TARGET_EXISTS:flecs::flecs>,flecs::flecs,flecs::flecs_static>)
 ngine_set_compiler_options(ngine_world)

@@ -124,6 +124,24 @@ struct Quat {
     return to_quat(Mat3::from_columns(right, true_up, back));
 }
 
+// Drehung aus Eulerwinkeln im Bogenmaß: erst um z (roll), dann um x (pitch), dann um y (yaw);
+// angles.x ist pitch, angles.y yaw, angles.z roll. Dieselbe Reihenfolge wie die freie Kamera.
+[[nodiscard]] inline Quat from_euler(Vec3 angles) noexcept {
+    return angle_axis(angles.y, {0.0f, 1.0f, 0.0f}) * angle_axis(angles.x, {1.0f, 0.0f, 0.0f}) *
+           angle_axis(angles.z, {0.0f, 0.0f, 1.0f});
+}
+
+// Umkehrung von from_euler(): pitch in [-pi/2, pi/2], yaw und roll in [-pi, pi]. Bei pitch nahe
+// ±pi/2 (Gimbal Lock) ist roll 0.
+[[nodiscard]] inline Vec3 to_euler(Quat q) noexcept {
+    const Mat3 m = to_mat3(normalize(q));
+    const f32 pitch = std::asin(clamp(-m[2].y, -1.0f, 1.0f));
+    if (std::abs(m[2].y) < 0.9999999f) {
+        return {pitch, std::atan2(m[2].x, m[2].z), std::atan2(m[0].y, m[1].y)};
+    }
+    return {pitch, std::atan2(-m[0].z, m[0].x), 0.0f};
+}
+
 // Gleiche Drehung: q und -q drehen gleich.
 [[nodiscard]] inline bool near(Quat a, Quat b, f32 epsilon) noexcept {
     return std::abs(std::abs(dot(a, b)) - 1.0f) <= epsilon;
