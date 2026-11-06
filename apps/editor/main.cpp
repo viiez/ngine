@@ -1,10 +1,17 @@
 // Editor (R2): eigene Anwendung mit Dear ImGui und Docking (EDIT-01). Das Viewport-Fenster zeigt
-// die Standardszene, die der Renderer in eine Textur zeichnet (EDIT-02); die Größe folgt dem
-// Fenster. Freie Kamera wie in der Sandbox: rechte Maustaste im Viewport halten und Maus bewegen,
-// W/A/S/D fliegen, E/Q hoch und runter, Shift schneller. Die Konsole zeigt das Log (EDIT-10), das
-// zusätzlich in eine Datei im Benutzerordner geht (CORE-12).
+// die Szene, die der Renderer in eine Textur zeichnet (EDIT-02); die Größe folgt dem Fenster.
+// Freie Kamera wie in der Sandbox: rechte Maustaste im Viewport halten und Maus bewegen, W/A/S/D
+// fliegen, E/Q hoch und runter, Shift schneller. Die Kamera des Editors gehört nicht zur Szene.
+// Die Konsole zeigt das Log (EDIT-10), das zusätzlich in eine Datei im Benutzerordner geht
+// (CORE-12).
+//
+// Seit R2.2: Szenenbaum (EDIT-03), Inspector aus der Reflection (EDIT-04), Auswahl per Klick im
+// Viewport über den ID-Puffer, Undo/Redo als Befehle (EDIT-07), Szene öffnen und speichern. Die
+// Teile reden über Ereignisse (CORE-11) miteinander.
 //
 // Optionen:
+//   --scene <pfad>  Szene öffnen statt der Standardszene
+//   --save <pfad>   Szene beim Beenden dorthin speichern (für automatische Tests)
 //   --model <pfad>  glTF-Modell statt des Kugelrasters
 //   --frames <n>    nach n Frames beenden (für automatische Tests)
 //   --no-vsync      ohne vertikale Synchronisation präsentieren
@@ -28,6 +35,7 @@
 #include <variant>
 
 import ngine.core;
+import ngine.edit;
 import ngine.filesystem;
 import ngine.math;
 import ngine.platform;
@@ -38,6 +46,9 @@ import ngine.rhi.vulkan;
 import ngine.editor_ui;
 import app.model_scene;
 import editor.input;
+import editor.inspector;
+import editor.overlay;
+import editor.scene_tree;
 
 namespace {
 
@@ -50,8 +61,12 @@ constexpr rhi::Format viewport_format = rhi::Format::RGBA8Srgb;
 constexpr std::string_view viewport_window = "Viewport";
 constexpr std::string_view console_window = "Konsole";
 constexpr std::string_view stats_window = "Statistik";
+constexpr std::string_view tree_window = "Szene";
+constexpr std::string_view inspector_window = "Inspector";
 
 struct Options {
+    std::optional<std::string> scene_path;
+    std::optional<std::string> save_path;
     std::optional<std::string> model_path;
     std::optional<u64> frames;
     bool vsync = true;
@@ -63,7 +78,11 @@ Options parse_options(std::span<char*> args) {
     Options options;
     for (std::size_t i = 1; i < args.size(); ++i) {
         const std::string_view arg{args[i]};
-        if (arg == "--model" && i + 1 < args.size()) {
+        if (arg == "--scene" && i + 1 < args.size()) {
+            options.scene_path = std::string{args[++i]};
+        } else if (arg == "--save" && i + 1 < args.size()) {
+            options.save_path = std::string{args[++i]};
+        } else if (arg == "--model" && i + 1 < args.size()) {
             options.model_path = std::string{args[++i]};
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
@@ -127,14 +146,31 @@ struct FrameTimes {
 // Sichtbarkeit der Fenster (Menü „Ansicht“).
 struct Panels {
     bool viewport = true;
+    bool tree = true;
+    bool inspector = true;
     bool console = true;
     bool stats = true;
 };
 
 ui::DockLayout default_layout() {
     return {.center = {std::string{viewport_window}},
-            .right = {std::string{stats_window}},
+            .left = {std::string{tree_window}},
+            // Das zuletzt angedockte Fenster liegt vorn.
+            .right = {std::string{stats_window}, std::string{inspector_window}},
             .bottom = {std::string{console_window}}};
+}
+
+// Aktion, die bei ungespeicherten Änderungen erst nachfragt.
+enum class Pending : u8 { None, New, Open, Quit };
+
+// Dateiname für Titel und Meldungen.
+std::string file_label(const edit::SceneDocument& document) {
+    if (document.path().empty()) {
+        return "Unbenannt";
+    }
+    const std::string& path = document.path();
+    const auto slash = path.find_last_of("/\\");
+    return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
 // Log-Datei im Benutzerordner (CORE-12); ohne Benutzerordner im Arbeitsverzeichnis.
@@ -197,11 +233,38 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             log::fatal("{}", ui_renderer.error());
             return 1;
         }
-        auto scene =
-            app::ModelScene::create(**device, viewport_format, options.model_path, math::DVec3{});
+        auto scene = app::ModelScene::create(**device, viewport_format, options.model_path,
+                                             math::DVec3{}, app::SceneMode::Editor);
         if (!scene) {
             log::fatal("{}", scene.error());
             return 1;
+        }
+
+        // Dokument, Auswahl und Ereignisse: Die Fenster kennen sich nicht, sie reden über den Bus.
+        events::EventBus bus;
+        edit::SceneDocument document{(*scene)->world(), &bus};
+        edit::Selection selection{&bus};
+        editor::SceneTreePanel tree_panel;
+        editor::InspectorPanel inspector_panel;
+        const events::Subscription on_reset =
+            bus.subscribe<edit::DocumentReset>([&](const edit::DocumentReset&) {
+                selection.clear();
+                (*scene)->forget_animated_lights();
+            });
+        const events::Subscription on_change = bus.subscribe<edit::EntityChanged>(
+            [&](const edit::EntityChanged&) { selection.validate(document); });
+        const events::Subscription on_select =
+            bus.subscribe<edit::SelectionChanged>([&](const edit::SelectionChanged& change) {
+                if (change.current != 0) {
+                    log::debug("Ausgewählt: {}", change.current);
+                }
+            });
+        if (options.scene_path) {
+            if (auto opened = document.open(*options.scene_path); opened) {
+                log::info("Szene geöffnet: {} ({} Entities)", *options.scene_path, *opened);
+            } else {
+                log::error("{}", opened.error());
+            }
         }
         const std::string layout_file = ini_path(options);
         ui::Context context{
@@ -229,19 +292,204 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         bool looking = false;
         bool viewport_hovered = false;
         u64 frame_count = 0;
+        // Pfad im Dialog „Öffnen“ bzw. „Speichern unter“.
+        std::string path_input = options.scene_path.value_or("szene.json");
+        enum class PathDialog : u8 { None, Open, SaveAs };
+        PathDialog path_dialog = PathDialog::None;
+        bool open_path_dialog = false;
+        Pending pending = Pending::None;
+        bool open_confirm = false;
+        std::string title;
+
+        const auto save_to = [&](const std::string& path) {
+            if (auto result = document.save(path); result) {
+                log::info("Szene gespeichert: {}", path);
+            } else {
+                log::error("{}", result.error());
+            }
+        };
+        const auto save = [&] {
+            if (document.path().empty()) {
+                path_dialog = PathDialog::SaveAs;
+                open_path_dialog = true;
+            } else {
+                save_to(document.path());
+            }
+        };
+        const auto do_action = [&](Pending action) {
+            switch (action) {
+            case Pending::New: document.clear(); break;
+            case Pending::Open:
+                path_dialog = PathDialog::Open;
+                open_path_dialog = true;
+                break;
+            case Pending::Quit: running = false; break;
+            case Pending::None: break;
+            }
+        };
+        // Verwirft ungespeicherte Änderungen erst nach Rückfrage.
+        const auto request = [&](Pending action) {
+            if (document.dirty()) {
+                pending = action;
+                open_confirm = true;
+            } else {
+                do_action(action);
+            }
+        };
+        const auto undo = [&] {
+            if (!document.undo()) {
+                log::debug("Nichts rückgängig zu machen");
+            }
+        };
+        const auto redo = [&] {
+            if (!document.redo()) {
+                log::debug("Nichts zu wiederholen");
+            }
+        };
+        const auto delete_selected = [&] {
+            if (selection.current() == 0) {
+                return;
+            }
+            if (auto result = document.execute(edit::destroy_entity(selection.current()));
+                !result) {
+                log::error("{}", result.error());
+            }
+        };
+
+        // Kurzbefehle; nicht, solange ein Eingabefeld aktiv ist (dort gehören Strg+Z usw. dem
+        // Feld).
+        const auto handle_shortcuts = [&] {
+            if (ui::is_any_item_active() || !ui::is_key_down(ui::Key::Ctrl)) {
+                return;
+            }
+            const bool shift = ui::is_key_down(ui::Key::Shift);
+            if (ui::is_key_pressed(ui::Key::Z, true)) {
+                shift ? redo() : undo();
+            } else if (ui::is_key_pressed(ui::Key::Y, true)) {
+                redo();
+            } else if (ui::is_key_pressed(ui::Key::S)) {
+                save();
+            } else if (ui::is_key_pressed(ui::Key::O)) {
+                request(Pending::Open);
+            } else if (ui::is_key_pressed(ui::Key::N)) {
+                request(Pending::New);
+            }
+        };
+
+        const auto draw_dialogs = [&] {
+            if (open_path_dialog) {
+                ui::open_popup(path_dialog == PathDialog::Open ? "Szene öffnen"
+                                                               : "Szene speichern unter");
+                open_path_dialog = false;
+                if (path_dialog == PathDialog::SaveAs && !document.path().empty()) {
+                    path_input = document.path();
+                }
+            }
+            for (const PathDialog kind : {PathDialog::Open, PathDialog::SaveAs}) {
+                const std::string_view name =
+                    kind == PathDialog::Open ? "Szene öffnen" : "Szene speichern unter";
+                if (!ui::begin_popup_modal(name)) {
+                    continue;
+                }
+                ui::text("Pfad der Szene (JSON):");
+                ui::set_next_item_width(420.0f);
+                const bool entered = ui::input_text("##Pfad", path_input, true);
+                const bool confirmed = ui::button("OK") || entered;
+                ui::same_line();
+                if (ui::button("Abbrechen") || ui::is_key_pressed(ui::Key::Escape)) {
+                    path_dialog = PathDialog::None;
+                    ui::close_current_popup();
+                } else if (confirmed && !path_input.empty()) {
+                    if (kind == PathDialog::Open) {
+                        if (auto opened = document.open(path_input); opened) {
+                            log::info("Szene geöffnet: {} ({} Entities)", path_input, *opened);
+                        } else {
+                            log::error("{}", opened.error());
+                        }
+                    } else {
+                        save_to(path_input);
+                    }
+                    path_dialog = PathDialog::None;
+                    ui::close_current_popup();
+                }
+                ui::end_popup();
+            }
+
+            if (open_confirm) {
+                ui::open_popup("Ungespeicherte Änderungen");
+                open_confirm = false;
+            }
+            if (ui::begin_popup_modal("Ungespeicherte Änderungen")) {
+                ui::text(std::format("{} hat ungespeicherte Änderungen.", file_label(document)));
+                if (ui::button("Verwerfen")) {
+                    const Pending action = pending;
+                    pending = Pending::None;
+                    ui::close_current_popup();
+                    do_action(action);
+                }
+                ui::same_line();
+                if (ui::button("Abbrechen") || ui::is_key_pressed(ui::Key::Escape)) {
+                    pending = Pending::None;
+                    ui::close_current_popup();
+                }
+                ui::end_popup();
+            }
+        };
         auto last_time = std::chrono::steady_clock::now();
 
         // Fenster des Editors; dünn, die Logik liegt in Engine und Szene.
         const auto draw_ui = [&] {
             if (ui::begin_main_menu_bar()) {
                 if (ui::begin_menu("Datei")) {
+                    if (ui::menu_item("Neu", "Strg+N")) {
+                        request(Pending::New);
+                    }
+                    if (ui::menu_item("Öffnen …", "Strg+O")) {
+                        request(Pending::Open);
+                    }
+                    if (ui::menu_item("Speichern", "Strg+S")) {
+                        save();
+                    }
+                    if (ui::menu_item("Speichern unter …")) {
+                        path_dialog = PathDialog::SaveAs;
+                        open_path_dialog = true;
+                    }
+                    ui::separator();
                     if (ui::menu_item("Beenden", "Alt+F4")) {
-                        running = false;
+                        request(Pending::Quit);
+                    }
+                    ui::end_menu();
+                }
+                if (ui::begin_menu("Bearbeiten")) {
+                    const edit::CommandStack& history = document.history();
+                    const std::string undo_label = history.can_undo()
+                                                       ? "Rückgängig: " + history.undo_label()
+                                                       : std::string{"Rückgängig"};
+                    const std::string redo_label = history.can_redo()
+                                                       ? "Wiederholen: " + history.redo_label()
+                                                       : std::string{"Wiederholen"};
+                    if (ui::menu_item(undo_label, "Strg+Z", nullptr, history.can_undo())) {
+                        undo();
+                    }
+                    if (ui::menu_item(redo_label, "Strg+Y", nullptr, history.can_redo())) {
+                        redo();
+                    }
+                    ui::separator();
+                    if (ui::menu_item("Neue Entity")) {
+                        tree_panel.create(document, selection, 0);
+                    }
+                    if (ui::menu_item("Umbenennen", "F2", nullptr, selection.current() != 0)) {
+                        tree_panel.start_rename(document, selection.current());
+                    }
+                    if (ui::menu_item("Löschen", "Entf", nullptr, selection.current() != 0)) {
+                        delete_selected();
                     }
                     ui::end_menu();
                 }
                 if (ui::begin_menu("Ansicht")) {
                     ui::menu_item(viewport_window, {}, &panels.viewport);
+                    ui::menu_item(tree_window, {}, &panels.tree);
+                    ui::menu_item(inspector_window, {}, &panels.inspector);
                     ui::menu_item(console_window, {}, &panels.console);
                     ui::menu_item(stats_window, {}, &panels.stats);
                     ui::separator();
@@ -268,6 +516,33 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::image(ui::texture_id(*viewport.texture),
                               {static_cast<f32>(extent.width), static_cast<f32>(extent.height)});
                     viewport_hovered = ui::is_item_hovered();
+                    // Klick ins Bild: Entity unter dem Mauszeiger aus dem ID-Puffer auswählen.
+                    if (viewport_hovered && ui::is_mouse_clicked(ui::MouseButton::Left)) {
+                        const ui::Point mouse = ui::mouse_position();
+                        const ui::Point corner = ui::item_min();
+                        const f32 x = mouse.x - corner.x;
+                        const f32 y = mouse.y - corner.y;
+                        if (x >= 0.0f && y >= 0.0f) {
+                            (*scene)->renderer().request_pick(static_cast<u32>(x),
+                                                              static_cast<u32>(y));
+                        }
+                    }
+                    if (ui::is_window_focused() && !ui::is_any_item_active() &&
+                        ui::is_key_pressed(ui::Key::Delete)) {
+                        delete_selected();
+                    }
+                }
+                ui::end_window();
+            }
+            if (panels.tree) {
+                if (ui::begin_window(tree_window, &panels.tree)) {
+                    tree_panel.draw(document, selection);
+                }
+                ui::end_window();
+            }
+            if (panels.inspector) {
+                if (ui::begin_window(inspector_window, &panels.inspector)) {
+                    inspector_panel.draw(document, selection);
                 }
                 ui::end_window();
             }
@@ -292,10 +567,22 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text(std::format("Lichter: {}", stats.lights));
                     ui::text(std::format("UI-Draws: {}", (*ui_renderer)->draw_count()));
                     ui::separator();
+                    ui::text(std::format("Entities: {}", document.world().entity_count()));
+                    ui::text(std::format("Verlauf: {} von {}", document.history().position(),
+                                         document.history().size()));
+                    ui::separator();
                     ui::text_disabled("Kamera: rechte Maustaste im Viewport halten,");
                     ui::text_disabled("W/A/S/D, E/Q, Shift schneller");
+                    ui::text_disabled("Linksklick ins Bild wählt aus");
                 }
                 ui::end_window();
+            }
+
+            draw_dialogs();
+            handle_shortcuts();
+            // Ein Regler, der losgelassen ist, beendet seinen Schritt im Verlauf.
+            if (!ui::is_any_item_active()) {
+                document.history().seal();
             }
         };
 
@@ -323,6 +610,16 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             if (!looking) {
                 window->set_cursor(editor::to_platform(context.cursor()));
             }
+            bus.dispatch();
+            if (auto pick = (*scene)->renderer().take_pick((*scene)->world())) {
+                selection.select(pick->entity != 0 ? document.id_of(pick->entity) : 0);
+            }
+            const std::string new_title = std::format("NGine Editor – {}{}", file_label(document),
+                                                      document.dirty() ? " *" : "");
+            if (new_title != title) {
+                title = new_title;
+                window->set_title(title);
+            }
             window->set_text_input(context.wants_text_input());
 
             (*scene)->update(dt, looking ? fly : app::FlyInput{});
@@ -336,6 +633,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     "Viewport", *viewport.texture,
                     viewport.fresh ? rhi::ResourceState::Undefined : rhi::ResourceState::ShaderRead,
                     rhi::ResourceState::ShaderRead);
+                editor::draw_overlay((*scene)->renderer().debug(), (*scene)->renderer().meshes(),
+                                     document, selection);
                 (*scene)->add_passes(graph, target);
                 const auto backbuffer = graph.import_texture("Backbuffer", frame->backbuffer,
                                                              rhi::ResourceState::Undefined,
@@ -386,7 +685,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     [&](const auto& ev) {
                         using T = std::decay_t<decltype(ev)>;
                         if constexpr (std::is_same_v<T, event::Quit>) {
-                            running = false;
+                            request(Pending::Quit);
                         } else if constexpr (std::is_same_v<T, event::Resized>) {
                             (*device)->resize({ev.framebuffer.width, ev.framebuffer.height});
                         } else if constexpr (std::is_same_v<T, event::KeyPressed> ||
@@ -453,6 +752,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         window->set_redraw_callback({});
         (*device)->wait_idle();
+        if (options.save_path) {
+            save_to(*options.save_path);
+        }
         context.save_layout();
         log::info("Szene: {}", (*scene)->stats());
         log::info("{} Frames gezeichnet", frame_count);

@@ -69,8 +69,8 @@ struct EntitySnapshot {
 
 // Setzt ein Feld (oder mit leerem Weg die ganze Komponente) auf value; value zeigt auf einen Wert
 // des Feldtyps. Liefert nullptr, wenn der Wert schon so ist. Der alte Wert wird jetzt gelesen.
-[[nodiscard]] Result<std::unique_ptr<Command>>
-set_field(SceneDocument& document, EntityId entity, const FieldPath& path, const void* value);
+[[nodiscard]] Result<std::unique_ptr<Command>> set_field(SceneDocument& document, EntityId entity,
+                                                         const FieldPath& path, const void* value);
 
 // Setzt die Komponente Name (legt sie bei Bedarf an).
 [[nodiscard]] std::unique_ptr<Command> rename(EntityId entity, std::string name);
@@ -92,8 +92,7 @@ struct CreatedEntity {
 
 // Fügt eine Komponente mit Standardwert hinzu bzw. entfernt sie.
 [[nodiscard]] std::unique_ptr<Command> add_component(EntityId entity, reflect::TypeId component);
-[[nodiscard]] std::unique_ptr<Command> remove_component(EntityId entity,
-                                                        reflect::TypeId component);
+[[nodiscard]] std::unique_ptr<Command> remove_component(EntityId entity, reflect::TypeId component);
 
 // Mehrere Befehle als ein Schritt, ausgeführt in der Reihenfolge, zurückgenommen umgekehrt.
 [[nodiscard]] std::unique_ptr<Command> group(std::string label,

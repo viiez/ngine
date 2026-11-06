@@ -23,8 +23,10 @@ struct Named {
 TEST_CASE("Events reach the subscribers of their type in order", "[core][events]") {
     events::EventBus bus;
     std::vector<std::string> calls;
-    auto first = bus.subscribe<Moved>([&](const Moved& e) { calls.push_back("a" + std::to_string(e.x)); });
-    auto second = bus.subscribe<Moved>([&](const Moved& e) { calls.push_back("b" + std::to_string(e.x)); });
+    auto first =
+        bus.subscribe<Moved>([&](const Moved& e) { calls.push_back("a" + std::to_string(e.x)); });
+    auto second =
+        bus.subscribe<Moved>([&](const Moved& e) { calls.push_back("b" + std::to_string(e.x)); });
     auto other = bus.subscribe<Named>([&](const Named& e) { calls.push_back(e.name); });
     CHECK(bus.subscribers<Moved>() == 2);
 

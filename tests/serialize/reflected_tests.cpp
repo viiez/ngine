@@ -190,7 +190,8 @@ TEST_CASE("Enums are written as names in JSON and as numbers in binary", "[seria
     const reflect::TypeRegistry types = make_weather_types();
     const Forecast forecast{.today = Weather::Fog, .tomorrow = Weather::Rain};
     const json::Value value = serialize::to_json(forecast, types);
-    CHECK(json::write(value) == json::write(*json::parse(R"({"today":"Nebel","tomorrow":"Regen"})")));
+    CHECK(json::write(value) ==
+          json::write(*json::parse(R"({"today":"Nebel","tomorrow":"Regen"})")));
 
     Forecast read;
     REQUIRE(serialize::from_json(value, read, types));

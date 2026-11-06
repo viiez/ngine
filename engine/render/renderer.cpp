@@ -209,7 +209,8 @@ struct Renderer::Impl {
     // ID-Puffer mit allen Draws dieses Frames und Kopie eines Pixels in pick_buffers[slot].
     void add_pick_passes(RenderGraph& graph, usize slot, PickRequest request, rhi::Extent2D extent,
                          u64 frame_address) {
-        const TextureHandle ids = graph.create_texture("IDs", {.extent = extent, .format = id_format});
+        const TextureHandle ids =
+            graph.create_texture("IDs", {.extent = extent, .format = id_format});
         const TextureHandle depth =
             graph.create_texture("Tiefe der IDs", {.extent = extent, .format = depth_format});
         graph.add_pass(
@@ -256,13 +257,12 @@ struct Renderer::Impl {
                 pass.side_effect();
             },
             [ids, readback, request](PassContext& context) {
-                context.commands.copy_texture_to_buffer(
-                    context.texture(ids),
-                    {.x = static_cast<i32>(request.x),
-                     .y = static_cast<i32>(request.y),
-                     .width = 1,
-                     .height = 1},
-                    context.buffer(readback), 0);
+                context.commands.copy_texture_to_buffer(context.texture(ids),
+                                                        {.x = static_cast<i32>(request.x),
+                                                         .y = static_cast<i32>(request.y),
+                                                         .width = 1,
+                                                         .height = 1},
+                                                        context.buffer(readback), 0);
             });
         pick_pending[slot] = request;
     }
@@ -339,13 +339,13 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
     }
     impl->tonemap = *std::move(tonemap);
     for (usize i = 0; i < impl->id_pipelines.size(); ++i) {
-        auto pipeline = device.create_pipeline({.vertex = impl->id_vertex.get(),
-                                                .fragment = impl->id_fragment.get(),
-                                                .color_format = id_format,
-                                                .depth_format = depth_format,
-                                                .depth_compare = rhi::CompareOp::Greater,
-                                                .cull_mode = i == 0 ? rhi::CullMode::Back
-                                                                    : rhi::CullMode::None});
+        auto pipeline = device.create_pipeline(
+            {.vertex = impl->id_vertex.get(),
+             .fragment = impl->id_fragment.get(),
+             .color_format = id_format,
+             .depth_format = depth_format,
+             .depth_compare = rhi::CompareOp::Greater,
+             .cull_mode = i == 0 ? rhi::CullMode::Back : rhi::CullMode::None});
         if (!pipeline) {
             return std::unexpected("Renderer, ID-Puffer: " + pipeline.error());
         }
@@ -447,7 +447,7 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
         r.pick_pending[slot].reset();
     }
 
-    const std::optional<CameraView> camera = find_camera(world);
+    const std::optional<CameraView> camera = camera_override ? camera_override : find_camera(world);
     const math::DVec3 origin = camera ? camera->position : math::DVec3{};
     const Vec3 forward = camera ? -camera->rotation[2] : Vec3{0.0f, 0.0f, -1.0f};
 

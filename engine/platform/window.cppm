@@ -150,6 +150,9 @@ public:
     // Bildschirmtastatur oder eine Eingabemethode ein, deshalb nur, solange ein Textfeld aktiv ist.
     void set_text_input(bool enabled);
 
+    // Titelzeile des Fensters, z. B. mit dem Namen der offenen Datei.
+    void set_title(const std::string& title);
+
     // Inhalt der Zwischenablage als UTF-8; leer, wenn sie keinen Text enthält.
     [[nodiscard]] std::string clipboard_text() const;
     void set_clipboard_text(const std::string& text);

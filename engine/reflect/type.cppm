@@ -118,7 +118,8 @@ struct TypeInfo {
         return nullptr;
     }
 
-    [[nodiscard]] const Enumerator* find_enumerator(std::string_view enumerator_name) const noexcept {
+    [[nodiscard]] const Enumerator*
+    find_enumerator(std::string_view enumerator_name) const noexcept {
         for (const Enumerator& enumerator : enumerators) {
             if (enumerator.name == enumerator_name) {
                 return &enumerator;
@@ -190,7 +191,7 @@ template <Reflectable T>
 // Offset eines Feldes aus einem Zeiger auf ein Datenelement. offsetof() nimmt keine Zeiger auf
 // Elemente; deshalb wird ein Objekt erzeugt und die Adressen verglichen.
 template <typename T, typename M>
-[[nodiscard]] usize offset_of(M T::* member) {
+[[nodiscard]] usize offset_of(M T::*member) {
     const T object{};
     const auto* base = reinterpret_cast<const std::byte*>(std::addressof(object));
     const auto* field = reinterpret_cast<const std::byte*>(std::addressof(object.*member));

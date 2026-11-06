@@ -19,8 +19,7 @@ namespace ngine::editor_ui {
 static_assert(sizeof(ImDrawVert) == sizeof(UiVertex), "ImDrawVert passt nicht zu UiVertex");
 static_assert(sizeof(ImTextureID) == sizeof(TextureId), "ImTextureID passt nicht zu TextureId");
 
-namespace {
-
+// Auch widgets.cpp braucht die Zuordnung der Tasten (Modulbindung, nicht exportiert).
 ImGuiKey to_imgui(Key key) {
     switch (key) {
     case Key::Tab: return ImGuiKey_Tab;
@@ -44,13 +43,20 @@ ImGuiKey to_imgui(Key key) {
     case Key::Super: return ImGuiKey_LeftSuper;
     case Key::A: return ImGuiKey_A;
     case Key::C: return ImGuiKey_C;
+    case Key::D: return ImGuiKey_D;
+    case Key::N: return ImGuiKey_N;
+    case Key::O: return ImGuiKey_O;
+    case Key::S: return ImGuiKey_S;
     case Key::V: return ImGuiKey_V;
     case Key::X: return ImGuiKey_X;
     case Key::Y: return ImGuiKey_Y;
     case Key::Z: return ImGuiKey_Z;
+    case Key::F2: return ImGuiKey_F2;
     }
     return ImGuiKey_None;
 }
+
+namespace {
 
 // Umschalttasten meldet ImGui zusätzlich als Modifikator.
 ImGuiKey modifier(Key key) {

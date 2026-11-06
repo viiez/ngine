@@ -114,6 +114,9 @@ public:
     ShadowSettings shadows;
     // Färbt die Kaskaden der Schatten zur Prüfung ein.
     bool show_cascades = false;
+    // Kamera statt der ersten aktiven Kamera der Welt, z. B. die Kamera des Editors, die nicht
+    // zur Szene gehört (R2.2).
+    std::optional<CameraView> camera_override;
 
     // Linien für diesen Frame; add_passes() zeichnet und leert sie.
     [[nodiscard]] DebugDraw& debug() noexcept;

@@ -202,12 +202,12 @@ TEST_CASE("Renderer picks the entity under a pixel from the ID buffer", "[render
     const auto types = make_types();
     world::World world{types};
     // Zwei Würfel nebeneinander, der rechte steht vor einem dritten, der verdeckt bleibt.
-    const world::Entity left =
-        world.create("Links").set(world::Transform{.position = {-1.0, 0.0, 0.0}}).set(
-            render::MeshRenderer{.mesh = *mesh});
-    const world::Entity right =
-        world.create("Rechts").set(world::Transform{.position = {1.0, 0.0, 0.0}}).set(
-            render::MeshRenderer{.mesh = *mesh});
+    const world::Entity left = world.create("Links")
+                                   .set(world::Transform{.position = {-1.0, 0.0, 0.0}})
+                                   .set(render::MeshRenderer{.mesh = *mesh});
+    const world::Entity right = world.create("Rechts")
+                                    .set(world::Transform{.position = {1.0, 0.0, 0.0}})
+                                    .set(render::MeshRenderer{.mesh = *mesh});
     world.create("Verdeckt")
         .set(world::Transform{.position = {1.0, 0.0, -3.0}})
         .set(render::MeshRenderer{.mesh = *mesh});

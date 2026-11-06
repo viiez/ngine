@@ -41,8 +41,7 @@ Result<Target> find_target(SceneDocument& document, EntityId id, reflect::TypeId
     if (type == nullptr || type->kind != reflect::Kind::Struct) {
         return std::unexpected(std::string{"Komponente ist nicht registriert"});
     }
-    return Target{
-        .entity = entity, .component = document.world().component(*type), .type = type};
+    return Target{.entity = entity, .component = document.world().component(*type), .type = type};
 }
 
 Result<void> write_field(SceneDocument& document, EntityId id, const FieldPath& path,
@@ -395,16 +394,15 @@ void append_subtree(SceneDocument& document, u64 entity, EntityId parent,
                      const void* data) {
         node.components.push_back({.type = type.id, .bytes = capture(data, type)});
     };
-    world.for_each_component(entity,
-                             world::ComponentVisitor{
-                                 .context = &visit,
-                                 .visit =
-                                     [](void* context, const reflect::TypeInfo& type,
-                                        world::ComponentId component, const void* data) {
-                                         (*static_cast<decltype(visit)*>(context))(type, component,
-                                                                                   data);
-                                     },
-                             });
+    world.for_each_component(entity, world::ComponentVisitor{
+                                         .context = &visit,
+                                         .visit =
+                                             [](void* context, const reflect::TypeInfo& type,
+                                                world::ComponentId component, const void* data) {
+                                                 (*static_cast<decltype(visit)*>(context))(
+                                                     type, component, data);
+                                             },
+                                     });
     const EntityId id = node.id;
     snapshot.nodes.push_back(std::move(node));
     for (const u64 child : world.children(entity)) {
@@ -424,8 +422,8 @@ Result<ResolvedField> resolve(const reflect::TypeRegistry& types, const FieldPat
     ResolvedField resolved{.component = component, .type = component};
     for (const u32 index : path.fields) {
         if (index >= resolved.type->fields.size()) {
-            return std::unexpected(std::format("Feld {} gibt es in {} nicht", index,
-                                               resolved.type->name));
+            return std::unexpected(
+                std::format("Feld {} gibt es in {} nicht", index, resolved.type->name));
         }
         resolved.field = &resolved.type->fields[index];
         resolved.offset += resolved.field->offset;

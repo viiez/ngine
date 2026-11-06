@@ -264,6 +264,12 @@ void Window::set_text_input(bool enabled) {
     }
 }
 
+void Window::set_title(const std::string& title) {
+    if (!SDL_SetWindowTitle(impl_->window, title.c_str())) {
+        log::warn("Fenstertitel lässt sich nicht setzen: {}", SDL_GetError());
+    }
+}
+
 std::string Window::clipboard_text() const {
     char* text = SDL_GetClipboardText();
     if (text == nullptr) {

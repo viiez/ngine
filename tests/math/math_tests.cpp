@@ -47,8 +47,9 @@ TEST_CASE("Quaternions rotate counter clockwise around their axis", "[math]") {
 TEST_CASE("Euler angles round trip in yaw, pitch, roll order", "[math]") {
     const Vec3 angles{radians(20.0f), radians(-130.0f), radians(75.0f)};
     const Quat q = from_euler(angles);
-    CHECK(near(q, angle_axis(angles.y, Vec3{0, 1, 0}) * angle_axis(angles.x, Vec3{1, 0, 0}) *
-                      angle_axis(angles.z, Vec3{0, 0, 1}),
+    CHECK(near(q,
+               angle_axis(angles.y, Vec3{0, 1, 0}) * angle_axis(angles.x, Vec3{1, 0, 0}) *
+                   angle_axis(angles.z, Vec3{0, 0, 1}),
                1e-6f));
     CHECK(near(to_euler(q), angles, 1e-5f));
     CHECK(near(to_euler(quat_identity()), Vec3{}, 0.0f));

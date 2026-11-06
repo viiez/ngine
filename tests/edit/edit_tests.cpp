@@ -193,7 +193,8 @@ TEST_CASE("Inspector edits rotations as Euler angles in degrees", "[edit]") {
     const auto rows = edit::build_rows(f.types.get<world::Transform>());
     const edit::InspectorRow& rotation = f.row(rows, "rotation");
     REQUIRE(edit::commit_rotation(f.document, id, rotation, {30.0f, 45.0f, 10.0f}));
-    const math::Vec3 degrees = edit::rotation_degrees(f.entity(id).get<world::Transform>()->rotation);
+    const math::Vec3 degrees =
+        edit::rotation_degrees(f.entity(id).get<world::Transform>()->rotation);
     CHECK(degrees.x == Approx(30.0f).margin(1e-3));
     CHECK(degrees.y == Approx(45.0f).margin(1e-3));
     CHECK(degrees.z == Approx(10.0f).margin(1e-3));
@@ -404,8 +405,10 @@ TEST_CASE("Document changes are announced as events", "[edit]") {
     Fixture f;
     usize changes = 0;
     usize resets = 0;
-    auto changed = f.bus.subscribe<edit::EntityChanged>([&](const edit::EntityChanged&) { ++changes; });
-    auto reset = f.bus.subscribe<edit::DocumentReset>([&](const edit::DocumentReset&) { ++resets; });
+    auto changed =
+        f.bus.subscribe<edit::EntityChanged>([&](const edit::EntityChanged&) { ++changes; });
+    auto reset =
+        f.bus.subscribe<edit::DocumentReset>([&](const edit::DocumentReset&) { ++resets; });
     const edit::EntityId id = f.add("Lampe");
     REQUIRE(f.document.execute(edit::rename(id, "X")));
     REQUIRE(f.document.undo());

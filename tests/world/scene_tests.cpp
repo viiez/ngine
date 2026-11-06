@@ -111,6 +111,35 @@ TEST_CASE("Scenes skip unknown components and keep defaults for missing fields",
     });
 }
 
+TEST_CASE("Scenes keep their order when the world reuses ids", "[world][scene]") {
+    const auto types = make_types();
+    world::World original{types};
+    build_solar_system(original);
+    const std::string text = world::save_scene(original);
+
+    // Gelöschte Entities hinterlassen Kennungen, die die Welt in umgekehrter Reihenfolge wieder
+    // vergibt (wie beim Öffnen einer Szene im Editor).
+    world::World loaded{types};
+    std::vector<world::Entity> old;
+    for (int i = 0; i < 8; ++i) {
+        old.push_back(loaded.create());
+    }
+    for (world::Entity& entity : old) {
+        entity.destroy();
+    }
+    REQUIRE(world::load_scene(loaded, text));
+    CHECK(world::save_scene(loaded) == text);
+}
+
+TEST_CASE("Failed scene loads leave no empty entities", "[world][scene]") {
+    const auto types = make_types();
+    world::World world{types};
+    CHECK_FALSE(world::load_scene(world, R"({"format": "ngine.scene", "version": 1,
+        "entities": [{"id": 1}, {"id": 2, "parent": 7}, {"id": 3}]})"));
+    // Die erste Entity ist geladen, die zweite scheitert, die dritte wird nicht angelegt.
+    CHECK(world.entity_count() == 2);
+}
+
 TEST_CASE("Invalid scenes report errors", "[world][scene]") {
     const auto types = make_types();
     world::World world{types};

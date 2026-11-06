@@ -81,8 +81,7 @@ struct ComponentRows {
 
 // Aktueller Wert eines Feldes (nur lesen) oder nullptr, wenn es Entity oder Komponente nicht gibt.
 // Gültig bis zur nächsten Änderung der Welt.
-[[nodiscard]] const void* value_of(SceneDocument& document, EntityId entity,
-                                   const FieldPath& path);
+[[nodiscard]] const void* value_of(SceneDocument& document, EntityId entity, const FieldPath& path);
 
 // Neuer Wert für row (zeigt auf einen Wert des Feldtyps): Zahlen werden auf den Bereich geklemmt,
 // dann läuft ein zusammenfassender Befehl. Liefert true, wenn sich etwas geändert hat.

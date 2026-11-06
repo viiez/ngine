@@ -269,8 +269,8 @@ public:
     // warten oder pro Frame im Flug einen eigenen Puffer nehmen (Frame::index).
     virtual void write(u64 offset, std::span<const std::byte> data) = 0;
     // Nur für MemoryUsage::CpuRead: kopiert data.size() Bytes ab offset. Wer liest, während die GPU
-    // noch schreibt, bekommt alte oder halbe Daten; nach dem Frame mit demselben Platz (Frame::index)
-    // oder nach execute() ist der Inhalt fertig.
+    // noch schreibt, bekommt alte oder halbe Daten; nach dem Frame mit demselben Platz
+    // (Frame::index) oder nach execute() ist der Inhalt fertig.
     virtual void read(u64 offset, std::span<std::byte> data) const = 0;
 };
 

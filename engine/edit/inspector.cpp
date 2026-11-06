@@ -180,8 +180,7 @@ std::vector<ComponentRows> inspect(SceneDocument& document, EntityId entity) {
         return result;
     }
     std::vector<const TypeInfo*> types;
-    auto visit = [&](const TypeInfo& type, world::ComponentId /*component*/,
-                     const void* /*data*/) {
+    auto visit = [&](const TypeInfo& type, world::ComponentId /*component*/, const void* /*data*/) {
         if (!type.fields.empty()) {
             types.push_back(&type);
         }
@@ -203,8 +202,7 @@ std::vector<ComponentRows> inspect(SceneDocument& document, EntityId entity) {
     return result;
 }
 
-std::vector<const reflect::TypeInfo*> addable_components(SceneDocument& document,
-                                                         EntityId entity) {
+std::vector<const reflect::TypeInfo*> addable_components(SceneDocument& document, EntityId entity) {
     std::vector<const TypeInfo*> result;
     const u64 world_entity = document.entity_of(entity);
     if (world_entity == 0) {

@@ -1,6 +1,8 @@
 module;
 
 #include <functional>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,6 +15,7 @@ export module ngine.editor_ui:widgets;
 
 import ngine.core;
 import :draw;
+import :context;
 
 export namespace ngine::editor_ui {
 
@@ -99,8 +102,99 @@ void same_line(f32 spacing = -1.0f);
 
 bool button(std::string_view label);
 bool checkbox(std::string_view label, bool& value);
-// Eingabefeld für eine Zeile Text; liefert true, wenn sich der Text geändert hat.
-bool input_text(std::string_view label, std::string& value);
+// Eingabefeld für eine Zeile Text; liefert true, wenn sich der Text geändert hat. Mit
+// enter_returns erst, wenn Enter gedrückt wurde (der Text ändert sich trotzdem sofort).
+bool input_text(std::string_view label, std::string& value, bool enter_returns = false);
+
+// Art der Zahlen für drag_scalars().
+enum class DataType : u8 { I8, I16, I32, I64, U8, U16, U32, U64, F32, F64 };
+
+// Bis zu vier Zahlen nebeneinander, mit der Maus zu ziehen (speed pro Pixel) oder per Doppelklick
+// einzugeben. min und max begrenzen das Ziehen (nullptr: unbegrenzt). format wie printf, leer für
+// die Voreinstellung der Art. Liefert true, wenn sich ein Wert geändert hat.
+bool drag_scalars(std::string_view label, DataType type, void* data, u32 count, f32 speed,
+                  const f64* min = nullptr, const f64* max = nullptr, std::string_view format = {});
+// Farbe aus 3 oder 4 Gleitkommazahlen (linear, 0 bis 1) mit Farbwähler.
+bool color_edit(std::string_view label, f32* color, u32 count);
+// Auswahlliste; current ist der Index in items.
+bool combo(std::string_view label, usize& current, std::span<const std::string> items);
+// Aufklappbare Überschrift über die ganze Breite.
+bool collapsing_header(std::string_view label, bool default_open = true);
+bool selectable(std::string_view label, bool selected = false);
+void indent(f32 width = 0.0f);
+void unindent(f32 width = 0.0f);
+// Leerer Platz der Größe size.
+void dummy(Size size);
+
+// --- Bäume --------------------------------------------------------------------------------------
+
+enum class TreeFlags : u8 {
+    None = 0,
+    // Ohne Kinder: kein Pfeil, tree_pop() entfällt.
+    Leaf = 1,
+    Selected = 2,
+    DefaultOpen = 4,
+};
+
+[[nodiscard]] constexpr TreeFlags operator|(TreeFlags a, TreeFlags b) noexcept {
+    return static_cast<TreeFlags>(static_cast<u8>(a) | static_cast<u8>(b));
+}
+[[nodiscard]] constexpr bool has(TreeFlags set, TreeFlags flag) noexcept {
+    return (static_cast<u8>(set) & static_cast<u8>(flag)) != 0;
+}
+
+// Knoten mit eigener Kennung id und Beschriftung label; ein Klick auf den Pfeil klappt auf, ein
+// Klick auf den Text lässt sich mit is_item_clicked() abfragen. Liefert true, wenn offen; dann
+// (außer bei Leaf) tree_pop() aufrufen.
+bool tree_node(u64 id, std::string_view label, TreeFlags flags = TreeFlags::None);
+void tree_pop();
+
+// --- Ziehen und Ablegen
+// ---------------------------------------------------------------------------
+
+// Direkt nach einem Element: macht es zur Quelle für payload unter dem Namen type (höchstens 32
+// Zeichen); preview erscheint am Mauszeiger.
+void drag_source(std::string_view type, u64 payload, std::string_view preview);
+// Direkt nach einem Element: liefert payload, wenn hier etwas vom Typ type abgelegt wurde.
+[[nodiscard]] std::optional<u64> drop_target(std::string_view type);
+
+// --- Popups ------------------------------------------------------------------------------------
+// end_popup() nur, wenn begin_…() true lieferte.
+
+void open_popup(std::string_view id);
+bool begin_popup(std::string_view id);
+// Modales Fenster mit Titelzeile; mit open bekommt es ein Schließfeld.
+bool begin_popup_modal(std::string_view title, bool* open = nullptr);
+// Kontextmenü des letzten Elements (Rechtsklick).
+bool begin_popup_context_item(std::string_view id);
+// Kontextmenü bei Rechtsklick auf eine freie Stelle des aktuellen Fensters.
+bool begin_popup_context_window(std::string_view id);
+void end_popup();
+void close_current_popup();
+
+// --- Zustand und Eingabe -------------------------------------------------------------------------
+
+[[nodiscard]] bool is_item_clicked(MouseButton button = MouseButton::Left);
+// Das letzte Element wurde gerade losgelassen, nachdem es seinen Wert geändert hat (Ende des
+// Ziehens, Enter in einem Feld). Gut, um zusammengefasste Änderungen abzuschließen.
+[[nodiscard]] bool is_item_deactivated_after_edit();
+[[nodiscard]] bool is_item_deactivated();
+[[nodiscard]] bool is_any_item_active();
+// Taste in diesem Frame gedrückt; mit repeat auch bei gehaltener Taste wiederholt.
+[[nodiscard]] bool is_key_pressed(Key key, bool repeat = false);
+[[nodiscard]] bool is_key_down(Key key);
+[[nodiscard]] bool is_mouse_clicked(MouseButton button);
+[[nodiscard]] Point mouse_position();
+void set_keyboard_focus_here();
+void set_tooltip(std::string_view text);
+
+// Kennungen für Elemente mit gleicher Beschriftung (z. B. pro Entity oder Komponente).
+void push_id(u64 id);
+void push_id(std::string_view id);
+void pop_id();
+// Elemente dazwischen sind ausgegraut und reagieren nicht.
+void begin_disabled(bool disabled = true);
+void end_disabled();
 // Breite des nächsten Elements in Pixeln; negativ: bis so weit vor den rechten Rand.
 void set_next_item_width(f32 width);
 

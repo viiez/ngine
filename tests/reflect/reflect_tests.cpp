@@ -123,8 +123,10 @@ struct Lamp {
 
 TEST_CASE("Enums list their named values", "[reflect]") {
     reflect::TypeRegistry types;
-    types.add<Mode>("Mode").value("Aus", Mode::Off).value("Langsam", Mode::Slow).value("Schnell",
-                                                                                   Mode::Fast);
+    types.add<Mode>("Mode")
+        .value("Aus", Mode::Off)
+        .value("Langsam", Mode::Slow)
+        .value("Schnell", Mode::Fast);
     const reflect::TypeInfo& mode = types.get<Mode>();
     CHECK(mode.kind == reflect::Kind::Enum);
     CHECK(mode.size == sizeof(i16));
