@@ -4,6 +4,7 @@ module;
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <expected>
@@ -12,6 +13,7 @@ module;
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -101,6 +103,7 @@ public:
     }
 
     [[nodiscard]] u64 gpu_timestamp() override;
+    [[nodiscard]] std::optional<CalibratedTimestamp> calibrated_timestamp() override;
 
     [[nodiscard]] u32 validation_errors() const override {
         return validation_errors_.load(std::memory_order_relaxed);
@@ -170,7 +173,8 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     }
 
     auto physical_device =
-        pick_physical_device(instance_.handle(), instance_.surface(), desc.disabled_features);
+        pick_physical_device(instance_.handle(), instance_.surface(), desc.disabled_features,
+                             instance_.surface_maintenance1());
     if (!physical_device) {
         return std::unexpected(std::move(physical_device).error());
     }
@@ -196,8 +200,9 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     uploader_.init(context_, physical_device_.queue_family);
 
     if (with_swapchain) {
-        swapchain_ = std::make_unique<Swapchain>(context_, instance_.surface(),
-                                                 desc.surface->extent, desc.vsync);
+        swapchain_ = std::make_unique<Swapchain>(
+            context_, instance_.surface(), desc.surface->extent, desc.vsync,
+            desc.present_fences && physical_device_.swapchain_maintenance1);
         if (auto result = swapchain_->rebuild(); !result) {
             return result;
         }
@@ -207,6 +212,12 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     log::info("Vulkan-Gerät: {} ({}), Vulkan {}", caps.device_name, to_string(caps.device_type),
               caps.api_version);
     log::info("Optionale Stufen: {}", describe(caps.features));
+    log::debug(
+        "Present-Fences (VK_EXT_swapchain_maintenance1): {}, kalibrierte Zeitstempel: {}",
+        with_swapchain && desc.present_fences && physical_device_.swapchain_maintenance1 ? "ja"
+                                                                                         : "nein",
+        physical_device_.calibrated_timestamps != nullptr ? physical_device_.calibrated_timestamps
+                                                          : "nein");
     return {};
 }
 
@@ -471,6 +482,43 @@ u64 VulkanDevice::gpu_timestamp() {
           "vkGetQueryPoolResults");
     const u32 bits = physical_device_.timestamp_bits;
     return bits < 64 ? value & ((u64{1} << bits) - 1) : value;
+}
+
+std::optional<CalibratedTimestamp> VulkanDevice::calibrated_timestamp() {
+    const char* extension = physical_device_.calibrated_timestamps;
+    if (extension == nullptr) {
+        return std::nullopt;
+    }
+    const PFN_vkGetCalibratedTimestampsKHR get =
+        std::string_view{extension} == VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME
+            ? vkGetCalibratedTimestampsKHR
+            : vkGetCalibratedTimestampsEXT;
+    if (get == nullptr) {
+        return std::nullopt;
+    }
+    // Nur die Uhr der GPU; die der CPU liest steady_clock davor und danach, die Mitte gilt.
+    const VkCalibratedTimestampInfoKHR info{
+        .sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR,
+        .timeDomain = VK_TIME_DOMAIN_DEVICE_KHR,
+    };
+    u64 gpu = 0;
+    u64 deviation = 0;
+    const auto before = std::chrono::steady_clock::now();
+    if (get(device_, 1, &info, &gpu, &deviation) != VK_SUCCESS) {
+        return std::nullopt;
+    }
+    const auto after = std::chrono::steady_clock::now();
+    // Wurde der Thread dazwischen unterbrochen, taugt die Messung nicht.
+    if (after - before > std::chrono::microseconds{200}) {
+        return std::nullopt;
+    }
+    const u32 bits = physical_device_.timestamp_bits;
+    const auto middle = before + (after - before) / 2;
+    return CalibratedTimestamp{
+        .gpu = bits < 64 ? gpu & ((u64{1} << bits) - 1) : gpu,
+        .cpu_ns = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(middle.time_since_epoch())
+                .count())};
 }
 
 std::vector<u8> VulkanDevice::read_texture(Texture& texture, ResourceState state) {

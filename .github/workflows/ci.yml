@@ -177,13 +177,17 @@ jobs:
         run: xvfb-run -a build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox --frames 60
 
       # Editor (R2.1) im virtuellen Fenster: Docking, Viewport-Textur, UI-Pass über die RHI und
-      # Konsole, mit und ohne optionale Stufen, ohne Meldung der Validation Layers.
+      # Konsole, mit und ohne optionale Stufen, ohne Meldung der Validation Layers. Seit R2.2
+      # zusätzlich: Standardszene speichern, wieder öffnen und erneut speichern; beide Dateien
+      # müssen textgleich sein.
       - name: Editor mit Fenster starten (Linux, Xvfb)
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: |
           exe=build/${{ matrix.preset }}/apps/editor/ngine_editor
-          xvfb-run -a "$exe" --frames 60 --no-ini
-          xvfb-run -a "$exe" --frames 60 --no-ini --baseline
+          xvfb-run -a "$exe" --frames 60 --no-ini --save "$RUNNER_TEMP/szene-a.json"
+          xvfb-run -a "$exe" --frames 60 --no-ini --baseline --scene "$RUNNER_TEMP/szene-a.json" \
+            --save "$RUNNER_TEMP/szene-b.json"
+          cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-b.json"
 
       # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
       # GPUs laufen, die nur die Mindestanforderung erfüllen.

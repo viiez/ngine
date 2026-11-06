@@ -23,13 +23,20 @@ struct PhysicalDevice {
     Capabilities capabilities;
     // Gültige Bits der Zeitstempel der Queue-Familie (0: keine Zeitstempel).
     u32 timestamp_bits = 0;
+    // Present-Fences (VK_EXT_swapchain_maintenance1, TD-18).
+    bool swapchain_maintenance1 = false;
+    // Zeitstempel der GPU ohne Warten (VK_KHR_ bzw. VK_EXT_calibrated_timestamps, TD-22): Name
+    // der Extension oder nullptr.
+    const char* calibrated_timestamps = nullptr;
 };
 
 // Wählt die beste GPU, die die Mindestanforderung erfüllt; dedizierte GPUs vor integrierten,
 // bei gleichem Typ die mit mehr optionalen Stufen. Mit surface muss die Queue-Familie auch
-// präsentieren können. Stufen in disabled bleiben aus.
+// präsentieren können. Stufen in disabled bleiben aus. surface_maintenance1: die Instanz hat
+// VK_EXT_surface_maintenance1 eingeschaltet.
 [[nodiscard]] std::expected<PhysicalDevice, std::string>
-pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled);
+pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled,
+                     bool surface_maintenance1);
 
 // Erzeugt das logische Gerät mit allen Pflicht-Features und den erkannten optionalen Stufen
 // und lädt seine Funktionen.

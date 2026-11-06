@@ -3,6 +3,7 @@ module;
 #include "vk.hpp"
 
 #include <algorithm>
+#include <deque>
 #include <expected>
 #include <limits>
 #include <memory>
@@ -131,11 +132,14 @@ std::expected<void, std::string> Swapchain::rebuild() {
             return std::unexpected(std::move(view).error());
         }
         // Die Bilder gehören der Swapchain und haben deshalb keine eigene Allokation. Ihre Views
-        // werden so spät frei wie die Swapchain selbst (siehe retire()).
+        // werden so spät frei wie die Swapchain selbst (siehe retire()); mit Present-Fences
+        // reicht die Timeline, weil die Swapchain erst nach ihnen frei wird.
         backbuffers_.push_back(std::make_unique<VulkanTexture>(
             *context_,
             TextureDesc{.extent = extent_, .format = format_, .usage = TextureUsage::RenderTarget},
-            VulkanTexture::Parts{.image = image, .view = *view, .retire_delay = frames_in_flight}));
+            VulkanTexture::Parts{.image = image,
+                                 .view = *view,
+                                 .retire_delay = present_fences_ ? 0 : frames_in_flight}));
 
         VkSemaphore semaphore = VK_NULL_HANDLE;
         check(vkCreateSemaphore(device_, &semaphore_info, nullptr, &semaphore),
@@ -166,8 +170,19 @@ std::optional<u32> Swapchain::acquire(VkSemaphore image_available) {
 }
 
 void Swapchain::present(VkQueue queue, u32 image_index) {
+    VkFence fence = VK_NULL_HANDLE;
+    const VkSwapchainPresentFenceInfoEXT fence_info{
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT,
+        .swapchainCount = 1,
+        .pFences = &fence,
+    };
+    if (present_fences_) {
+        collect();
+        fence = take_fence();
+    }
     const VkPresentInfoKHR present{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .pNext = present_fences_ ? &fence_info : nullptr,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &render_finished_[image_index],
         .swapchainCount = 1,
@@ -175,6 +190,10 @@ void Swapchain::present(VkQueue queue, u32 image_index) {
         .pImageIndices = &image_index,
     };
     const VkResult presented = vkQueuePresentKHR(queue, &present);
+    // Auch bei OUT_OF_DATE gilt die Präsentation als eingereiht, die Fence wird signalisiert.
+    if (present_fences_) {
+        presenting_.push_back({.fence = fence, .swapchain = swapchain_});
+    }
     if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) {
         dirty_ = true;
     } else {
@@ -182,11 +201,63 @@ void Swapchain::present(VkQueue queue, u32 image_index) {
     }
 }
 
+VkFence Swapchain::take_fence() {
+    if (!free_fences_.empty()) {
+        const VkFence fence = free_fences_.back();
+        free_fences_.pop_back();
+        check(vkResetFences(device_, 1, &fence), "vkResetFences");
+        return fence;
+    }
+    const VkFenceCreateInfo info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkFence fence = VK_NULL_HANDLE;
+    check(vkCreateFence(device_, &info, nullptr, &fence), "vkCreateFence");
+    return fence;
+}
+
+void Swapchain::collect() {
+    std::erase_if(presenting_, [&](const Presenting& entry) {
+        if (vkGetFenceStatus(device_, entry.fence) != VK_SUCCESS) {
+            return false;
+        }
+        free_fences_.push_back(entry.fence);
+        return true;
+    });
+    std::erase_if(retired_, [&](Retired& old) {
+        const bool busy = std::ranges::any_of(
+            presenting_, [&](const Presenting& entry) { return entry.swapchain == old.swapchain; });
+        if (busy) {
+            return false;
+        }
+        // Die Präsentationen sind fertig; was die GPU noch zeichnet, deckt die Timeline ab.
+        context_->retire(
+            [device = device_, swapchain = old.swapchain, semaphores = std::move(old.semaphores)] {
+                for (VkSemaphore semaphore : semaphores) {
+                    vkDestroySemaphore(device, semaphore, nullptr);
+                }
+                vkDestroySwapchainKHR(device, swapchain, nullptr);
+            });
+        return true;
+    });
+}
+
 void Swapchain::retire() {
-    // Die Timeline zählt nur Abgaben, nicht die Präsentation. Deshalb wartet die Freigabe noch
-    // frames_in_flight weitere Abgaben ab: Bis dahin hat die Queue die Präsentationen der alten
-    // Bilder längst abgearbeitet, die vor diesen Abgaben eingereiht wurden.
     backbuffers_.clear();
+    if (present_fences_) {
+        // Frei, sobald die Present-Fences aller Präsentationen an diese Swapchain signalisiert
+        // sind (collect()).
+        if (swapchain_ != VK_NULL_HANDLE) {
+            retired_.push_back(
+                {.swapchain = swapchain_, .semaphores = std::move(render_finished_)});
+        }
+        render_finished_.clear();
+        swapchain_ = VK_NULL_HANDLE;
+        collect();
+        return;
+    }
+    // Ohne Present-Fences zählt die Timeline nur Abgaben, nicht die Präsentation. Deshalb wartet
+    // die Freigabe noch frames_in_flight weitere Abgaben ab: Bis dahin hat die Queue die
+    // Präsentationen der alten Bilder längst abgearbeitet, die vor diesen Abgaben eingereiht
+    // wurden (TD-18).
     context_->retire(
         [device = device_, swapchain = swapchain_, semaphores = std::move(render_finished_)] {
             for (VkSemaphore semaphore : semaphores) {
@@ -202,7 +273,40 @@ void Swapchain::retire() {
 }
 
 Swapchain::~Swapchain() {
+    if (present_fences_ && !presenting_.empty()) {
+        // Das Device wartet vorher auf die Queue; die Präsentation kann trotzdem noch laufen.
+        std::vector<VkFence> fences;
+        for (const Presenting& entry : presenting_) {
+            fences.push_back(entry.fence);
+        }
+        const VkResult waited = vkWaitForFences(device_, static_cast<u32>(fences.size()),
+                                                fences.data(), VK_TRUE, 1'000'000'000);
+        if (waited != VK_SUCCESS) {
+            log::warn("Präsentationen beim Beenden nicht fertig: {}",
+                      failed("vkWaitForFences", waited));
+        }
+    }
     retire();
+    if (present_fences_) {
+        // Was dann noch wartet, gibt die Löschliste beim Beenden frei.
+        for (Retired& old : retired_) {
+            context_->retire([device = device_, swapchain = old.swapchain,
+                              semaphores = std::move(old.semaphores)] {
+                for (VkSemaphore semaphore : semaphores) {
+                    vkDestroySemaphore(device, semaphore, nullptr);
+                }
+                vkDestroySwapchainKHR(device, swapchain, nullptr);
+            });
+        }
+        retired_.clear();
+        for (const Presenting& entry : presenting_) {
+            free_fences_.push_back(entry.fence);
+        }
+        presenting_.clear();
+        for (VkFence fence : free_fences_) {
+            vkDestroyFence(device_, fence, nullptr);
+        }
+    }
 }
 
 } // namespace ngine::rhi::vulkan

@@ -58,13 +58,17 @@ void message(std::string_view text) noexcept {
     TracyCMessage(text.data(), text.size());
 }
 
-u8 gpu_context(std::string_view name, i64 gpu_time, f32 period) noexcept {
+u8 gpu_context(std::string_view name, i64 gpu_time, f32 period, bool calibrated) noexcept {
     // Tracy unterscheidet Kontexte nur über diese Nummer.
     static std::atomic<u8> next{0};
     const u8 context = next.fetch_add(1, std::memory_order_relaxed);
-    // Typ 2: Vulkan; Tracy zeigt ihn nur an.
-    ___tracy_emit_gpu_new_context_serial(
-        {.gpuTime = gpu_time, .period = period, .context = context, .flags = 0, .type = 2});
+    // Typ 2: Vulkan; Tracy zeigt ihn nur an. Flag 1: Kontext wird nachkalibriert
+    // (GpuContextCalibration).
+    ___tracy_emit_gpu_new_context_serial({.gpuTime = gpu_time,
+                                          .period = period,
+                                          .context = context,
+                                          .flags = static_cast<uint8_t>(calibrated ? 1 : 0),
+                                          .type = 2});
     ___tracy_emit_gpu_context_name_serial(
         {.context = context, .name = name.data(), .len = static_cast<uint16_t>(name.size())});
     return context;
@@ -84,6 +88,11 @@ void gpu_zone_end(u8 context, u16 query) noexcept {
 
 void gpu_time(u8 context, u16 query, i64 gpu_time) noexcept {
     ___tracy_emit_gpu_time_serial({.gpuTime = gpu_time, .queryId = query, .context = context});
+}
+
+void gpu_calibration(u8 context, i64 gpu_time, i64 cpu_delta) noexcept {
+    ___tracy_emit_gpu_calibration_serial(
+        {.gpuTime = gpu_time, .cpuDelta = cpu_delta, .context = context});
 }
 
 } // namespace ngine::profile

@@ -130,6 +130,16 @@ struct DeviceDesc {
     // Optionale Stufen, die nicht genutzt werden, auch wenn die GPU sie kann. So lassen sich
     // die Rückfallpfade auf starker Hardware testen.
     Features disabled_features;
+    // Present-Fences (bei Vulkan VK_EXT_swapchain_maintenance1) nutzen, wo vorhanden; aus nur, um
+    // den Rückfallpfad zu testen.
+    bool present_fences = true;
+};
+
+// Zeitstempel der GPU (Ticks) mit der Zeit der CPU zum selben Moment
+// (Device::calibrated_timestamp()).
+struct CalibratedTimestamp {
+    u64 gpu = 0;
+    u64 cpu_ns = 0;
 };
 
 // Beschreibung der gewählten GPU und der optionalen Stufen, die das Device eingeschaltet hat.
@@ -457,6 +467,12 @@ public:
     // Aktueller Zeitstempel der GPU in Ticks; wartet auf die GPU. Zum Abgleich der Zeitachsen von
     // CPU und GPU (Profiler). 0 ohne Zeitstempel.
     [[nodiscard]] virtual u64 gpu_timestamp() = 0;
+    // Zeitstempel der GPU und Zeit der CPU (steady_clock in Nanosekunden) zum selben Moment,
+    // ohne auf die GPU zu warten (bei Vulkan über VK_KHR_calibrated_timestamps, TD-22). Nichts,
+    // wenn die GPU das nicht kann oder die Messung zu ungenau war.
+    [[nodiscard]] virtual std::optional<CalibratedTimestamp> calibrated_timestamp() {
+        return std::nullopt;
+    }
 
     virtual void wait_idle() = 0;
 

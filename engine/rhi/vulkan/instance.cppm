@@ -37,11 +37,16 @@ public:
     [[nodiscard]] VkSurfaceKHR surface() const {
         return surface_;
     }
+    // VK_EXT_surface_maintenance1 ist eingeschaltet (Voraussetzung für Present-Fences, TD-18).
+    [[nodiscard]] bool surface_maintenance1() const {
+        return surface_maintenance1_;
+    }
 
 private:
     VkInstance instance_ = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+    bool surface_maintenance1_ = false;
 };
 
 } // namespace ngine::rhi::vulkan

@@ -2,6 +2,7 @@ module;
 
 #include "vk.hpp"
 
+#include <deque>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -21,9 +22,12 @@ namespace ngine::rhi::vulkan {
 
 class Swapchain {
 public:
-    Swapchain(DeviceContext& context, VkSurfaceKHR surface, Extent2D requested_extent, bool vsync)
+    // present_fences: VK_EXT_swapchain_maintenance1 ist eingeschaltet (TD-18).
+    Swapchain(DeviceContext& context, VkSurfaceKHR surface, Extent2D requested_extent, bool vsync,
+              bool present_fences)
         : context_{&context}, physical_device_{context.physical_device}, device_{context.device},
-          surface_{surface}, requested_extent_{requested_extent}, vsync_{vsync} {}
+          surface_{surface}, requested_extent_{requested_extent}, vsync_{vsync},
+          present_fences_{present_fences} {}
     ~Swapchain();
     Swapchain(const Swapchain&) = delete;
     Swapchain& operator=(const Swapchain&) = delete;
@@ -63,6 +67,21 @@ public:
 private:
     // Gibt Swapchain, Bilder und Semaphoren über die Löschliste frei.
     void retire();
+    // Mit Present-Fences: fertige Präsentationen einsammeln und alte Swapchains freigeben, deren
+    // Präsentationen alle fertig sind.
+    void collect();
+    [[nodiscard]] VkFence take_fence();
+
+    // Eine Präsentation, die noch läuft, und die Swapchain, an die sie ging.
+    struct Presenting {
+        VkFence fence = VK_NULL_HANDLE;
+        VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    };
+    // Alte Swapchain, die auf ihre Präsentationen wartet.
+    struct Retired {
+        VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+        std::vector<VkSemaphore> semaphores;
+    };
 
     DeviceContext* context_;
     VkPhysicalDevice physical_device_;
@@ -70,6 +89,7 @@ private:
     VkSurfaceKHR surface_;
     Extent2D requested_extent_;
     bool vsync_;
+    bool present_fences_;
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     Format format_ = Format::Unknown;
@@ -77,6 +97,9 @@ private:
     bool dirty_ = false;
     std::vector<std::unique_ptr<VulkanTexture>> backbuffers_;
     std::vector<VkSemaphore> render_finished_;
+    std::deque<Presenting> presenting_;
+    std::vector<VkFence> free_fences_;
+    std::vector<Retired> retired_;
 };
 
 } // namespace ngine::rhi::vulkan

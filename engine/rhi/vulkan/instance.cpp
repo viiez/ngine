@@ -80,6 +80,13 @@ std::expected<void, std::string> Instance::init(const DeviceDesc& desc,
     std::vector<const char*> extensions;
     if (desc.surface) {
         extensions = desc.surface->instance_extensions;
+        // Für Present-Fences der Swapchain (VK_EXT_swapchain_maintenance1, TD-18), wo vorhanden.
+        if (has_instance_extension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME) &&
+            has_instance_extension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)) {
+            extensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+            extensions.push_back(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+            surface_maintenance1_ = true;
+        }
     }
 
     bool validation = false;

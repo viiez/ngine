@@ -1,12 +1,16 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -33,11 +37,12 @@ bool gpu_required() {
     return value != nullptr && *value != '\0';
 }
 
-std::unique_ptr<ngine::rhi::Device>
-make_device(std::optional<ngine::rhi::SurfaceDesc> surface = {}) {
+std::unique_ptr<ngine::rhi::Device> make_device(std::optional<ngine::rhi::SurfaceDesc> surface = {},
+                                                bool present_fences = true) {
     auto device = ngine::rhi::vulkan::create_device({.application_name = "NGine Tests",
                                                      .enable_validation = true,
-                                                     .surface = std::move(surface)});
+                                                     .surface = std::move(surface),
+                                                     .present_fences = present_fences});
     if (!device) {
         if (gpu_required()) {
             FAIL("Kein nutzbares Vulkan-Gerät: " + device.error());
@@ -340,7 +345,10 @@ TEST_CASE("Vulkan pipelines choose the depth comparison", "[rhi][vulkan][gpu]") 
 }
 
 TEST_CASE("Vulkan swapchain rebuilds on resize without stalling", "[rhi][vulkan][gpu]") {
-    const auto device = make_device(ngine::rhi::vulkan::headless_surface({64, 48}));
+    // Mit Present-Fences (TD-18) und ohne, wie auf GPUs ohne VK_EXT_swapchain_maintenance1.
+    const bool present_fences = GENERATE(true, false);
+    CAPTURE(present_fences);
+    const auto device = make_device(ngine::rhi::vulkan::headless_surface({64, 48}), present_fences);
 
     // Zeichnet einen Frame; liefert die Größe des Backbuffers oder nichts, wenn gerade nicht
     // gezeichnet werden kann.
@@ -377,6 +385,34 @@ TEST_CASE("Vulkan swapchain rebuilds on resize without stalling", "[rhi][vulkan]
         }
     }
     device->wait_idle();
+    CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Vulkan calibrated timestamps follow the CPU clock", "[rhi][vulkan][gpu]") {
+    const auto device = make_device();
+    const ngine::f32 period = device->capabilities().timestamp_period;
+    // Mehrere Versuche: Eine einzelne Messung darf scheitern, wenn der Thread unterbrochen wird.
+    const auto sample = [&] {
+        for (int i = 0; i < 20; ++i) {
+            if (auto value = device->calibrated_timestamp()) {
+                return value;
+            }
+        }
+        return device->calibrated_timestamp();
+    };
+    const auto first = sample();
+    if (!first) {
+        SKIP("Die GPU kann keine kalibrierten Zeitstempel");
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    const auto second = sample();
+    REQUIRE(second);
+    REQUIRE(second->gpu > first->gpu);
+    const double cpu_ms = static_cast<double>(second->cpu_ns - first->cpu_ns) / 1e6;
+    const double gpu_ms = static_cast<double>(second->gpu - first->gpu) * period / 1e6;
+    CHECK(cpu_ms >= 50.0);
+    // Beide Uhren messen dieselbe Zeit, bis auf die Ungenauigkeit der Messung.
+    CHECK(std::abs(gpu_ms - cpu_ms) < 5.0);
     CHECK(device->validation_errors() == 0);
 }
 

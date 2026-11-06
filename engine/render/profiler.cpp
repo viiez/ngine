@@ -1,5 +1,6 @@
 module;
 
+#include <chrono>
 #include <string_view>
 #include <vector>
 
@@ -16,8 +17,32 @@ GpuProfiler::GpuProfiler(rhi::Device& device) {
     if (!profile::enabled || period <= 0.0f) {
         return;
     }
-    context_ = profile::gpu_context("GPU", static_cast<i64>(device.gpu_timestamp()), period);
+    device_ = &device;
+    const auto calibrated = device.calibrated_timestamp();
+    context_ = profile::gpu_context("GPU", static_cast<i64>(device.gpu_timestamp()), period,
+                                    calibrated.has_value());
+    if (calibrated) {
+        calibrated_cpu_ns_ = calibrated->cpu_ns;
+    }
     active_ = true;
+}
+
+void GpuProfiler::recalibrate() {
+    // Alle fünf Sekunden; die Uhren laufen nur langsam auseinander.
+    constexpr u64 interval_ns = 5'000'000'000;
+    const auto now = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count());
+    if (now - *calibrated_cpu_ns_ < interval_ns) {
+        return;
+    }
+    const auto sample = device_->calibrated_timestamp();
+    if (!sample || sample->cpu_ns <= *calibrated_cpu_ns_) {
+        return;
+    }
+    profile::gpu_calibration(context_, static_cast<i64>(sample->gpu),
+                             static_cast<i64>(sample->cpu_ns - *calibrated_cpu_ns_));
+    calibrated_cpu_ns_ = sample->cpu_ns;
 }
 
 u16 GpuProfiler::query(u32 index) const noexcept {
@@ -34,6 +59,9 @@ void GpuProfiler::begin_frame(const rhi::Frame& frame) {
     }
     for (u32 i = 0; i < frame.timestamps.size(); ++i) {
         profile::gpu_time(context_, query(i), static_cast<i64>(frame.timestamps[i]));
+    }
+    if (calibrated_cpu_ns_) {
+        recalibrate();
     }
 }
 
