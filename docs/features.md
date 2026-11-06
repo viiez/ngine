@@ -64,7 +64,7 @@ eine Komponente.
 | REND-11 | Post-Processing | Tone Mapping (Khronos PBR Neutral, Belichtung aus der Kamera, R1.3), Bloom, Farbkorrektur | R1.3 / R3 | in Arbeit |
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
 | REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling | R3 | geplant |
-| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren | R2 | geplant |
+| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren; aus R2 verschoben, Iteration legt spätestens das Review von R3 fest | nach R3 | geplant |
 | REND-15 | Debug-Zeichnen | Linien, Boxen, Kugeln und Achsenkreuze in der Welt (`Renderer::debug()`, R1.4); Text folgt mit der Editor-UI in R2 | R1.4 / R2 | in Arbeit |
 
 ## Welt und ECS

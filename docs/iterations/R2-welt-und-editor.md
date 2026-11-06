@@ -45,8 +45,8 @@ Nicht in R2, damit der Reifegrad in überschaubarer Zeit fertig wird:
   laufen; Skripte kommen mit dem vollständigen Scripting in R4 dazu.
 - **Virtuelles Dateisystem und Archive** (PLAT-05): erst, wenn wir Pakete ausliefern (Übergabe);
   der Ressourcen-Manager liest bis dahin aus Ordnern.
-- **Raytracing** (REND-14, im Katalog noch bei R2): gehört zum Rendering, nicht zu Welt und Editor.
-  Vorschlag: nach R3, zusammen mit Mesh Shadern und GPU-Culling, oder später als eigene Stufe.
+- **Raytracing** (REND-14): gehört zum Rendering, nicht zu Welt und Editor. Im Katalog und in der
+  [Roadmap](../roadmap.md) als „nach R3“ vermerkt; spätestens das Review von R3 legt die Iteration fest.
 - **Phasen für Systeme und Befehlspuffer** (WORLD-09, WORLD-10): bleiben in R4, solange der
   Editor ohne sie auskommt.
 

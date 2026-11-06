@@ -69,4 +69,8 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 | R4 Gameplay-Systeme | Physik (Jolt), C#-Scripting vollständig, Audio, Animation |
 | R5 Multiplayer | Listen- und dedizierter Server, Replikation, Vorhersage, Voxel-Deltas übers Netz |
 
+Verschoben, damit es nicht verloren geht: **Raytracing** (REND-14) stand ursprünglich in R2, gehört
+aber zum Rendering. Es kommt nach R3, wenn Mesh Shader und GPU-Culling da sind, oder später als
+eigene Stufe; spätestens das Review von R3 legt die Iteration fest.
+
 Details zu jedem Feature stehen im [Feature-Katalog](features.md).
