@@ -65,11 +65,14 @@ einem Prozess) und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit
 startet einen dedizierten Server ohne Fenster, `--client <adresse>` verbindet sich mit ihm. Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3, mit `-DNGINE_WITH_DOTNET=OFF` einer ohne
 C#-Assemblies.
 
-Der Editor (ab R2.1, braucht ein Fenster) zeigt die Standardszene im Viewport-Fenster, dazu eine
-Konsole mit dem Log und eine Statistik; alle Fenster lassen sich andocken und lösen, „Ansicht →
-Layout zurücksetzen“ stellt die Anordnung wieder her. Kamera wie in der Sandbox mit gedrückter
-rechter Maustaste im Viewport. Optionen: `--model <pfad>`, `--frames <n>`, `--no-vsync`,
-`--baseline`, `--no-ini` (Lage der Fenster weder laden noch speichern). Log und Lage der Fenster
+Der Editor (ab R2.1, braucht ein Fenster) zeigt die Standardszene im Viewport-Fenster, dazu den
+Szenenbaum, den Inspector, eine Konsole mit dem Log und eine Statistik; alle Fenster lassen sich
+andocken und lösen, „Ansicht → Layout zurücksetzen“ stellt die Anordnung wieder her. Kamera wie in
+der Sandbox mit gedrückter rechter Maustaste im Viewport, Linksklick ins Bild wählt aus. Im Baum
+benennt F2 um, Ziehen hängt um, Entf löscht; Strg+Z und Strg+Y machen rückgängig und wiederholen,
+Strg+N, Strg+O und Strg+S legen an, öffnen und speichern. Optionen: `--scene <pfad>` (Szene
+öffnen), `--save <pfad>` (beim Beenden speichern), `--model <pfad>`, `--frames <n>`,
+`--no-vsync`, `--baseline`, `--no-ini` (Lage der Fenster weder laden noch speichern). Log und Lage der Fenster
 liegen im Benutzerordner unter `NGine/editor.log` und `NGine/editor.ini`.
 
 ## Dokumentation

@@ -51,8 +51,8 @@ werden übersprungen (in der CI mit `NGINE_REQUIRE_DOTNET` nicht). Shader sind S
 
 - `engine/<system>/` ein Engine-System, ein CMake-Ziel `ngine_<system>` mit Alias `ngine::<system>`.
 - `apps/sandbox/` Testanwendung, an der jede Iteration sichtbar wird.
-- `apps/editor/` Editor (ab R2.1, Dear ImGui hinter `ngine.editor_ui`, ADR 0029); `apps/common/`
-  Code, den Sandbox und Editor teilen.
+- `apps/editor/` Editor (ab R2.1, Dear ImGui hinter `ngine.editor_ui`, ADR 0029; Logik ohne UI in
+  `ngine.edit`, ADR 0030); `apps/common/` Code, den Sandbox und Editor teilen.
 - `tests/<system>/` Catch2-Tests, gespiegelt zur Engine-Struktur.
 - `cmake/` gemeinsame CMake-Funktionen, z. B. `ngine_set_compiler_options()`.
 

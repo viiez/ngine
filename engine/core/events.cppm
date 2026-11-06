@@ -1,6 +1,7 @@
 module;
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 // Ereignisse (CORE-11): lose gekoppelte Nachrichten zwischen Teilen eines Programms, etwa zwischen

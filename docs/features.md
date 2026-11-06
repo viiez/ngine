@@ -32,7 +32,7 @@ eine Komponente.
 | CORE-08 | Reflection | Typinformationen für Editor, Speichern, Netzwerk und C#: `ngine.reflect` mit Builder-API ([ADR 0018](adr/0018-own-reflection.md)); Enums, Arrays und Entity-Verweise folgen bei Bedarf | A4 | fertig |
 | CORE-09 | Serialisierung | JSON mit eigenem Parser und Binärformat, beides über Reflection ([ADR 0020](adr/0020-scene-format-json.md)) | A4 | fertig |
 | CORE-10 | Mathematik | Eigene Vektoren, Matrizen, Quaternionen und Projektionen in `ngine.math`, gegen GLM getestet; `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | R1.1 | fertig |
-| CORE-11 | Ereignisse | Lose gekoppelte Nachrichten zwischen Systemen | R2 | geplant |
+| CORE-11 | Ereignisse | Lose gekoppelte Nachrichten zwischen Systemen (`events::EventBus` in `ngine.core`, sofort oder gesammelt pro Frame) | R2.2 | fertig |
 | CORE-12 | Log-Datei | Sink, der in eine Datei schreibt (`log::FileSink`, der Editor schreibt in den Benutzerordner) | R2.1 | fertig |
 
 ## Plattform
@@ -172,11 +172,11 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | --- | --- | --- | --- | --- |
 | EDIT-01 | Editor-Gerüst | Eigene Anwendung mit Dear ImGui und Docking (`apps/editor/`, `ngine.editor_ui`, [ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | R2.1 | fertig |
 | EDIT-02 | Viewport | Szene im Editor rendern, Kamera steuern (Textur, die dem Fenster folgt; freie Kamera wie in der Sandbox) | R2.1 | fertig |
-| EDIT-03 | Szenenbaum | Entities und Hierarchie | R2 | geplant |
-| EDIT-04 | Inspector | Komponenten über Reflection bearbeiten | R2 | geplant |
+| EDIT-03 | Szenenbaum | Entities und Hierarchie; Auswahl auch per Klick im Viewport (ID-Puffer), Umbenennen, Umhängen per Ziehen | R2.2 | fertig |
+| EDIT-04 | Inspector | Komponenten über Reflection bearbeiten; Felder allein aus der Reflection mit Enums, Bereichen und Hinweisen (Farbe, Rotation, Winkel), `ngine.edit` | R2.2 | fertig |
 | EDIT-05 | Gizmos | Verschieben, Drehen, Skalieren | R2 | geplant |
 | EDIT-06 | Spielen im Editor | Spiel im Editor starten und stoppen | R4 | geplant |
-| EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar | R2 | geplant |
+| EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar; Befehle mit reflektierten Werten ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | R2.2 | fertig |
 | EDIT-08 | Voxel-Werkzeuge | Terrain im Editor formen und bemalen | R3 | geplant |
 | EDIT-09 | Asset-Browser | Assets finden, importieren, Vorschau | R2 | geplant |
 | EDIT-10 | Log-Konsole | Log-Sink, der im Editor anzeigt (`log::RingSink`, `editor_ui::LogConsole` mit Filter nach Stufe und Text) | R2.1 | fertig |
