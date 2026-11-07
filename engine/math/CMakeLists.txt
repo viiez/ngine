@@ -11,7 +11,8 @@ target_sources(ngine_math
             matrix.cppm
             quaternion.cppm
             transform.cppm
-            affine.cppm)
+            affine.cppm
+            ray.cppm)
 
 # Core-Schicht, eigene Implementierung ohne Fremdbibliothek (ADR 0025). GLM dient nur noch den
 # Tests als Vergleich.

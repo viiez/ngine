@@ -28,9 +28,20 @@ struct WorldTransform {
     }
 };
 
-// Berechnet WorldTransform aller Entities mit Transform, Eltern vor Kindern (WORLD-03). Ein
+// Berechnet WorldTransform aus Transform und Hierarchie, Eltern vor Kindern (WORLD-03). Ein
 // Vorfahr ohne Transform zählt wie keine Verschiebung; die Kette geht beim nächsten Vorfahren mit
 // Transform weiter. Läuft wie andere Strukturarbeit nach Schedule::run().
-void update_transforms(World& world);
+//
+// Seit R2.3 nur für geänderte Teilbäume (TD-15): neu berechnet werden Entities, deren Transform
+// sich seit dem letzten Aufruf geändert hat, die neu oder umgehängt sind, und alle ihre
+// Nachfahren. Änderungen über Entity::get_mut() brauchen dafür Entity::modified(). Liefert die
+// Zahl der neu berechneten Entities (die Erkennung arbeitet pro Chunk, es können also mehr sein
+// als geändert wurden).
+usize update_transforms(World& world);
+
+// Weltlage einer Entity, direkt aus den Transforms ihrer Vorfahren berechnet; unabhängig davon,
+// ob WorldTransform aktuell ist. Für Werkzeuge wie Gizmos und Umhängen im Editor, die einzelne
+// Entities brauchen. Ohne Transform zählt eine Entity wie keine Verschiebung.
+[[nodiscard]] math::Affine world_affine(World& world, u64 entity);
 
 } // namespace ngine::world

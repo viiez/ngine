@@ -13,6 +13,7 @@ module;
 module ngine.edit;
 
 import ngine.core;
+import ngine.math;
 import ngine.reflect;
 import ngine.serialize;
 import ngine.world;
@@ -72,13 +73,13 @@ Result<void> write_field(SceneDocument& document, EntityId id, const FieldPath& 
 
 class SetField final : public Command {
 public:
-    SetField(EntityId entity, FieldPath path, std::string label, std::vector<std::byte> before,
-             std::vector<std::byte> after)
+    SetField(EntityId entity, FieldPath path, std::string label, bool custom_label,
+             std::vector<std::byte> before, std::vector<std::byte> after)
         : entity_{entity}, path_{std::move(path)}, label_{std::move(label)},
-          before_{std::move(before)}, after_{std::move(after)} {}
+          custom_label_{custom_label}, before_{std::move(before)}, after_{std::move(after)} {}
 
     [[nodiscard]] std::string label() const override {
-        return std::format("{} ändern", label_);
+        return custom_label_ ? label_ : std::format("{} ändern", label_);
     }
     [[nodiscard]] Result<void> apply(SceneDocument& document) override {
         return write_field(document, entity_, path_, after_);
@@ -101,6 +102,7 @@ private:
     EntityId entity_;
     FieldPath path_;
     std::string label_;
+    bool custom_label_;
     std::vector<std::byte> before_;
     std::vector<std::byte> after_;
 };
@@ -152,7 +154,8 @@ private:
 
 class Reparent final : public Command {
 public:
-    Reparent(EntityId entity, EntityId parent) : entity_{entity}, parent_{parent} {}
+    Reparent(EntityId entity, EntityId parent, bool keep_world)
+        : entity_{entity}, parent_{parent}, keep_world_{keep_world} {}
 
     [[nodiscard]] std::string label() const override {
         return parent_ == 0 ? std::string{"Vom Elternteil lösen"} : std::string{"Umhängen"};
@@ -174,7 +177,23 @@ public:
             }
         }
         old_parent_ = document.id_of(world.parent(entity));
-        world.set_parent(entity, parent);
+        world::Entity handle = world.entity(entity);
+        const world::Transform* transform = handle.get<world::Transform>();
+        moved_ = keep_world_ && transform != nullptr;
+        if (moved_) {
+            // Weltlage vor dem Umhängen, danach lokal zum neuen Elternteil (TD-28).
+            old_transform_ = *transform;
+            const math::Affine world_before = world::world_affine(world, entity);
+            const math::Affine parent_world =
+                parent != 0 ? world::world_affine(world, parent) : math::Affine{};
+            const math::Decomposed local =
+                math::decompose(math::inverse(parent_world) * world_before);
+            world.set_parent(entity, parent);
+            handle.set(world::Transform{
+                .position = local.translation, .rotation = local.rotation, .scale = local.scale});
+        } else {
+            world.set_parent(entity, parent);
+        }
         document.notify(EntityChanged{.entity = entity_});
         return {};
     }
@@ -184,13 +203,19 @@ public:
             return;
         }
         document.world().set_parent(entity, document.entity_of(old_parent_));
+        if (moved_) {
+            document.world().entity(entity).set(old_transform_);
+        }
         document.notify(EntityChanged{.entity = entity_});
     }
 
 private:
     EntityId entity_;
     EntityId parent_;
+    bool keep_world_;
     EntityId old_parent_ = 0;
+    bool moved_ = false;
+    world::Transform old_transform_;
 };
 
 // --- Anlegen und Löschen -----------------------------------------------------------------------
@@ -510,7 +535,8 @@ Result<void> restore(SceneDocument& document, const EntitySnapshot& snapshot) {
 // --- Fabriken ----------------------------------------------------------------------------------
 
 Result<std::unique_ptr<Command>> set_field(SceneDocument& document, EntityId entity,
-                                           const FieldPath& path, const void* value) {
+                                           const FieldPath& path, const void* value,
+                                           std::string label) {
     auto resolved = resolve(document.types(), path);
     if (!resolved) {
         return std::unexpected(resolved.error());
@@ -530,16 +556,18 @@ Result<std::unique_ptr<Command>> set_field(SceneDocument& document, EntityId ent
     if (before == after) {
         return std::unique_ptr<Command>{};
     }
+    const bool custom = !label.empty();
     return std::unique_ptr<Command>{std::make_unique<SetField>(
-        entity, path, to_string(document.types(), path), std::move(before), std::move(after))};
+        entity, path, custom ? std::move(label) : to_string(document.types(), path), custom,
+        std::move(before), std::move(after))};
 }
 
 std::unique_ptr<Command> rename(EntityId entity, std::string name) {
     return std::make_unique<Rename>(entity, std::move(name));
 }
 
-std::unique_ptr<Command> reparent(EntityId entity, EntityId parent) {
-    return std::make_unique<Reparent>(entity, parent);
+std::unique_ptr<Command> reparent(EntityId entity, EntityId parent, bool keep_world) {
+    return std::make_unique<Reparent>(entity, parent, keep_world);
 }
 
 CreatedEntity create_entity(SceneDocument& document, std::string name, EntityId parent) {

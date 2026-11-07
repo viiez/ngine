@@ -1,7 +1,9 @@
 module;
 
+#include <cstddef>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -37,6 +39,28 @@ struct DocumentReset {};
 // Der Zustand gegenüber der Datei hat sich geändert (gespeichert oder erstmals verändert).
 struct DirtyChanged {
     bool dirty = false;
+};
+
+// Spielen im Editor hat begonnen oder ist beendet (R2.3).
+struct PlayStateChanged {
+    bool playing = false;
+};
+
+// Entities mit allen reflektierten Komponenten (auch Laufzeitkomponenten wie MeshRenderer) und
+// ihren Eltern. snapshot() hält einen Teilbaum fest (Eltern vor ihren Kindern), damit Undo das
+// Löschen rückgängig macht; Spielen im Editor sichert so die ganze Welt.
+struct EntitySnapshot {
+    struct Component {
+        reflect::TypeId type = 0;
+        std::vector<std::byte> bytes;
+    };
+    struct Node {
+        EntityId id = 0;
+        // Elternteil im Dokument; beim ersten Knoten das Elternteil des ganzen Teilbaums.
+        EntityId parent = 0;
+        std::vector<Component> components;
+    };
+    std::vector<Node> nodes;
 };
 
 class SceneDocument;
@@ -178,6 +202,23 @@ public:
         return !history_.at_saved();
     }
 
+    // --- Spielen (EDIT-06, ADR 0032) ---
+    // Sichert die ganze Welt im Binärformat der Reflection (alle Entities mit allen reflektierten
+    // Komponenten, auch Laufzeitkomponenten) und sperrt das Dokument: Während des Spielens
+    // laufen keine Befehle, kein Undo und kein Redo, und es wird nicht gespeichert.
+    Result<void> begin_play();
+    // Ersetzt die Welt durch den gesicherten Stand. Entities bekommen ihre Kennungen im Dokument
+    // zurück und Kennungen in der Welt in derselben Reihenfolge wie vorher; die Szene speichert
+    // danach textgleich, der Verlauf gilt weiter. Was während des Spielens entstand, ist weg.
+    Result<void> end_play();
+    [[nodiscard]] bool playing() const noexcept {
+        return play_backup_.has_value();
+    }
+    // Befehle, Undo und Redo sind gesperrt (während des Spielens).
+    [[nodiscard]] bool read_only() const noexcept {
+        return playing();
+    }
+
     // --- Ereignisse ---
     [[nodiscard]] events::EventBus* bus() const noexcept {
         return bus_;
@@ -192,6 +233,8 @@ public:
 private:
     void notify_dirty(bool was_dirty);
     void destroy_all();
+    // Verwirft eine Sicherung des Spielens (Öffnen oder Leeren während des Spielens).
+    void drop_play();
 
     world::World* world_;
     events::EventBus* bus_;
@@ -200,6 +243,7 @@ private:
     std::unordered_map<u64, EntityId> ids_;
     EntityId next_id_ = 1;
     std::string path_;
+    std::optional<EntitySnapshot> play_backup_;
 };
 
 } // namespace ngine::edit

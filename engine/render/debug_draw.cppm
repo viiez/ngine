@@ -1,10 +1,14 @@
 module;
 
 #include <span>
+#include <string>
 #include <vector>
 
-// Debug-Zeichnen (REND-15): Linien in 64-Bit-Weltkoordinaten, gesammelt für einen Frame. Der
-// Renderer zeichnet sie im Vorwärts-Pass mit Tiefentest und leert die Liste danach.
+// Debug-Zeichnen (REND-15): Linien und Texte in 64-Bit-Weltkoordinaten, gesammelt für einen
+// Frame. Der Renderer zeichnet die Linien im Vorwärts-Pass mit Tiefentest und leert danach beide
+// Listen. Texte zeichnet er nicht selbst, weil die Engine keine Schrift hat: Die Anwendung bringt
+// sie mit ihrer UI ins Bild, bevor add_passes() die Liste leert (der Editor über die Zeichenliste
+// von Dear ImGui, seit R2.3).
 export module ngine.render:debug_draw;
 
 import ngine.core;
@@ -15,6 +19,13 @@ export namespace ngine::render {
 struct DebugLine {
     math::DVec3 a;
     math::DVec3 b;
+    math::Vec3 color;
+};
+
+// Text an einem Punkt der Welt, z. B. Name oder Wert eines Objekts.
+struct DebugText {
+    math::DVec3 position;
+    std::string text;
     math::Vec3 color;
 };
 
@@ -45,11 +56,16 @@ public:
     // Achsenkreuz: x rot, y grün, z blau, jeweils size lang.
     void axes(const math::Affine& transform, f32 size);
 
+    // Text, dessen linke obere Ecke im Bild über position liegt.
+    void text(math::DVec3 position, std::string text, math::Vec3 color = {1.0f, 1.0f, 1.0f});
+
     void clear() noexcept;
     [[nodiscard]] std::span<const DebugLine> lines() const noexcept;
+    [[nodiscard]] std::span<const DebugText> texts() const noexcept;
 
 private:
     std::vector<DebugLine> lines_;
+    std::vector<DebugText> texts_;
 };
 
 // Schneidet eine Linie (kamerarelativ) an der Ebene dot(p, forward) = near ab. false, wenn sie

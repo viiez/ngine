@@ -93,6 +93,21 @@ TEST_CASE("MeshRenderer is not saved with scenes", "[render]") {
     CHECK_FALSE(types.get<render::Camera>().transient);
 }
 
+TEST_CASE("Debug texts are collected per frame and cleared with the lines", "[render]") {
+    render::DebugDraw debug;
+    debug.text(math::DVec3{1.0, 2.0, 3.0}, "Licht 1", {1.0f, 0.5f, 0.0f});
+    debug.line(math::DVec3{}, math::DVec3{1.0, 0.0, 0.0}, {1.0f, 1.0f, 1.0f});
+    REQUIRE(debug.texts().size() == 1);
+    CHECK(debug.texts()[0].text == "Licht 1");
+    CHECK(debug.texts()[0].position.z == 3.0);
+    debug.clear();
+    CHECK(debug.texts().empty());
+    CHECK(debug.lines().empty());
+    debug.enabled = false;
+    debug.text(math::DVec3{}, "aus");
+    CHECK(debug.texts().empty());
+}
+
 TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
     auto created =
         rhi::vulkan::create_device({.application_name = "NGine Tests", .enable_validation = true});

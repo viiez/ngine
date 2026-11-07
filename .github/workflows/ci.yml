@@ -188,6 +188,10 @@ jobs:
           xvfb-run -a "$exe" --frames 60 --no-ini --baseline --scene "$RUNNER_TEMP/szene-a.json" \
             --save "$RUNNER_TEMP/szene-b.json"
           cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-b.json"
+          # Seit R2.3: 30 Frames spielen und stoppen; die Welt muss danach unverändert sein.
+          xvfb-run -a "$exe" --frames 60 --no-ini --play 30 --scene "$RUNNER_TEMP/szene-a.json" \
+            --save "$RUNNER_TEMP/szene-c.json"
+          cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-c.json"
 
       # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
       # GPUs laufen, die nur die Mindestanforderung erfüllen.

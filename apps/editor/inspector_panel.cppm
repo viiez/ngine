@@ -121,6 +121,8 @@ public:
             return;
         }
         ui::text_disabled(std::format("Entity {}", entity));
+        // Während des Spielens zeigt der Inspector die laufenden Werte, ändern lässt sich nichts.
+        ui::begin_disabled(document.read_only());
 
         ui::push_id(entity);
         for (const edit::ComponentRows& component : edit::inspect(document, entity)) {
@@ -158,6 +160,7 @@ public:
             }
             ui::end_popup();
         }
+        ui::end_disabled();
 
         // Eulerwinkel nur während des Ziehens festhalten, sonst aus der Rotation lesen.
         if (!ui::is_any_item_active()) {
@@ -167,6 +170,9 @@ public:
 
 private:
     static void run(edit::SceneDocument& document, std::unique_ptr<edit::Command> command) {
+        if (document.read_only()) {
+            return;
+        }
         if (auto result = document.execute(std::move(command)); !result) {
             log::error("{}", result.error());
         }

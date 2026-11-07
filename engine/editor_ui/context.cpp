@@ -51,7 +51,11 @@ ImGuiKey to_imgui(Key key) {
     case Key::X: return ImGuiKey_X;
     case Key::Y: return ImGuiKey_Y;
     case Key::Z: return ImGuiKey_Z;
+    case Key::W: return ImGuiKey_W;
+    case Key::E: return ImGuiKey_E;
+    case Key::R: return ImGuiKey_R;
     case Key::F2: return ImGuiKey_F2;
+    case Key::F5: return ImGuiKey_F5;
     }
     return ImGuiKey_None;
 }

@@ -33,6 +33,7 @@ add_executable(ngine_tests
     world/scene_tests.cpp
     world/transform_tests.cpp
     edit/edit_tests.cpp
+    edit/gizmo_play_tests.cpp
     voxel/voxel_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp

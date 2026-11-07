@@ -47,7 +47,11 @@ enum class Key : u8 {
     X,
     Y,
     Z,
+    W,
+    E,
+    R,
     F2,
+    F5,
 };
 
 enum class MouseButton : u8 { Left, Right, Middle };

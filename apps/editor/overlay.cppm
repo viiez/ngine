@@ -2,10 +2,12 @@ module;
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 // Hilfslinien im Viewport des Editors: Raster am Boden, Lichter als Symbole und die Auswahl. Szenen
 // aus Dateien haben bis R2.4 keine Meshes (MeshRenderer ist eine Laufzeitkomponente), deshalb
-// braucht der Editor diese Linien, um überhaupt etwas zu zeigen.
+// braucht der Editor diese Linien, um überhaupt etwas zu zeigen. Seit R2.3 dazu Namen als Text in
+// der Welt (REND-15): an Lichtern und an der Auswahl.
 export module editor.overlay;
 
 import ngine.core;
@@ -22,6 +24,7 @@ using math::Vec3;
 
 constexpr Vec3 grid_color{0.32f, 0.32f, 0.34f};
 constexpr Vec3 selection_color{1.0f, 0.55f, 0.1f};
+constexpr Vec3 label_color{0.8f, 0.8f, 0.82f};
 
 void draw_grid(render::DebugDraw& debug) {
     constexpr i32 half = 20;
@@ -42,28 +45,39 @@ export void draw_overlay(render::DebugDraw& debug, render::MeshStore& meshes,
     world::World& world = document.world();
     world::update_transforms(world);
     draw_grid(debug);
+    const u64 selected = document.entity_of(selection.current());
+    const auto label = [&](world::Entity entity, DVec3 position) {
+        if (entity.id() != selected) {
+            debug.text(position, std::string{entity.name()}, label_color);
+        }
+    };
 
     world.each<const world::WorldTransform, const render::PointLight>(
-        [&](const world::WorldTransform& transform, const render::PointLight& light) {
+        [&](world::Entity entity, const world::WorldTransform& transform,
+            const render::PointLight& light) {
             debug.sphere(transform.position(), 0.25f, light.color, 12);
+            label(entity, transform.position());
         });
     world.each<const world::WorldTransform, const render::SpotLight>(
-        [&](const world::WorldTransform& transform, const render::SpotLight& light) {
+        [&](world::Entity entity, const world::WorldTransform& transform,
+            const render::SpotLight& light) {
             debug.sphere(transform.position(), 0.25f, light.color, 12);
+            label(entity, transform.position());
             const f32 length = light.range > 0.0f ? std::min(light.range, 5.0f) : 5.0f;
             debug.line(transform.position(),
                        transform.position() + math::to_f64(forward_of(transform) * length),
                        light.color);
         });
     world.each<const world::WorldTransform, const render::DirectionalLight>(
-        [&](const world::WorldTransform& transform, const render::DirectionalLight& light) {
+        [&](world::Entity entity, const world::WorldTransform& transform,
+            const render::DirectionalLight& light) {
             // Die Sonne hat keinen Ort: Pfeil über dem Ursprung in Richtung des Lichts.
             const DVec3 start{0.0, 6.0, 0.0};
             debug.line(start, start + math::to_f64(forward_of(transform) * 3.0f), light.color);
             debug.sphere(start, 0.3f, light.color, 12);
+            label(entity, start);
         });
 
-    const u64 selected = document.entity_of(selection.current());
     if (selected == 0) {
         return;
     }
@@ -79,7 +93,9 @@ export void draw_overlay(render::DebugDraw& debug, render::MeshStore& meshes,
         debug.box(transform->value, Vec3{-0.3f, -0.3f, -0.3f}, Vec3{0.3f, 0.3f, 0.3f},
                   selection_color);
     }
-    debug.axes(transform->value, 1.0f);
+    // Name der Auswahl, auch ohne Name die Kennung wie im Szenenbaum.
+    debug.text(transform->position(), edit::display_name(world, selected, selection.current()),
+               selection_color);
 }
 
 } // namespace editor

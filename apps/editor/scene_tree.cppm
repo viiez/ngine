@@ -22,6 +22,10 @@ namespace ui = editor_ui;
 constexpr std::string_view payload_type = "NGINE_ENTITY";
 
 void run(edit::SceneDocument& document, std::unique_ptr<edit::Command> command) {
+    if (document.read_only()) {
+        log::info("Während des Spielens lässt sich die Szene nicht ändern");
+        return;
+    }
     if (auto result = document.execute(std::move(command)); !result) {
         log::error("{}", result.error());
     }
@@ -31,6 +35,9 @@ export class SceneTreePanel {
 public:
     // Neue Entity unter parent (0: Wurzel), gleich ausgewählt und zum Umbenennen offen.
     void create(edit::SceneDocument& document, edit::Selection& selection, edit::EntityId parent) {
+        if (document.read_only()) {
+            return;
+        }
         auto created = edit::create_entity(document, "Entity", parent);
         if (auto result = document.execute(std::move(created.command)); !result) {
             log::error("{}", result.error());
@@ -42,7 +49,7 @@ public:
 
     void start_rename(edit::SceneDocument& document, edit::EntityId id) {
         const u64 entity = document.entity_of(id);
-        if (entity == 0) {
+        if (entity == 0 || document.read_only()) {
             return;
         }
         renaming_ = id;
@@ -54,9 +61,11 @@ public:
         if (renaming_ != 0 && !document.exists(renaming_)) {
             renaming_ = 0;
         }
+        ui::begin_disabled(document.read_only());
         if (ui::button("Neue Entity")) {
             create(document, selection, 0);
         }
+        ui::end_disabled();
         ui::separator();
 
         if (ui::begin_child("Baum")) {

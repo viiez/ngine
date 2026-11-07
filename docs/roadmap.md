@@ -13,7 +13,7 @@ und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlo
 Nächstes folgt [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) mit fünf Iterationen; davon
 sind [R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und Viewport) und
 [R2.2](iterations/R2.2-szenenbaum-inspector-undo.md) (Szenenbaum, Inspector, Undo) abgeschlossen,
-als Nächstes kommt R2.3 (Gizmos und Spielen im Editor).
+[R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor) ist in Arbeit.
 
 ## Phasen und Iterationen
 

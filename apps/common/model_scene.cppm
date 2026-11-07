@@ -20,11 +20,15 @@ module;
 // mit einer freien Kamera begehbar. Alles steht auf einem Boden in der Sonne mit Schatten; die
 // Standardszene hat dazu eine Reihe Säulen bis in die Ferne, acht kreisende Punktlichter und ein
 // Spotlicht.
+//
+// Seit R2.3 kreisen die Punktlichter über die Komponente Orbit und ein System im Schedule: in der
+// Sandbox immer, im Editor nur beim Spielen (simulate()).
 export module app.model_scene;
 
 import ngine.core;
 import ngine.asset;
 import ngine.filesystem;
+import ngine.jobs;
 import ngine.math;
 import ngine.profile;
 import ngine.reflect;
@@ -56,6 +60,53 @@ export struct FlyInput {
 // Szene, sondern geht als Renderer::camera_override an den Renderer, und nichts bewegt sich von
 // selbst, damit die Szene genau so gespeichert wird, wie sie im Inspector steht (R2.2).
 export enum class SceneMode : u8 { Game, Editor };
+
+// Kreisbahn um center mit Auf und Ab, z. B. für die Lichter der Standardszene. Das System
+// „Kreisbahnen“ zählt time weiter und setzt daraus Transform; time gehört zum Zustand, damit
+// Spielen im Editor und Stoppen ihn mit der Welt sichern und wiederherstellen.
+export struct Orbit {
+    // Mittelpunkt der Bahn auf der untersten Höhe.
+    DVec3 center{0.0, 0.0, 0.0};
+    f32 radius_x = 1.0f;
+    f32 radius_z = 1.0f;
+    // Hub des Auf und Ab in Metern.
+    f32 bob = 0.0f;
+    // Winkelgeschwindigkeit der Bahn und des Auf und Ab im Bogenmaß pro Sekunde.
+    f32 speed = 0.4f;
+    f32 bob_speed = 0.9f;
+    // Startwinkel.
+    f32 phase = 0.0f;
+    // Zeit auf der Bahn in Sekunden.
+    f32 time = 0.0f;
+};
+
+// Ort auf der Bahn zur Zeit orbit.time.
+export DVec3 orbit_position(const Orbit& orbit) {
+    const f32 angle = orbit.phase + orbit.time * orbit.speed;
+    const f32 height =
+        orbit.bob * (0.5f + 0.5f * std::sin(orbit.time * orbit.bob_speed + orbit.phase * 2.0f));
+    return orbit.center + DVec3{std::cos(angle) * static_cast<f64>(orbit.radius_x), height,
+                                std::sin(angle) * static_cast<f64>(orbit.radius_z)};
+}
+
+// Registriert die Komponenten der Standardszene (Orbit) in der Reflection.
+export void register_types(reflect::TypeRegistry& types) {
+    if (types.find<Orbit>() == nullptr) {
+        types.add<Orbit>("Orbit")
+            .field("center", &Orbit::center)
+            .field("radius_x", &Orbit::radius_x)
+            .range(0.0, 100.0)
+            .field("radius_z", &Orbit::radius_z)
+            .range(0.0, 100.0)
+            .field("bob", &Orbit::bob)
+            .range(0.0, 100.0)
+            .field("speed", &Orbit::speed)
+            .field("bob_speed", &Orbit::bob_speed)
+            .field("phase", &Orbit::phase)
+            .hint(reflect::Hint::Angle)
+            .field("time", &Orbit::time);
+    }
+}
 
 namespace {
 
@@ -166,7 +217,7 @@ public:
         position_ = position_ + math::to_f64(math::normalize(move) * (speed * dt));
         if (mode_ == SceneMode::Game) {
             camera_.set(world::Transform{.position = position_, .rotation = rotation});
-            animate(dt);
+            simulate(dt);
         } else {
             renderer_->camera_override = render::CameraView{.position = position_,
                                                             .rotation = math::to_mat3(rotation),
@@ -174,14 +225,17 @@ public:
         }
     }
 
-    // Leere Szene im Editor: Lichter, die update() bewegen würde, gibt es dann nicht mehr.
-    void forget_animated_lights() {
-        lights_.clear();
+    // Lässt die Systeme der Szene einen Schritt von dt Sekunden laufen (Lichter kreisen). In der
+    // Sandbox ruft update() das in jedem Frame auf, im Editor nur, solange gespielt wird.
+    void simulate(f32 dt) {
+        NGINE_PROFILE_ZONE("ModelScene::simulate");
+        step_ = dt;
+        schedule_.run(jobs_);
     }
 
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
         NGINE_PROFILE_ZONE("ModelScene::add_passes");
-        world::update_transforms(world_);
+        (void)world::update_transforms(world_);
         if (debug_draw_) {
             draw_debug();
         }
@@ -210,12 +264,18 @@ private:
         reflect::TypeRegistry types;
         world::register_types(types);
         render::register_types(types);
+        app::register_types(types);
         return types;
     }
 
     ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin, SceneMode mode)
-        : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)}, origin_{origin},
-          mode_{mode} {
+        : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)},
+          jobs_{{.worker_count = 2}}, schedule_{world_}, origin_{origin}, mode_{mode} {
+        schedule_.add<Orbit, world::Transform>("Kreisbahnen",
+                                               [this](Orbit& orbit, world::Transform& transform) {
+                                                   orbit.time += step_;
+                                                   transform.position = orbit_position(orbit);
+                                               });
         if (mode_ == SceneMode::Game) {
             camera_ = world_.create("Kamera");
             camera_.set(world::Transform{}).set(render::Camera{});
@@ -299,13 +359,21 @@ private:
             const u32 glow = materials.add({.base_color = {0.0f, 0.0f, 0.0f, 1.0f},
                                             .roughness = 1.0f,
                                             .emissive = color * 4.0f});
-            world::Entity light = world_.create(std::format("Licht {}", i));
-            light.set(world::Transform{})
+            // Punktlichter kreisen vor dem Kugelraster, jedes auf eigener Höhe.
+            const Orbit orbit{.center = origin_ + DVec3{0.0, 0.8, 5.0},
+                              .radius_x = 7.0f,
+                              .radius_z = 4.0f,
+                              .bob = 1.6f,
+                              .speed = 0.4f,
+                              .bob_speed = 0.9f,
+                              .phase = static_cast<f32>(i) / static_cast<f32>(light_count) * 2.0f *
+                                       math::pi};
+            world_.create(std::format("Licht {}", i))
+                .set(world::Transform{.position = orbit_position(orbit)})
+                .set(orbit)
                 .set(render::PointLight{.color = color, .intensity = 10.0f, .range = 9.0f})
                 .set(render::MeshRenderer{.mesh = *bulb, .material = glow});
-            lights_.push_back(light);
         }
-        animate(0.0f);
         world_.create("Spot")
             .set(world::Transform{.position = origin_ + DVec3{0.0, 9.0, 9.0},
                                   .rotation = shine_along({0.0f, -1.0f, -0.35f})})
@@ -323,20 +391,6 @@ private:
         speed_ = 6.0f;
         update(0.0f, {});
         return {};
-    }
-
-    // Punktlichter kreisen vor dem Kugelraster, jedes auf eigener Höhe.
-    void animate(f32 dt) {
-        time_ += dt;
-        for (usize i = 0; i < lights_.size(); ++i) {
-            const f32 phase =
-                static_cast<f32>(i) / static_cast<f32>(lights_.size()) * 2.0f * math::pi;
-            const f32 angle = phase + time_ * 0.4f;
-            const f32 height = 0.8f + 1.6f * (0.5f + 0.5f * std::sin(time_ * 0.9f + phase * 2.0f));
-            lights_[i].set(
-                world::Transform{.position = origin_ + DVec3{std::cos(angle) * 7.0, height,
-                                                             5.0 + std::sin(angle) * 4.0}});
-        }
     }
 
     // Hüllquader aller Meshes, Lichter als Kugeln, Spotlichter mit Linie, Achsenkreuz im Ursprung.
@@ -405,7 +459,7 @@ private:
 
     // Kamera vor die Szene stellen, sodass alles ins Bild passt.
     void frame_camera() {
-        world::update_transforms(world_);
+        (void)world::update_transforms(world_);
         const auto bounds = world_bounds(world_, renderer_->meshes(), origin_);
         Vec3 center{0.0f, 0.0f, 0.0f};
         f32 radius = 1.0f;
@@ -435,6 +489,11 @@ private:
     reflect::TypeRegistry types_;
     world::World world_;
     std::unique_ptr<render::Renderer> renderer_;
+    // Wenige Worker reichen für die Systeme der Szene; die Hauptarbeit macht die GPU.
+    jobs::JobSystem jobs_;
+    world::Schedule schedule_;
+    // Zeitschritt für die Systeme in simulate().
+    f32 step_ = 0.0f;
     DVec3 origin_;
     SceneMode mode_;
     world::Entity camera_;
@@ -443,8 +502,6 @@ private:
     f32 yaw_ = 0.0f;
     f32 pitch_ = 0.0f;
     f32 speed_ = 3.0f;
-    f32 time_ = 0.0f;
-    std::vector<world::Entity> lights_;
     bool debug_draw_ = false;
 };
 

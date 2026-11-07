@@ -189,6 +189,8 @@ struct World::Impl {
     // Abfragen für for_each_parent_first(), nach (own, out, parent). flecs gibt sie mit der Welt
     // frei.
     std::map<std::array<ComponentId, 3>, ecs_query_t*> hierarchy_queries;
+    // Dasselbe mit Änderungserkennung für for_each_parent_first_changed() (TD-15).
+    std::map<std::array<ComponentId, 3>, ecs_query_t*> changed_hierarchy_queries;
 };
 
 World::World(const reflect::TypeRegistry& types) : impl_{std::make_unique<Impl>()}, types_{&types} {
@@ -376,26 +378,90 @@ std::vector<u64> World::children(u64 entity) const {
     return ids;
 }
 
+namespace {
+
+ecs_query_t* make_hierarchy_query(ecs_world_t* world, ComponentId own, ComponentId out,
+                                  ComponentId parent, bool detect_changes) {
+    ecs_query_desc_t desc{};
+    desc.terms[0].id = own;
+    desc.terms[0].inout = EcsIn;
+    desc.terms[1].id = out;
+    desc.terms[1].inout = EcsOut;
+    // Komponente beim nächsten Vorfahren; Cascade sortiert die Tabellen nach Tiefe in der
+    // Hierarchie, so kommen Eltern vor ihren Kindern.
+    desc.terms[2].id = parent;
+    desc.terms[2].src.id = EcsUp | EcsCascade;
+    desc.terms[2].trav = EcsChildOf;
+    desc.terms[2].oper = EcsOptional;
+    desc.terms[2].inout = EcsIn;
+    desc.cache_kind = EcsQueryCacheAuto;
+    if (detect_changes) {
+        desc.flags |= EcsQueryDetectChanges;
+    }
+    ecs_query_t* query = ecs_query_init(world, &desc);
+    verify(query != nullptr, "Abfrage für die Hierarchie lässt sich nicht anlegen");
+    return query;
+}
+
+} // namespace
+
+usize World::for_each_parent_first_changed(ComponentId own, ComponentId out,
+                                           HierarchyVisitor visitor) {
+    check_structural_change();
+    ecs_query_t*& query = impl_->changed_hierarchy_queries[{own, out, out}];
+    if (query == nullptr) {
+        query = make_hierarchy_query(impl_->world, own, out, out, true);
+    }
+    // Nichts geändert, nichts angelegt, nichts umgehängt: kein Chunk muss neu berechnet werden.
+    if (!ecs_query_changed(query)) {
+        return 0;
+    }
+    const usize own_size = impl_->types.at(own)->size;
+    const usize out_size = impl_->types.at(out)->size;
+    // flecs erkennt nur Änderungen in der eigenen Tabelle, nicht beim Elternteil. Deshalb merken
+    // wir uns, welche Bereiche von out in diesem Durchlauf geschrieben wurden: Liegt das
+    // Elternteil eines Chunks darin, muss auch der Chunk neu berechnet werden. Eltern kommen
+    // dank Cascade immer vor ihren Kindern.
+    std::map<const std::byte*, const std::byte*> written;
+    const auto parent_written = [&](const void* parent) {
+        if (parent == nullptr || written.empty()) {
+            return false;
+        }
+        const auto* address = static_cast<const std::byte*>(parent);
+        auto it = written.upper_bound(address);
+        if (it == written.begin()) {
+            return false;
+        }
+        --it;
+        return address < it->second;
+    };
+    usize visited = 0;
+    ecs_iter_t it = ecs_query_iter(impl_->world, query);
+    while (ecs_query_next(&it)) {
+        const void* parent_data =
+            ecs_field_is_set(&it, 2) ? ecs_field_w_size(&it, out_size, 2) : nullptr;
+        if (!ecs_iter_changed(&it) && !parent_written(parent_data)) {
+            // Unverändert: flecs setzt den Zustand der Tabelle nicht zurück und markiert out
+            // nicht als geschrieben.
+            ecs_iter_skip(&it);
+            continue;
+        }
+        void* out_data = ecs_field_w_size(&it, out_size, 1);
+        visitor.visit(visitor.context, static_cast<u32>(it.count),
+                      ecs_field_w_size(&it, own_size, 0), out_data, parent_data);
+        auto* begin = static_cast<std::byte*>(out_data);
+        written.emplace(begin, begin + static_cast<usize>(it.count) * out_size);
+        visited += static_cast<usize>(it.count);
+    }
+    return visited;
+}
+
 void World::for_each_parent_first(ComponentId own, ComponentId out, ComponentId parent,
                                   HierarchyVisitor visitor) {
     check_structural_change();
     ecs_query_t*& query = impl_->hierarchy_queries[{own, out, parent}];
     if (query == nullptr) {
-        ecs_query_desc_t desc{};
-        desc.terms[0].id = own;
-        desc.terms[0].inout = EcsIn;
-        desc.terms[1].id = out;
-        desc.terms[1].inout = EcsOut;
-        // Komponente beim nächsten Vorfahren; Cascade sortiert die Tabellen nach Tiefe in der
-        // Hierarchie, so kommen Eltern vor ihren Kindern.
-        desc.terms[2].id = parent;
-        desc.terms[2].src.id = EcsUp | EcsCascade;
-        desc.terms[2].trav = EcsChildOf;
-        desc.terms[2].oper = EcsOptional;
-        desc.terms[2].inout = EcsIn;
-        desc.cache_kind = EcsQueryCacheAuto;
-        query = ecs_query_init(impl_->world, &desc);
-        verify(query != nullptr, "Abfrage für die Hierarchie lässt sich nicht anlegen");
+        query = make_hierarchy_query(impl_->world, own, out, parent, false);
     }
     const usize own_size = impl_->types.at(own)->size;
     const usize out_size = impl_->types.at(out)->size;
