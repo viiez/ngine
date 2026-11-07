@@ -377,8 +377,8 @@ int main(int argc, char** argv) {
         // Die Assemblies liegen im Ordner „dotnet“ neben der Sandbox (TD-12).
         std::string dotnet_dir;
 #if NGINE_WITH_DOTNET
-        if (auto exe = filesystem::executable_dir()) {
-            dotnet_dir = filesystem::join(*exe, "dotnet");
+        if (auto exe = ngine::filesystem::executable_dir()) {
+            dotnet_dir = ngine::filesystem::join(*exe, "dotnet");
         }
 #endif
         exit_code = sandbox::run_script_demo(options.frames.value_or(120), dotnet_dir);
