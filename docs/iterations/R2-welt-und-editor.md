@@ -1,7 +1,7 @@
 # R2: Welt und Editor
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (R2.1 abgeschlossen, R2.2 in Arbeit)
+- **Status:** in Arbeit (R2.1 und R2.2 abgeschlossen, als Nächstes R2.3)
 - **Pull Requests:** …
 
 R2 ist der zweite Reifegrad der Konstruktion. Wie R1 ist er zu groß für eine Iteration; wir teilen

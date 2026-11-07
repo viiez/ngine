@@ -21,6 +21,7 @@ Bekannte Abkürzungen und Probleme mit Grund und Plan. Regeln und Ablauf stehen 
 | TD-25 | Punkt- und Spotlichter werfen keine Schatten | R1 braucht Schatten nur von der Sonne; Würfel- und Spot-Schattenkarten kosten Pässe und Speicher | Schattenkarten für ausgewählte Spot- und Punktlichter (Atlas), passend zu Taschenlampe und Fackeln im Spiel | R3 |
 | TD-26 | Ändert ImGui den Schriftatlas, legt der `UiRenderer` die ganze Textur neu an | `Device::upload()` kann nur ganze Texturen; mit der eingebauten Vektorschrift wächst der Atlas nur ab und zu (neue Schriftgrößen) | Teilupdates über `upload()` für Rechtecke einer Textur, wenn der Atlas oft wächst (mehr Schriften, Symbole) | bei Bedarf |
 | TD-27 | `editor_ui::reset_layout()` gilt für alle Kontexte im Prozess | Der Editor hat einen Kontext; Zustand pro Kontext bräuchte Speicher im ImGui-Kontext | Merker im Kontext ablegen (Storage von ImGui), sobald es mehrere UI-Kontexte gibt | bei Bedarf |
+| TD-28 | Umhängen im Szenenbaum behält die lokale Lage (`Transform`), das Objekt springt mit dem neuen Elternteil | Einfachster umkehrbarer Befehl für R2.2; die Weltlage zu erhalten braucht die Umrechnung über die Weltlage des neuen Elternteils | Beim Umhängen die lokale Lage aus alter Weltlage und umgekehrter Weltlage des Elternteils berechnen und im selben Befehl setzen (Skalierung ohne Scherung) | R2.3 |
 
 ## Abgebaut
 

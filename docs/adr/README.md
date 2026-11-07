@@ -38,4 +38,4 @@ betroffene Code einreichen.
 | [0027](0027-gltf-assets-material-store.md) | glTF über fastgltf, Bilder über stb_image, Materialien als Feld im GPU-Speicher | angenommen |
 | [0028](0028-lights-cascaded-shadows.md) | Lichter als Komponenten, Cascaded Shadow Maps mit eingerasteten Kugeln, Lichtliste vorwärts | angenommen |
 | [0029](0029-editor-imgui-over-rhi.md) | Editor als eigene Anwendung, Dear ImGui hinter `ngine.editor_ui`, gezeichnet über die RHI | angenommen |
-| [0030](0030-undo-commands-reflected-values.md) | Undo über Befehle mit reflektierten Werten und stabilen Entity-Kennungen | vorgeschlagen |
+| [0030](0030-undo-commands-reflected-values.md) | Undo über Befehle mit reflektierten Werten und stabilen Entity-Kennungen | angenommen |

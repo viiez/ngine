@@ -1,6 +1,6 @@
 # 0030: Undo über Befehle mit reflektierten Werten und stabilen Entity-Kennungen
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-06
 
 ## Kontext
