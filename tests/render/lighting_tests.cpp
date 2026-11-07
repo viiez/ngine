@@ -282,6 +282,9 @@ struct Scene {
     std::unique_ptr<rhi::Device> device;
     std::unique_ptr<rhi::Texture> target;
     std::unique_ptr<render::Renderer> renderer;
+    // Nach dem Renderer, damit die Modelle vor ihm freigegeben werden.
+    std::unique_ptr<asset::ResourceManager> resources;
+    u32 models = 0;
     static constexpr u32 size = 96;
 
     static std::optional<Scene> create() {
@@ -304,6 +307,8 @@ struct Scene {
         auto renderer = render::Renderer::create(*scene.device, rhi::Format::RGBA8Unorm);
         REQUIRE(renderer);
         scene.renderer = *std::move(renderer);
+        scene.resources = std::make_unique<asset::ResourceManager>();
+        scene.renderer->set_resources(scene.resources.get());
         // Kleine Schattenkarten, damit lavapipe schnell bleibt; kaum Umgebungslicht.
         scene.renderer->shadows.resolution = 512;
         scene.renderer->lighting = {.sky_color = {0.01f, 0.01f, 0.01f},
@@ -311,13 +316,20 @@ struct Scene {
         return scene;
     }
 
-    u32 mesh(const asset::Primitive& primitive, const render::Material& material) {
+    // Lädt ein Mesh hoch und meldet es als erzeugtes Modell an (R2.4); liefert den Verweis für
+    // MeshRenderer.
+    asset::AssetRef mesh(const asset::Primitive& primitive, const render::Material& material) {
         const u32 index = renderer->materials().add(material);
         const std::vector<render::SubmeshData> submeshes{
             {.vertices = primitive.vertices, .indices = primitive.indices, .material = index}};
         auto added = renderer->meshes().add(submeshes);
         REQUIRE(added);
-        return *added;
+        render::ModelInstance instance;
+        instance.meshes.push_back(*added);
+        instance.materials.push_back(index);
+        const asset::AssetId id = asset::generated_id("test.mesh." + std::to_string(++models));
+        resources->add(id, render::GpuModel{*renderer, std::move(instance), {}});
+        return {.asset = id, .index = 0};
     }
 
     std::vector<u8> render(world::World& world) {
@@ -361,10 +373,12 @@ TEST_CASE("Renderer casts sun shadows onto the ground", "[render][gpu]") {
     if (!scene) {
         SKIP("Kein nutzbares Vulkan-Gerät");
     }
-    const u32 ground = scene->mesh(asset::make_box({10.0f, 0.1f, 10.0f}),
-                                   {.base_color = {0.8f, 0.8f, 0.8f, 1.0f}, .roughness = 0.9f});
-    const u32 cube = scene->mesh(asset::make_box({0.5f, 0.5f, 0.5f}),
-                                 {.base_color = {0.8f, 0.8f, 0.8f, 1.0f}, .roughness = 0.9f});
+    const asset::AssetRef ground =
+        scene->mesh(asset::make_box({10.0f, 0.1f, 10.0f}),
+                    {.base_color = {0.8f, 0.8f, 0.8f, 1.0f}, .roughness = 0.9f});
+    const asset::AssetRef cube =
+        scene->mesh(asset::make_box({0.5f, 0.5f, 0.5f}),
+                    {.base_color = {0.8f, 0.8f, 0.8f, 1.0f}, .roughness = 0.9f});
 
     const auto types = make_types();
     world::World world{types};
@@ -403,8 +417,9 @@ TEST_CASE("Renderer lights the ground with a point light", "[render][gpu]") {
     if (!scene) {
         SKIP("Kein nutzbares Vulkan-Gerät");
     }
-    const u32 ground = scene->mesh(asset::make_box({10.0f, 0.1f, 10.0f}),
-                                   {.base_color = {0.8f, 0.8f, 0.8f, 1.0f}, .roughness = 0.9f});
+    const asset::AssetRef ground =
+        scene->mesh(asset::make_box({10.0f, 0.1f, 10.0f}),
+                    {.base_color = {0.8f, 0.8f, 0.8f, 1.0f}, .roughness = 0.9f});
     const auto types = make_types();
     world::World world{types};
     world.create("Boden")

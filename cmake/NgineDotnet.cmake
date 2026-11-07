@@ -1,5 +1,7 @@
 # Baut C#-Projekte mit dem .NET-SDK (D2, ADR 0023). Alle Assemblies landen in einem gemeinsamen
 # Ordner NGINE_DOTNET_DIR; Zwischendateien (obj, bin) im Build-Verzeichnis, nicht in den Quellen.
+# Seit R2.4 (TD-12) kopiert ngine_copy_dotnet_assemblies() sie in den Unterordner „dotnet“ neben
+# eine ausführbare Datei, die sie dort relativ zu sich sucht.
 
 if(NGINE_WITH_DOTNET)
     find_program(NGINE_DOTNET dotnet DOC ".NET-SDK")
@@ -40,4 +42,17 @@ function(ngine_add_dotnet_project target)
     if(arg_DEPENDS)
         add_dependencies(${target} ${arg_DEPENDS})
     endif()
+endfunction()
+
+# ngine_copy_dotnet_assemblies(<target> DEPENDS <dotnet-target>...)
+# Kopiert NGINE_DOTNET_DIR nach dem Bauen nach <Ordner von target>/dotnet.
+function(ngine_copy_dotnet_assemblies target)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "DEPENDS")
+    if(arg_DEPENDS)
+        add_dependencies(${target} ${arg_DEPENDS})
+    endif()
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${NGINE_DOTNET_DIR}" "$<TARGET_FILE_DIR:${target}>/dotnet"
+        COMMENT ".NET-Assemblies neben ${target}"
+        VERBATIM)
 endfunction()

@@ -7,6 +7,7 @@
 #include <vector>
 
 import ngine.core;
+import ngine.filesystem;
 import ngine.script;
 
 // Diese Tests brauchen das .NET-SDK beim Bauen und .NET 10 zur Laufzeit. Fehlt beides, werden
@@ -28,11 +29,19 @@ bool dotnet_required() {
     return value != nullptr && *value != '\0';
 }
 
-#ifdef NGINE_DOTNET_DIR
-constexpr const char* dotnet_dir = NGINE_DOTNET_DIR;
-#else
-constexpr const char* dotnet_dir = "";
+// Die Assemblies liegen im Ordner „dotnet“ neben dem Testprogramm (TD-12); ohne .NET-SDK gibt es
+// keine.
+const std::string& dotnet_directory() {
+    static const std::string directory = [] {
+#ifdef NGINE_WITH_DOTNET
+        if (auto exe = filesystem::executable_dir()) {
+            return filesystem::join(*exe, "dotnet");
+        }
 #endif
+        return std::string{};
+    }();
+    return directory;
+}
 
 // Sammelt Logzeilen, um zu prüfen, dass C# über die Engine schreibt.
 class CaptureSink final : public log::Sink {
@@ -70,13 +79,13 @@ script::ScriptRuntime& runtime() {
     static std::unique_ptr<script::ScriptRuntime> instance;
     if (!instance) {
         capture();
-        if (std::string{dotnet_dir}.empty()) {
+        if (dotnet_directory().empty()) {
             if (dotnet_required()) {
                 FAIL("Ohne .NET-SDK gebaut (NGINE_WITH_DOTNET=OFF)");
             }
             SKIP("Ohne .NET-SDK gebaut");
         }
-        auto created = script::ScriptRuntime::create({.assembly_dir = dotnet_dir});
+        auto created = script::ScriptRuntime::create({.assembly_dir = dotnet_directory()});
         if (!created) {
             if (dotnet_required()) {
                 FAIL(".NET-Laufzeit startet nicht: " + created.error());
@@ -89,7 +98,7 @@ script::ScriptRuntime& runtime() {
 }
 
 std::string test_scripts() {
-    return std::string{dotnet_dir} + "/Tests.Scripts.dll";
+    return dotnet_directory() + "/Tests.Scripts.dll";
 }
 
 } // namespace
@@ -103,7 +112,7 @@ TEST_CASE("C++ ruft C# auf und bekommt das Ergebnis", "[script]") {
 
 TEST_CASE("Es gibt nur eine Laufzeit pro Prozess", "[script]") {
     (void)runtime();
-    const auto second = script::ScriptRuntime::create({.assembly_dir = dotnet_dir});
+    const auto second = script::ScriptRuntime::create({.assembly_dir = dotnet_directory()});
     REQUIRE_FALSE(second);
     CHECK(second.error().find("schon") != std::string::npos);
 }
@@ -138,7 +147,7 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
 
 TEST_CASE("Fehlende Skript-Assembly meldet einen Fehler", "[script]") {
     auto& rt = runtime();
-    const auto result = rt.load_scripts(std::string{dotnet_dir} + "/Gibt.Es.Nicht.dll");
+    const auto result = rt.load_scripts(dotnet_directory() + "/Gibt.Es.Nicht.dll");
     CHECK_FALSE(result);
     // Danach lassen sich weiter Skripte laden.
     REQUIRE(rt.load_scripts(test_scripts()));

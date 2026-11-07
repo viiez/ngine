@@ -9,6 +9,7 @@ import ngine.core;
 import ngine.math;
 import ngine.reflect;
 import ngine.world;
+import ngine.asset;
 
 namespace ngine::render {
 
@@ -72,11 +73,16 @@ void register_types(reflect::TypeRegistry& types) {
             .range(0.0, 1.5707963267948966, 0.005)
             .field("active", &SpotLight::active);
     }
+    if (types.find<asset::AssetRef>() == nullptr) {
+        types.add<asset::AssetRef>("AssetRef")
+            .field("asset", &asset::AssetRef::asset)
+            .hint(reflect::Hint::Asset)
+            .field("index", &asset::AssetRef::index);
+    }
     if (types.find<MeshRenderer>() == nullptr) {
         types.add<MeshRenderer>("MeshRenderer")
             .field("mesh", &MeshRenderer::mesh)
-            .field("material", &MeshRenderer::material)
-            .transient();
+            .field("material", &MeshRenderer::material);
     }
 }
 

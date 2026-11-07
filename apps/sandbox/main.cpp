@@ -45,6 +45,7 @@
 #include <variant>
 
 import ngine.core;
+import ngine.filesystem;
 import ngine.render;
 import ngine.rhi;
 import ngine.rhi.vulkan;
@@ -373,7 +374,14 @@ int main(int argc, char** argv) {
     if (options.jobs_demo) {
         exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
     } else if (options.script_demo) {
-        exit_code = sandbox::run_script_demo(options.frames.value_or(120), NGINE_DOTNET_DIR);
+        // Die Assemblies liegen im Ordner „dotnet“ neben der Sandbox (TD-12).
+        std::string dotnet_dir;
+#if NGINE_WITH_DOTNET
+        if (auto exe = filesystem::executable_dir()) {
+            dotnet_dir = filesystem::join(*exe, "dotnet");
+        }
+#endif
+        exit_code = sandbox::run_script_demo(options.frames.value_or(120), dotnet_dir);
     } else if (options.net_demo) {
         exit_code = sandbox::run_net_demo(options.frames.value_or(180));
     } else if (options.server) {

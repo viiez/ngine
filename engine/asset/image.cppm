@@ -30,4 +30,12 @@ struct Image {
 // Lädt ein Bild von der Platte; der Pfad ist UTF-8.
 [[nodiscard]] Result<Image> load_image(std::string_view path);
 
+// Stufen der vollen Mip-Kette: jede Stufe halb so groß (abgerundet, mindestens 1) bis 1x1.
+[[nodiscard]] u32 mip_count(u32 width, u32 height) noexcept;
+
+// Alle Mip-Stufen des Bildes hintereinander, Stufe 0 zuerst, jede Zeile ohne Abstand (TD-17).
+// Jede Stufe ist das 2x2-Mittel der vorigen; mit srgb wird in linearen Werten gemittelt, Alpha
+// immer linear. levels 0 meint die volle Kette. Liefert nichts bei einem leeren Bild.
+[[nodiscard]] std::vector<std::byte> mip_chain(const Image& image, bool srgb, u32 levels = 0);
+
 } // namespace ngine::asset

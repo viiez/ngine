@@ -1,8 +1,12 @@
 module;
 
+#include <cstddef>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 export module ngine.render:renderer;
@@ -92,7 +96,17 @@ struct RenderStats {
     u32 shadow_draws = 0;
     u32 lights = 0;
     u32 debug_lines = 0;
+    // MeshRenderer, deren Modell noch lädt (oder nicht geladen werden konnte).
+    u32 waiting = 0;
 };
+
+// Liefert SPIR-V für einen Einstiegspunkt einer Shader-Datei (z. B. „pbr.slang“), für Hot Reload
+// der Shader (PLAT-06). Der Renderer kennt keinen Shader-Compiler; die Anwendung reicht ihn
+// hinein.
+using ShaderSource = std::function<rhi::Result<std::vector<u32>>(
+    std::string_view file, std::string_view entry, rhi::ShaderStage stage)>;
+
+class GpuModel;
 
 // Zeichnet die Welt (REND-07, REND-08, REND-09, REND-11, REND-15): von der ersten aktiven Kamera
 // aus alle MeshRenderer, vorwärts mit PBR in ein HDR-Ziel, danach Tone Mapping in das Ziel.
@@ -109,6 +123,20 @@ public:
 
     [[nodiscard]] MeshStore& meshes() noexcept;
     [[nodiscard]] MaterialStore& materials() noexcept;
+    [[nodiscard]] rhi::Device& device() noexcept;
+
+    // Ressourcen-Manager, aus dem der Renderer die Modelle der MeshRenderer lädt (R2.4). Ohne ihn
+    // zeichnet er keine Meshes. Muss den Renderer überleben oder vorher zurückgesetzt werden.
+    void set_resources(asset::ResourceManager* resources) noexcept;
+    [[nodiscard]] asset::ResourceManager* resources() noexcept;
+    // Mesh, auf das ref zeigt, wenn sein Modell geladen ist; beginnt sonst das Laden.
+    [[nodiscard]] const GpuMesh* find_mesh(const asset::AssetRef& ref);
+    // Modell zu einer Kennung, wenn geladen; beginnt sonst das Laden.
+    [[nodiscard]] const GpuModel* find_model(asset::AssetId id);
+
+    // Übersetzt die Shader des Renderers neu aus ihren Quellen und baut die Pipelines neu (Hot
+    // Reload). Scheitert ein Shader, bleibt alles beim Alten.
+    rhi::Result<void> reload_shaders(const ShaderSource& source);
 
     Lighting lighting;
     ShadowSettings shadows;
@@ -142,21 +170,71 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Meshes und Materialien eines Modells im Renderer: Index im MeshStore pro asset::Mesh, Index im
-// MaterialStore pro asset::Material.
+// Meshes, Materialien und Texturen eines Modells im Renderer: Index im MeshStore pro asset::Mesh,
+// Index im MaterialStore pro asset::Material, bindlose Indizes der hochgeladenen Bilder.
 struct ModelInstance {
     std::vector<u32> meshes;
     std::vector<u32> materials;
+    std::vector<u32> textures;
 };
 
-// Lädt Bilder, Materialien und Meshes eines Modells hoch. Bilder, die nur als Grundfarbe oder
-// Emission dienen, werden sRGB, alle anderen linear.
-[[nodiscard]] rhi::Result<ModelInstance> upload_model(Renderer& renderer,
-                                                      const asset::Model& model);
+// Ein Modell auf der GPU, wie der Ressourcen-Manager es hält (ASSET-04): seine Meshes,
+// Materialien und Texturen in den Speichern des Renderers und sein Aufbau (Knoten, Namen,
+// Materialien) ohne Eckpunkte und Pixel. Gibt beim Zerstören alles wieder frei; der Renderer muss
+// es überleben.
+class GpuModel {
+public:
+    GpuModel(Renderer& renderer, ModelInstance instance, asset::Model layout,
+             rhi::UploadTicket ticket = {});
+    ~GpuModel();
+    GpuModel(GpuModel&& other) noexcept;
+    GpuModel& operator=(GpuModel&& other) noexcept;
+    GpuModel(const GpuModel&) = delete;
+    GpuModel& operator=(const GpuModel&) = delete;
 
-// Legt für die Knoten der Szene Entities an (Name, Transform, MeshRenderer, Hierarchie) unter einer
-// neuen Wurzel-Entity und liefert sie.
-world::Entity spawn_model(world::World& world, const asset::Model& model,
-                          const ModelInstance& instance, std::string_view name);
+    [[nodiscard]] const ModelInstance& instance() const noexcept {
+        return instance_;
+    }
+    // Knoten, Meshes (ohne Eckpunkte), Materialien; Bilder ohne Pixel.
+    [[nodiscard]] const asset::Model& layout() const noexcept {
+        return layout_;
+    }
+    // Uploads im Hintergrund (TD-17); der Renderer zeichnet das Modell erst, wenn es erledigt ist.
+    [[nodiscard]] rhi::UploadTicket ticket() const noexcept {
+        return ticket_;
+    }
+
+private:
+    void release() noexcept;
+
+    Renderer* renderer_ = nullptr;
+    ModelInstance instance_;
+    asset::Model layout_;
+    rhi::UploadTicket ticket_;
+};
+
+// Mip-Ketten der Texturen eines Modells (asset::mip_chain()), je Bild und Farbraum.
+struct MipChains {
+    std::map<std::pair<u32, bool>, std::vector<std::byte>> chains;
+};
+
+// Rechnet die Mip-Ketten aller Texturen, die Materialien des Modells benutzen. Braucht keine GPU
+// und läuft deshalb im Hintergrund beim Laden (TD-17).
+[[nodiscard]] MipChains prepare_mips(const asset::Model& model);
+
+// Lädt Bilder, Materialien und Meshes eines Modells hoch. Bilder, die nur als Grundfarbe oder
+// Emission dienen, werden sRGB, alle anderen linear. Mit mips laufen die Uploads im Hintergrund
+// (GpuModel::ticket()); fehlt eine Kette darin, rechnet die GPU die Stufen wie ohne mips.
+[[nodiscard]] rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model,
+                                                 const MipChains* mips = nullptr);
+
+// Meldet beim Ressourcen-Manager, wie GpuModel aus glTF-Dateien entstehen: lesen und dekodieren
+// im Hintergrund, hochladen in update(). renderer muss den Manager überleben.
+void register_loaders(asset::ResourceManager& resources, Renderer& renderer);
+
+// Legt für die Knoten der Szene Entities an (Name, Transform, MeshRenderer mit Verweisen auf das
+// Modell model_id, Hierarchie) unter einer neuen Wurzel-Entity und liefert sie.
+world::Entity spawn_model(world::World& world, const asset::Model& layout, asset::AssetId model_id,
+                          std::string_view name);
 
 } // namespace ngine::render

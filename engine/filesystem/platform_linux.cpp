@@ -1,6 +1,11 @@
 module;
 
+#include <unistd.h>
+
+#include <array>
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <expected>
 #include <string>
 
@@ -20,6 +25,17 @@ std::expected<std::string, std::string> platform_user_data_dir() {
         return std::string{home} + "/.local/share";
     }
     return std::unexpected(std::string{"Weder XDG_DATA_HOME noch HOME ist gesetzt"});
+}
+
+// Über den Verweis /proc/self/exe.
+std::expected<std::string, std::string> platform_executable_path() {
+    std::array<char, 4096> buffer{};
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+    if (length <= 0) {
+        return std::unexpected(std::string{"Pfad der Anwendung unbekannt: "} +
+                               std::strerror(errno));
+    }
+    return std::string{buffer.data(), static_cast<std::size_t>(length)};
 }
 
 } // namespace ngine::filesystem

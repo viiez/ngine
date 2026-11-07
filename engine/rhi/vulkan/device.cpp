@@ -8,6 +8,7 @@ module;
 #include <cstddef>
 #include <cstring>
 #include <expected>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -80,6 +81,30 @@ public:
         uploader_.upload(static_cast<const VulkanTexture&>(texture), data);
     }
 
+    [[nodiscard]] UploadTicket upload_async(Buffer& buffer,
+                                            std::span<const std::byte> data) override {
+        const auto& target = static_cast<const VulkanBuffer&>(buffer);
+        if (transfer_queue_ == VK_NULL_HANDLE) {
+            uploader_.upload(target, 0, data);
+            return {};
+        }
+        transfer_uploader_.upload(target, 0, data);
+        return open_transfer_batch();
+    }
+    [[nodiscard]] UploadTicket upload_async(Texture& texture,
+                                            std::span<const std::byte> data) override {
+        const auto& target = static_cast<const VulkanTexture&>(texture);
+        if (transfer_queue_ == VK_NULL_HANDLE) {
+            uploader_.upload_levels(target, data);
+            return {};
+        }
+        transfer_uploader_.upload_levels(target, data);
+        return open_transfer_batch();
+    }
+    [[nodiscard]] bool upload_done(UploadTicket ticket) const override {
+        return ticket.value <= transfer_seen_;
+    }
+
     [[nodiscard]] Format swapchain_format() const override {
         return swapchain_ ? swapchain_->format() : Format::Unknown;
     }
@@ -127,8 +152,16 @@ private:
     // Gibt frei, was die GPU nicht mehr braucht: Löschliste und Staging-Speicher.
     void collect();
     // Gibt cmd ab, davor die gesammelten Upload-Kopien. Signalisiert die Timeline mit dem Wert
-    // der Abgabe, den die Funktion liefert, und optional signal.
+    // der Abgabe, den die Funktion liefert, und optional signal. Vorher gehen die Kopien der
+    // Transfer-Queue ab.
     u64 submit(VkCommandBuffer cmd, const VkSemaphoreSubmitInfo* wait, VkSemaphore signal);
+    // Gibt die gesammelten Kopien an die Transfer-Queue ab (TD-17).
+    void submit_transfer();
+    // Ticket der Kopien, die mit der nächsten Abgabe an die Transfer-Queue gehen.
+    UploadTicket open_transfer_batch() {
+        context_.transfer_next = transfer_submitted_ + 1;
+        return {transfer_submitted_ + 1};
+    }
 
     // Muss vor instance_ stehen: Die Debug-Schicht zählt bis zum Zerstören der Instanz.
     std::atomic<u32> validation_errors_{0};
@@ -141,6 +174,16 @@ private:
     // Gemeinsamer Zustand für alle Ressourcen; lebt so lange wie das Device.
     DeviceContext context_;
     Uploader uploader_;
+
+    // Eigene Transfer-Queue (TD-17), nur wo die GPU eine Familie nur für Kopien hat. Ihre
+    // Abgaben zählt eine eigene Timeline; transfer_seen_ ist der Stand, den die CPU zuletzt
+    // gelesen hat. Jede Abgabe an die Grafik-Queue wartet auf ihn, deshalb sind alle Kopien bis
+    // dahin für sie sichtbar.
+    VkQueue transfer_queue_ = VK_NULL_HANDLE;
+    Uploader transfer_uploader_;
+    VkSemaphore transfer_timeline_ = VK_NULL_HANDLE;
+    u64 transfer_submitted_ = 0;
+    u64 transfer_seen_ = 0;
 
     // Nur mit Fenster vorhanden.
     std::unique_ptr<Swapchain> swapchain_;
@@ -174,7 +217,7 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
 
     auto physical_device =
         pick_physical_device(instance_.handle(), instance_.surface(), desc.disabled_features,
-                             instance_.surface_maintenance1());
+                             instance_.surface_maintenance1(), desc.transfer_queue);
     if (!physical_device) {
         return std::unexpected(std::move(physical_device).error());
     }
@@ -198,6 +241,21 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     context_.bindless.init(physical_device_.handle, device_);
     create_command_resources();
     uploader_.init(context_, physical_device_.queue_family);
+    if (const auto family = physical_device_.transfer_family) {
+        vkGetDeviceQueue(device_, *family, 0, &transfer_queue_);
+        context_.queue_families = {physical_device_.queue_family, *family};
+        context_.queue_family_count = 2;
+        transfer_uploader_.init(context_, *family, true);
+        const VkSemaphoreTypeCreateInfo timeline_type{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+            .initialValue = 0,
+        };
+        const VkSemaphoreCreateInfo timeline_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                                                  .pNext = &timeline_type};
+        check(vkCreateSemaphore(device_, &timeline_info, nullptr, &transfer_timeline_),
+              "vkCreateSemaphore (Transfer)");
+    }
 
     if (with_swapchain) {
         swapchain_ = std::make_unique<Swapchain>(
@@ -212,6 +270,10 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     log::info("Vulkan-Gerät: {} ({}), Vulkan {}", caps.device_name, to_string(caps.device_type),
               caps.api_version);
     log::info("Optionale Stufen: {}", describe(caps.features));
+    log::info("Transfer-Queue für Uploads im Hintergrund: {}",
+              transfer_queue_ != VK_NULL_HANDLE
+                  ? std::format("ja (Familie {})", *physical_device_.transfer_family)
+                  : std::string{"nein"});
     log::debug(
         "Present-Fences (VK_EXT_swapchain_maintenance1): {}, kalibrierte Zeitstempel: {}",
         with_swapchain && desc.present_fences && physical_device_.swapchain_maintenance1 ? "ja"
@@ -296,12 +358,45 @@ void VulkanDevice::create_command_resources() {
 
 void VulkanDevice::collect() {
     const u64 completed = context_.completed();
-    context_.deletion.collect(completed);
+    if (transfer_queue_ != VK_NULL_HANDLE) {
+        check(vkGetSemaphoreCounterValue(device_, transfer_timeline_, &transfer_seen_),
+              "vkGetSemaphoreCounterValue (Transfer)");
+        transfer_uploader_.collect(transfer_seen_);
+        context_.deletion.collect(completed, transfer_seen_);
+    } else {
+        context_.deletion.collect(completed);
+    }
     uploader_.collect(completed);
+}
+
+void VulkanDevice::submit_transfer() {
+    if (transfer_queue_ == VK_NULL_HANDLE || !transfer_uploader_.has_batch()) {
+        return;
+    }
+    const u64 value = transfer_submitted_ + 1;
+    const VkCommandBuffer copies = transfer_uploader_.finish(value);
+    const VkCommandBufferSubmitInfo command{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+                                            .commandBuffer = copies};
+    const VkSemaphoreSubmitInfo signal{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                                       .semaphore = transfer_timeline_,
+                                       .value = value,
+                                       .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    const VkSubmitInfo2 submit_info{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = &command,
+        .signalSemaphoreInfoCount = 1,
+        .pSignalSemaphoreInfos = &signal,
+    };
+    check(vkQueueSubmit2(transfer_queue_, 1, &submit_info, VK_NULL_HANDLE),
+          "vkQueueSubmit2 (Transfer)");
+    transfer_submitted_ = value;
+    context_.transfer_next = value;
 }
 
 u64 VulkanDevice::submit(VkCommandBuffer cmd, const VkSemaphoreSubmitInfo* wait,
                          VkSemaphore signal) {
+    submit_transfer();
     const u64 value = context_.next_submission();
     std::array<VkCommandBufferSubmitInfo, 2> commands{};
     u32 command_count = 0;
@@ -323,10 +418,23 @@ u64 VulkanDevice::submit(VkCommandBuffer cmd, const VkSemaphoreSubmitInfo* wait,
                                    .semaphore = signal,
                                    .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
     }
+    // Warten auf die Kopien der Transfer-Queue, die die CPU schon fertig gesehen hat: Das kostet
+    // nichts und macht sie für diese Abgabe sichtbar (upload_done()).
+    std::array<VkSemaphoreSubmitInfo, 2> waits{};
+    u32 wait_count = 0;
+    if (wait != nullptr) {
+        waits[wait_count++] = *wait;
+    }
+    if (transfer_seen_ > 0) {
+        waits[wait_count++] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                               .semaphore = transfer_timeline_,
+                               .value = transfer_seen_,
+                               .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    }
     const VkSubmitInfo2 submit_info{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        .waitSemaphoreInfoCount = wait != nullptr ? 1u : 0u,
-        .pWaitSemaphoreInfos = wait,
+        .waitSemaphoreInfoCount = wait_count,
+        .pWaitSemaphoreInfos = waits.data(),
         .commandBufferInfoCount = command_count,
         .pCommandBufferInfos = commands.data(),
         .signalSemaphoreInfoCount = signal_count,
@@ -349,6 +457,10 @@ VulkanDevice::~VulkanDevice() {
         log::debug("Vulkan: {} Objekte beim Beenden aus der Löschliste freigegeben", leftover);
     }
     uploader_.destroy();
+    transfer_uploader_.destroy();
+    if (transfer_timeline_ != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device_, transfer_timeline_, nullptr);
+    }
     for (FrameData& frame : frames_) {
         vkDestroySemaphore(device_, frame.image_available, nullptr);
         vkDestroyCommandPool(device_, frame.pool, nullptr);
@@ -461,8 +573,18 @@ void VulkanDevice::execute(const std::function<void(CommandList&)>& record) {
     record(commands);
 
     check(vkEndCommandBuffer(immediate_cmd_), "vkEndCommandBuffer");
-    // Wartet absichtlich: execute() ist für Werkzeuge und Tests gedacht, nicht für Frames.
+    // Wartet absichtlich: execute() ist für Werkzeuge und Tests gedacht, nicht für Frames. Auch
+    // auf die Transfer-Queue, damit Uploads im Hintergrund danach erledigt sind.
     context_.wait(submit(immediate_cmd_, nullptr, VK_NULL_HANDLE));
+    if (transfer_submitted_ > 0) {
+        const VkSemaphoreWaitInfo wait_info{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .semaphoreCount = 1,
+            .pSemaphores = &transfer_timeline_,
+            .pValues = &transfer_submitted_,
+        };
+        check(vkWaitSemaphores(device_, &wait_info, ~u64{0}), "vkWaitSemaphores (Transfer)");
+    }
     collect();
 }
 

@@ -13,8 +13,8 @@ und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlo
 Nächstes folgt [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) mit fünf Iterationen; davon
 sind [R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und Viewport),
 [R2.2](iterations/R2.2-szenenbaum-inspector-undo.md) (Szenenbaum, Inspector, Undo) und
-[R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor) abgeschlossen, als
-Nächstes kommt R2.4 (Asset-IDs, Ressourcen, Hot Reload).
+[R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor) abgeschlossen, in Arbeit ist
+[R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload).
 
 ## Phasen und Iterationen
 

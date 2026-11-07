@@ -2,6 +2,7 @@ module;
 
 #include <ngine/profile.hpp>
 
+#include <cstddef>
 #include <expected>
 #include <functional>
 #include <map>
@@ -25,10 +26,95 @@ namespace ngine::render {
 
 // --- Modelle --------------------------------------------------------------------------------
 
-rhi::Result<ModelInstance> upload_model(Renderer& renderer, const asset::Model& model) {
+// --- GpuModel -------------------------------------------------------------------------------
+
+GpuModel::GpuModel(Renderer& renderer, ModelInstance instance, asset::Model layout,
+                   rhi::UploadTicket ticket)
+    : renderer_{&renderer}, instance_{std::move(instance)}, layout_{std::move(layout)},
+      ticket_{ticket} {}
+
+GpuModel::~GpuModel() {
+    release();
+}
+
+GpuModel::GpuModel(GpuModel&& other) noexcept
+    : renderer_{std::exchange(other.renderer_, nullptr)}, instance_{std::move(other.instance_)},
+      layout_{std::move(other.layout_)}, ticket_{other.ticket_} {}
+
+GpuModel& GpuModel::operator=(GpuModel&& other) noexcept {
+    if (this != &other) {
+        release();
+        renderer_ = std::exchange(other.renderer_, nullptr);
+        instance_ = std::move(other.instance_);
+        layout_ = std::move(other.layout_);
+        ticket_ = other.ticket_;
+    }
+    return *this;
+}
+
+void GpuModel::release() noexcept {
+    if (renderer_ == nullptr) {
+        return;
+    }
+    for (const u32 mesh : instance_.meshes) {
+        renderer_->meshes().remove(mesh);
+    }
+    for (const u32 material : instance_.materials) {
+        renderer_->materials().remove(material);
+    }
+    for (const u32 texture : instance_.textures) {
+        renderer_->materials().remove_texture(texture);
+    }
+    renderer_ = nullptr;
+}
+
+// --- Modelle --------------------------------------------------------------------------------
+
+namespace {
+
+// Ruft fn(Bild, srgb, mipmaps) für jede Textur, die ein Material benutzt.
+template <typename Fn>
+void for_each_texture(const asset::Model& model, Fn&& fn) {
+    const auto visit = [&](const std::optional<u32>& texture, bool srgb) {
+        if (!texture || *texture >= model.textures.size()) {
+            return;
+        }
+        const asset::Texture& source = model.textures[*texture];
+        if (source.image < model.images.size()) {
+            fn(source.image, srgb, source.sampler.mipmaps);
+        }
+    };
+    for (const asset::Material& material : model.materials) {
+        visit(material.base_color_texture, true);
+        visit(material.metallic_roughness_texture, false);
+        visit(material.normal_texture, false);
+        visit(material.occlusion_texture, false);
+        visit(material.emissive_texture, true);
+    }
+}
+
+} // namespace
+
+MipChains prepare_mips(const asset::Model& model) {
+    NGINE_PROFILE_ZONE("render::prepare_mips");
+    MipChains mips;
+    for_each_texture(model, [&](u32 image, bool srgb, bool mipmaps) {
+        const auto key = std::make_pair(image, srgb);
+        if (!mips.chains.contains(key)) {
+            mips.chains.emplace(key, asset::mip_chain(model.images[image], srgb, mipmaps ? 0 : 1));
+        }
+    });
+    return mips;
+}
+
+rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model,
+                                   const MipChains* mips) {
     NGINE_PROFILE_ZONE("render::upload_model");
     MaterialStore& materials = renderer.materials();
     ModelInstance instance;
+    rhi::UploadTicket ticket;
+    // Gibt bei einem Fehler unterwegs wieder frei, was schon hochgeladen ist.
+    GpuModel partial{renderer, {}, {}};
 
     // Jedes Bild höchstens einmal je Farbraum.
     std::map<std::pair<u32, bool>, u32> uploaded;
@@ -44,12 +130,25 @@ rhi::Result<ModelInstance> upload_model(Renderer& renderer, const asset::Model& 
         const auto key = std::make_pair(source.image, srgb);
         auto found = uploaded.find(key);
         if (found == uploaded.end()) {
+            const asset::Image& image = model.images[source.image];
+            const std::vector<std::byte>* chain = nullptr;
+            if (mips != nullptr) {
+                if (const auto it = mips->chains.find(key); it != mips->chains.end()) {
+                    chain = &it->second;
+                }
+            }
+            const rhi::Extent2D extent{image.width, image.height};
             auto index =
-                materials.add_texture(model.images[source.image], srgb, source.sampler.mipmaps);
+                chain != nullptr
+                    ? materials.add_texture_async(
+                          extent, srgb, source.sampler.mipmaps ? rhi::full_mip_count(extent) : 1,
+                          *chain, ticket)
+                    : materials.add_texture(image, srgb, source.sampler.mipmaps);
             if (!index) {
                 error = index.error();
                 return {};
             }
+            instance.textures.push_back(*index);
             found = uploaded.emplace(key, *index).first;
         }
         const auto filter = [](asset::Filter f) {
@@ -95,6 +194,7 @@ rhi::Result<ModelInstance> upload_model(Renderer& renderer, const asset::Model& 
             .double_sided = source.double_sided,
         };
         if (error) {
+            partial = GpuModel{renderer, std::move(instance), {}};
             return std::unexpected("Modell, Textur: " + *error);
         }
         instance.materials.push_back(materials.add(material));
@@ -109,17 +209,62 @@ rhi::Result<ModelInstance> upload_model(Renderer& renderer, const asset::Model& 
                     : 0;
             submeshes.push_back({primitive.vertices, primitive.indices, material});
         }
-        auto index = renderer.meshes().add(submeshes);
+        auto index = renderer.meshes().add(submeshes, mips != nullptr ? &ticket : nullptr);
         if (!index) {
+            partial = GpuModel{renderer, std::move(instance), {}};
             return std::unexpected("Modell, Mesh " + mesh.name + ": " + index.error());
         }
         instance.meshes.push_back(*index);
     }
-    return instance;
+
+    // Aufbau ohne die großen Daten, die jetzt auf der GPU liegen.
+    asset::Model layout;
+    layout.materials = model.materials;
+    layout.textures = model.textures;
+    layout.nodes = model.nodes;
+    layout.roots = model.roots;
+    for (const asset::Mesh& mesh : model.meshes) {
+        asset::Mesh& copy = layout.meshes.emplace_back();
+        copy.name = mesh.name;
+        for (const asset::Primitive& primitive : mesh.primitives) {
+            copy.primitives.push_back(
+                {.vertices = {}, .indices = {}, .material = primitive.material});
+        }
+    }
+    for (const asset::Image& image : model.images) {
+        layout.images.push_back(
+            {.name = image.name, .width = image.width, .height = image.height, .pixels = {}});
+    }
+    return GpuModel{renderer, std::move(instance), std::move(layout), ticket};
 }
 
-world::Entity spawn_model(world::World& world, const asset::Model& model,
-                          const ModelInstance& instance, std::string_view name) {
+void register_loaders(asset::ResourceManager& resources, Renderer& renderer) {
+    // Was im Hintergrund entsteht: das dekodierte Modell und seine Mip-Ketten.
+    struct Prepared {
+        asset::Model model;
+        MipChains mips;
+    };
+    resources.add_loader<GpuModel, Prepared>(
+        [](const asset::LoadContext& context) -> asset::Result<Prepared> {
+            auto model = asset::load_gltf(context.path, context.dependencies);
+            if (!model) {
+                return std::unexpected(std::move(model.error()));
+            }
+            Prepared prepared{.model = *std::move(model), .mips = {}};
+            prepared.mips = prepare_mips(prepared.model);
+            return prepared;
+        },
+        [&renderer](Prepared& prepared) -> asset::Result<GpuModel> {
+            auto uploaded = upload_model(renderer, prepared.model, &prepared.mips);
+            if (!uploaded) {
+                return std::unexpected(std::move(uploaded.error()));
+            }
+            return std::move(*uploaded);
+        });
+}
+
+world::Entity spawn_model(world::World& world, const asset::Model& model, asset::AssetId model_id,
+                          std::string_view name) {
     world::Entity root = world.create(name);
     root.set(world::Transform{});
     // Rekursiv über die Hierarchie; die Tiefe ist durch die Prüfung auf Zyklen beim Laden
@@ -130,8 +275,8 @@ world::Entity spawn_model(world::World& world, const asset::Model& model,
         entity.set(world::Transform{.position = math::to_f64(node.translation),
                                     .rotation = node.rotation,
                                     .scale = node.scale});
-        if (node.mesh && *node.mesh < instance.meshes.size()) {
-            entity.set(MeshRenderer{.mesh = instance.meshes[*node.mesh]});
+        if (node.mesh && *node.mesh < model.meshes.size()) {
+            entity.set(MeshRenderer{.mesh = {.asset = model_id, .index = *node.mesh}});
         }
         entity.set_parent(parent);
         for (const u32 child : node.children) {

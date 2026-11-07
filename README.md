@@ -73,8 +73,12 @@ benennt F2 um, Ziehen hängt um, Entf löscht; Strg+Z und Strg+Y machen rückgä
 Strg+N, Strg+O und Strg+S legen an, öffnen und speichern. Seit R2.3 hat die Auswahl einen Gizmo:
 W verschiebt, E dreht, R skaliert (Werkzeugleiste über dem Viewport, dort auch lokale Achsen und
 Raster; Strg beim Ziehen kehrt das Raster um), jedes Ziehen ist ein Undo-Schritt. F5 spielt (die
-Lichter der Standardszene kreisen) und stoppt; danach steht alles wie vorher. Optionen:
+Lichter der Standardszene kreisen) und stoppt; danach steht alles wie vorher. Seit R2.4 listet
+das Fenster „Assets“ alles unter `assets/`; Modelle zieht man von dort ins Viewport. Gespeicherte
+Shader unter `engine/shaders/`, Texturen und Modelle lädt der Editor ohne Neustart neu. Optionen:
 `--scene <pfad>` (Szene öffnen), `--save <pfad>` (beim Beenden speichern), `--model <pfad>`,
+`--assets <pfad>` und `--shaders <pfad>` (Asset-Ordner und Shader-Quellen, sonst vom
+Arbeitsverzeichnis aufwärts gesucht), `--insert <pfad>` (Modell aus dem Asset-Ordner einfügen),
 `--frames <n>`, `--play <n>` (gleich spielen und nach n Frames stoppen), `--no-vsync`,
 `--baseline`, `--no-ini` (Lage der Fenster weder laden noch speichern). Log und Lage der Fenster
 liegen im Benutzerordner unter `NGine/editor.log` und `NGine/editor.ini`.

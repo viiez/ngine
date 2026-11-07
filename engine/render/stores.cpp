@@ -44,9 +44,27 @@ MaterialStore::MaterialStore(rhi::Device& device) : device_{&device} {
 }
 
 u32 MaterialStore::add(const Material& material) {
-    materials_.push_back(material);
     dirty_ = true;
+    if (!free_.empty()) {
+        const u32 index = free_.back();
+        free_.pop_back();
+        materials_[index] = material;
+        return index;
+    }
+    materials_.push_back(material);
     return static_cast<u32>(materials_.size() - 1);
+}
+
+void MaterialStore::remove(u32 index) {
+    if (index == 0 || index >= materials_.size() ||
+        std::ranges::find(free_, index) != free_.end()) {
+        return;
+    }
+    // Bis zur Wiederverwendung zeigt der Platz das Standardmaterial; Draws, die noch im Flug sind,
+    // lesen den alten Puffer.
+    materials_[index] = Material{};
+    free_.push_back(index);
+    dirty_ = true;
 }
 
 void MaterialStore::set(u32 index, const Material& material) {
@@ -74,6 +92,35 @@ rhi::Result<u32> MaterialStore::add_texture(const asset::Image& image, bool srgb
     const u32 index = (*texture)->sampled_index();
     textures_.push_back(*std::move(texture));
     return index;
+}
+
+rhi::Result<u32> MaterialStore::add_texture_async(rhi::Extent2D extent, bool srgb, u32 levels,
+                                                  std::span<const std::byte> chain,
+                                                  rhi::UploadTicket& ticket) {
+    if (extent.width == 0 || extent.height == 0 || levels == 0 ||
+        chain.size() != rhi::mip_chain_size(extent, levels, 4)) {
+        return std::unexpected("Mip-Kette passt nicht zur Textur");
+    }
+    auto texture = device_->create_texture({
+        .extent = extent,
+        .format = srgb ? rhi::Format::RGBA8Srgb : rhi::Format::RGBA8Unorm,
+        .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+        .mip_levels = levels,
+    });
+    if (!texture) {
+        return std::unexpected(texture.error());
+    }
+    ticket = rhi::later(ticket, device_->upload_async(**texture, chain));
+    const u32 index = (*texture)->sampled_index();
+    textures_.push_back(*std::move(texture));
+    return index;
+}
+
+void MaterialStore::remove_texture(u32 index) {
+    // Das Device gibt die Textur frei, wenn die GPU sie nicht mehr braucht.
+    std::erase_if(textures_, [&](const std::unique_ptr<rhi::Texture>& texture) {
+        return texture->sampled_index() == index;
+    });
 }
 
 rhi::Result<u32> MaterialStore::sampler(const rhi::SamplerDesc& desc) {
@@ -125,7 +172,7 @@ u64 MaterialStore::address() const {
 
 // --- MeshStore ------------------------------------------------------------------------------
 
-rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes) {
+rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::UploadTicket* ticket) {
     GpuMesh mesh;
     std::vector<asset::Vertex> vertices;
     std::vector<u32> indices;
@@ -169,13 +216,33 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes) {
         if (!index_buffer) {
             return std::unexpected(index_buffer.error());
         }
-        device_->upload(**vertex_buffer, 0, vertex_bytes);
-        device_->upload(**index_buffer, 0, index_bytes);
+        if (ticket != nullptr) {
+            *ticket = rhi::later(*ticket, device_->upload_async(**vertex_buffer, vertex_bytes));
+            *ticket = rhi::later(*ticket, device_->upload_async(**index_buffer, index_bytes));
+        } else {
+            device_->upload(**vertex_buffer, 0, vertex_bytes);
+            device_->upload(**index_buffer, 0, index_bytes);
+        }
         mesh.vertices = *std::move(vertex_buffer);
         mesh.indices = *std::move(index_buffer);
     }
+    if (!free_.empty()) {
+        const u32 index = free_.back();
+        free_.pop_back();
+        meshes_[index] = std::move(mesh);
+        return index;
+    }
     meshes_.push_back(std::move(mesh));
     return static_cast<u32>(meshes_.size() - 1);
+}
+
+void MeshStore::remove(u32 index) {
+    if (index >= meshes_.size() || std::ranges::find(free_, index) != free_.end()) {
+        return;
+    }
+    // Die Puffer gibt das Device frei, wenn die GPU sie nicht mehr braucht.
+    meshes_[index] = GpuMesh{};
+    free_.push_back(index);
 }
 
 } // namespace ngine::render

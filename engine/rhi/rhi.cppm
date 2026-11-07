@@ -133,6 +133,9 @@ struct DeviceDesc {
     // Present-Fences (bei Vulkan VK_EXT_swapchain_maintenance1) nutzen, wo vorhanden; aus nur, um
     // den Rückfallpfad zu testen.
     bool present_fences = true;
+    // Eigene Transfer-Queue für upload_async() nutzen, wo die GPU eine hat (TD-17); aus nur, um
+    // den Rückfallpfad zu testen.
+    bool transfer_queue = true;
 };
 
 // Zeitstempel der GPU (Ticks) mit der Zeit der CPU zum selben Moment
@@ -152,7 +155,32 @@ struct Capabilities {
     f32 max_anisotropy = 1.0f;
     // Nanosekunden pro Tick der GPU-Zeitstempel; 0, wenn die Queue keine Zeitstempel kann.
     f32 timestamp_period = 0.0f;
+    // upload_async() läuft auf einer eigenen Transfer-Queue (TD-17).
+    bool transfer_queue = false;
 };
+
+// Bytes aller Mip-Stufen einer Textur, Stufe 0 zuerst, jede Zeile ohne Abstand.
+[[nodiscard]] constexpr u64 mip_chain_size(Extent2D extent, u32 levels, u32 pixel_bytes) noexcept {
+    u64 size = 0;
+    u32 width = extent.width;
+    u32 height = extent.height;
+    for (u32 level = 0; level < levels; ++level) {
+        size += u64{width} * height * pixel_bytes;
+        width = width > 1 ? width / 2 : 1;
+        height = height > 1 ? height / 2 : 1;
+    }
+    return size;
+}
+
+// Kennung eines Uploads im Hintergrund (Device::upload_async()).
+struct UploadTicket {
+    u64 value = 0;
+};
+
+// Das spätere von zwei Tickets: erledigt, wenn beide erledigt sind.
+[[nodiscard]] constexpr UploadTicket later(UploadTicket a, UploadTicket b) noexcept {
+    return a.value > b.value ? a : b;
+}
 
 // Zeitstempel, die ein Frame höchstens schreiben kann (CommandList::write_timestamp()).
 inline constexpr u32 max_frame_timestamps = 256;
@@ -448,6 +476,21 @@ public:
     // weiteren Stufen rechnet die GPU daraus (linear verkleinert). Danach ist die Textur im
     // Zustand ShaderRead.
     virtual void upload(Texture& texture, std::span<const std::byte> data) = 0;
+
+    // Upload im Hintergrund (R2.4, TD-17), z. B. für Assets, die der Ressourcen-Manager lädt: Wo
+    // die GPU eine eigene Transfer-Queue hat, laufen die Kopien dort, ohne dass ein Frame darauf
+    // wartet. Nur für neue Ressourcen, die die GPU noch nie benutzt hat; benutzt werden dürfen sie
+    // erst, wenn upload_done() für das Ticket true liefert. Ohne Transfer-Queue läuft die Kopie
+    // wie upload() vor der nächsten Abgabe und das Ticket ist sofort erledigt.
+    [[nodiscard]] virtual UploadTicket upload_async(Buffer& buffer,
+                                                    std::span<const std::byte> data) = 0;
+    // Für Texturen mit TransferDst: data enthält alle Mip-Stufen (mip_chain_size()); die GPU
+    // rechnet keine Stufen nach. Danach ist die Textur im Zustand ShaderRead.
+    [[nodiscard]] virtual UploadTicket upload_async(Texture& texture,
+                                                    std::span<const std::byte> data) = 0;
+    // Der Upload ist fertig und für alle Abgaben ab jetzt sichtbar. Ändert sich nur in
+    // begin_frame() und execute().
+    [[nodiscard]] virtual bool upload_done(UploadTicket ticket) const = 0;
 
     // Bildschirmausgabe, nur mit Surface. begin_frame() liefert nichts, solange gerade
     // nicht gezeichnet werden kann (z. B. minimiertes Fenster).

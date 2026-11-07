@@ -450,9 +450,32 @@ Converted<Model> convert(const fastgltf::Asset& gltf) {
     return model;
 }
 
+// Lokale Dateien, auf die Puffer und Bilder verweisen (für Hot Reload). Liest nur das JSON.
+void collect_files(fastgltf::Parser& parser, fastgltf::GltfDataBuffer& data,
+                   const std::filesystem::path& directory, std::vector<std::string>& files) {
+    auto gltf = parser.loadGltf(data, directory, fastgltf::Options::None);
+    if (gltf.error() != fastgltf::Error::None) {
+        return;
+    }
+    const auto add = [&](const fastgltf::DataSource& source) {
+        if (const auto* uri = std::get_if<fastgltf::sources::URI>(&source)) {
+            if (uri->uri.isLocalPath()) {
+                const std::u8string text = (directory / uri->uri.fspath()).u8string();
+                files.push_back(filesystem::normalize(std::string{text.begin(), text.end()}));
+            }
+        }
+    };
+    for (const fastgltf::Buffer& buffer : gltf->buffers) {
+        add(buffer.data);
+    }
+    for (const fastgltf::Image& image : gltf->images) {
+        add(image.data);
+    }
+}
+
 } // namespace
 
-Result<Model> load_gltf(std::string_view path) {
+Result<Model> load_gltf(std::string_view path, std::vector<std::string>* dependencies) {
     NGINE_PROFILE_ZONE("asset::load_gltf");
     auto bytes = filesystem::read_file(path);
     if (!bytes) {
@@ -468,6 +491,9 @@ Result<Model> load_gltf(std::string_view path) {
             return fail(fastgltf::getErrorMessage(data.error()));
         }
         fastgltf::Parser parser{fastgltf::Extensions::None};
+        if (dependencies != nullptr) {
+            collect_files(parser, data.get(), to_path(path).parent_path(), *dependencies);
+        }
         constexpr auto options = fastgltf::Options::LoadExternalBuffers |
                                  fastgltf::Options::LoadExternalImages |
                                  fastgltf::Options::DecomposeNodeMatrices;

@@ -6,19 +6,21 @@ target_sources(ngine_filesystem
         FILE_SET CXX_MODULES
         FILES
             filesystem.cppm
+            watcher.cppm
     PRIVATE
         FILE_SET internal TYPE CXX_MODULES
         FILES
             platform.cppm
     PRIVATE
-        filesystem.cpp)
+        filesystem.cpp
+        watcher.cpp)
 
 # Plattformcode nur in den Adaptern: je eine Datei pro Betriebssystem.
 if(WIN32)
-    target_sources(ngine_filesystem PRIVATE user_dir_windows.cpp)
+    target_sources(ngine_filesystem PRIVATE platform_windows.cpp)
     target_link_libraries(ngine_filesystem PRIVATE shell32 ole32)
 else()
-    target_sources(ngine_filesystem PRIVATE user_dir_linux.cpp)
+    target_sources(ngine_filesystem PRIVATE platform_linux.cpp)
 endif()
 
 target_link_libraries(ngine_filesystem PUBLIC ngine::core)

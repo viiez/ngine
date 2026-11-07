@@ -8,6 +8,7 @@ import ngine.core;
 import ngine.math;
 import ngine.reflect;
 import ngine.rhi;
+import ngine.asset;
 
 export namespace ngine::render {
 
@@ -24,13 +25,15 @@ struct Camera {
     bool active = true;
 };
 
-// Zeichnet ein Mesh aus dem MeshStore an der Lage von WorldTransform. Jedes Teilnetz bringt sein
-// Material mit; material ersetzt es für alle Teilnetze. Die Indizes gelten nur für diesen
-// Programmlauf, darum speichern Szenen die Komponente nicht (bis Assets in R2 feste Kennungen
-// bekommen).
+// Zeichnet ein Mesh an der Lage von WorldTransform. Seit R2.4 verweist die Komponente über
+// Asset-Kennungen (ADR 0033): mesh ist das Mesh mit diesem Index im Modell mit dieser Kennung (eine
+// glTF-Datei oder ein erzeugtes Modell wie die Standardszene). Jedes Teilnetz bringt sein Material
+// mit; material ersetzt es, wenn gesetzt, durch das Material mit diesem Index eines Modells. Der
+// Renderer lädt Modelle über den Ressourcen-Manager, sobald eine Komponente sie braucht; bis dahin
+// zeichnet er nichts. Szenen speichern die Komponente.
 struct MeshRenderer {
-    u32 mesh = rhi::invalid_index;
-    u32 material = rhi::invalid_index;
+    asset::AssetRef mesh;
+    asset::AssetRef material;
 };
 
 // Lichter (REND-09), angelehnt an glTF KHR_lights_punctual. Lage und Richtung kommen aus
