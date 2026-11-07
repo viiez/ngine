@@ -1,3 +1,7 @@
+module;
+
+#include <cmath>
+
 export module ngine.math:affine;
 
 import ngine.core;
@@ -48,6 +52,37 @@ struct Affine {
 [[nodiscard]] constexpr Affine inverse(const Affine& a) noexcept {
     const Mat3 linear = inverse(a.linear);
     return Affine{.linear = linear, .translation = -(to_f64(linear) * a.translation)};
+}
+
+// Verschiebung, Drehung und Skalierung einer Affine, so dass Affine::from() sie wieder ergibt.
+// Eine Scherung (nur bei ungleichmäßiger Skalierung eines gedrehten Elternteils) geht verloren:
+// Die Drehung entsteht aus den orthonormierten Spalten. Eine Spiegelung landet in scale.x.
+struct Decomposed {
+    DVec3 translation;
+    Quat rotation;
+    Vec3 scale{1.0f, 1.0f, 1.0f};
+};
+
+[[nodiscard]] inline Decomposed decompose(const Affine& a) noexcept {
+    Vec3 x = a.linear[0];
+    Vec3 y = a.linear[1];
+    Vec3 z = a.linear[2];
+    Vec3 scale{length(x), length(y), length(z)};
+    if (determinant(a.linear) < 0.0f) {
+        scale.x = -scale.x;
+        x = -x;
+    }
+    // Gram-Schmidt: x bleibt, y wird senkrecht zu x, z senkrecht zu beiden.
+    x = normalize(x);
+    y = normalize(y - x * dot(x, y));
+    z = cross(x, y);
+    if (length_squared(x) == 0.0f || length_squared(y) == 0.0f) {
+        // Entartet (Skalierung 0): Drehung lässt sich nicht bestimmen.
+        return Decomposed{.translation = a.translation, .rotation = Quat{}, .scale = scale};
+    }
+    return Decomposed{.translation = a.translation,
+                      .rotation = normalize(to_quat(Mat3::from_columns(x, y, z))),
+                      .scale = scale};
 }
 
 [[nodiscard]] inline bool near(const Affine& a, const Affine& b, f32 epsilon_linear,

@@ -126,3 +126,49 @@ TEST_CASE("Far from the origin positions keep millimeter precision relative to t
     const Vec3 camera32 = to_f32(camera);
     CHECK_FALSE(near((far32 - camera32).x, 0.001f, 1e-4f));
 }
+
+TEST_CASE("decompose recovers translation, rotation and scale", "[math]") {
+    const DVec3 translation{1.0e7, -3.0, 0.25};
+    const Quat rotation = normalize(angle_axis(0.7f, normalize(Vec3{1, 2, 3})));
+    const Vec3 scale{2.0f, 0.5f, 3.0f};
+    const Decomposed d = decompose(Affine::from(translation, rotation, scale));
+    CHECK(d.translation == translation);
+    CHECK(near(d.rotation, rotation, 1e-6f));
+    CHECK(near(d.scale, scale, 1e-5f));
+
+    // Eine Spiegelung landet in scale.x, das Ergebnis bildet wieder dieselbe Matrix.
+    const Affine mirrored = Affine::from(DVec3{}, rotation, Vec3{-1.0f, 1.0f, 1.0f});
+    const Decomposed m = decompose(mirrored);
+    CHECK(m.scale.x < 0.0f);
+    CHECK(near(Affine::from(m.translation, m.rotation, m.scale), mirrored, 1e-5f, 1e-9));
+}
+
+TEST_CASE("Rays find closest points, planes and spheres", "[math]") {
+    const Ray ray{.origin = DVec3{0.0, 0.0, 10.0}, .direction = DVec3{0.0, 0.0, -1.0}};
+    CHECK(near(ray.at(4.0), DVec3{0.0, 0.0, 6.0}, 0.0));
+
+    // Gerade entlang x in der Höhe 1: nächster Punkt bei x = 0, Abstand 1.
+    const auto line = closest_to_line(ray, DVec3{5.0, 1.0, 0.0}, DVec3{1.0, 0.0, 0.0});
+    REQUIRE(line.has_value());
+    CHECK(near(line->line_t, -5.0, 1e-12));
+    CHECK(near(line->ray_t, 10.0, 1e-12));
+    CHECK(near(line->distance, 1.0, 1e-12));
+    // Parallel: kein eindeutiger Punkt.
+    CHECK_FALSE(closest_to_line(ray, DVec3{1.0, 0.0, 0.0}, DVec3{0.0, 0.0, 1.0}).has_value());
+
+    // Strecke von x = 2 bis 3: am Anfang abgeschnitten.
+    const RayClosest segment = closest_to_segment(ray, DVec3{2.0, 0.0, 0.0}, DVec3{3.0, 0.0, 0.0});
+    CHECK(near(segment.line_t, 0.0, 1e-12));
+    CHECK(near(segment.distance, 2.0, 1e-12));
+
+    const auto plane = intersect_plane(ray, DVec3{0.0, 0.0, 2.0}, DVec3{0.0, 0.0, 1.0});
+    REQUIRE(plane.has_value());
+    CHECK(near(*plane, 8.0, 1e-12));
+    // Ebene hinter dem Strahl.
+    CHECK_FALSE(intersect_plane(ray, DVec3{0.0, 0.0, 20.0}, DVec3{0.0, 0.0, 1.0}).has_value());
+
+    const auto sphere = intersect_sphere(ray, DVec3{0.0, 0.0, 0.0}, 1.0);
+    REQUIRE(sphere.has_value());
+    CHECK(near(*sphere, 9.0, 1e-12));
+    CHECK_FALSE(intersect_sphere(ray, DVec3{0.0, 2.0, 0.0}, 1.0).has_value());
+}

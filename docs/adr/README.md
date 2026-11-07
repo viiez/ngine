@@ -39,3 +39,5 @@ betroffene Code einreichen.
 | [0028](0028-lights-cascaded-shadows.md) | Lichter als Komponenten, Cascaded Shadow Maps mit eingerasteten Kugeln, Lichtliste vorwärts | angenommen |
 | [0029](0029-editor-imgui-over-rhi.md) | Editor als eigene Anwendung, Dear ImGui hinter `ngine.editor_ui`, gezeichnet über die RHI | angenommen |
 | [0030](0030-undo-commands-reflected-values.md) | Undo über Befehle mit reflektierten Werten und stabilen Entity-Kennungen | angenommen |
+| [0031](0031-gizmos-own-math-ui-draw-list.md) | Gizmos selbst gebaut, Treffertests über Strahlen, gezeichnet über die Zeichenliste der UI | vorgeschlagen |
+| [0032](0032-play-in-editor-binary-snapshot.md) | Spielen im Editor über eine binäre Sicherung der Welt im Dokument | vorgeschlagen |

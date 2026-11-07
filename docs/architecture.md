@@ -25,14 +25,14 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
 | `ngine.core` | `ngine::core` | Partitionen `types`, `log` (Sinks für Konsole, Datei `FileSink` und Ringpuffer `RingSink`), `check`, `version`, `events` (`EventBus` mit Abonnements, sofort oder gesammelt zugestellt); interne Partition `console` stellt die Windows-Konsole auf UTF-8 und öffnet Log-Dateien mit UTF-8-Pfad (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
-| `ngine.math` | `ngine::math` | Eigene Mathematik: `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
+| `ngine.math` | `ngine::math` | Eigene Mathematik: `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung und `decompose()` ([ADR 0025](adr/0025-own-math-mixed-precision.md)), Strahlen und Schnitte für Treffertests (`:ray`, R2.3) | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
 | `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots, GPU-Zeitleisten mit nachgereichten Zeitstempeln; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner; Pfade als UTF-8, Plattformcode in `user_dir_linux.cpp`/`user_dir_windows.cpp` | vorhanden |
 | `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo` mit Index der Registrierung, Felder mit Bereich und Hinweis für den Editor, Enums mit Namen, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
-| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-own-math-mixed-precision.md)); Speicher von flecs im Budget `Category::World` | vorhanden |
+| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` nur für geänderte Teilbäume ([ADR 0025](adr/0025-own-math-mixed-precision.md)), `world_affine()`; Speicher von flecs im Budget `Category::World` | vorhanden |
 | `ngine.asset` | `ngine::asset` | Ressourcen-Schicht: `load_gltf()` liefert `Model` (Meshes mit festem Eckpunktformat, Materialien nach Metallic-Roughness, Texturen, Bilder, Knoten) in reinen CPU-Daten, `decode_image()` RGBA8, Normalen, Tangenten und Kugeln erzeugen; Adapter `gltf_fastgltf.cpp` und `image_stb.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | vorhanden (ab R1.3) |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
@@ -43,8 +43,8 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
 | `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer`, `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Tone Mapping, Debug-Linien, Auswahl per Klick über einen ID-Puffer, Kamera von außen über `camera_override`), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Schatten, Debug-Linien, Tone Mapping, Editor-UI); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
-| `ngine.editor_ui` | `ngine::editor_ui` | Editor-UI: Adapter für Dear ImGui mit Docking (`:context`, `:widgets`; nur `context.cpp` und `widgets.cpp` kennen ImGui), Zeichenliste in Engine-Typen (`:draw`), `UiRenderer` als Pass im Render-Graph über die RHI (`:pass`), Log-Konsole (`:console`) und Viewport-Größe (`:viewport`); ohne Fenster und GPU testbar ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | vorhanden (ab R2.1) |
-| `ngine.edit` | `ngine::edit` | Editor-Logik ohne UI und GPU: `SceneDocument` mit stabilen Entity-Kennungen, Verlauf (`CommandStack`) und Datei, Befehle mit reflektierten Werten (`:commands`), Auswahl, Modelle für Szenenbaum und Inspector; Ereignisse über `events::EventBus` ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | vorhanden (ab R2.2) |
+| `ngine.editor_ui` | `ngine::editor_ui` | Editor-UI: Adapter für Dear ImGui mit Docking (`:context`, `:widgets`; nur `context.cpp` und `widgets.cpp` kennen ImGui), Zeichenliste in Engine-Typen (`:draw`), `UiRenderer` als Pass im Render-Graph über die RHI (`:pass`), Log-Konsole (`:console`) und Viewport-Größe (`:viewport`), Zeichnen von Linien, Formen und Text in die Zeichenliste eines Fensters (R2.3); ohne Fenster und GPU testbar ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | vorhanden (ab R2.1) |
+| `ngine.edit` | `ngine::edit` | Editor-Logik ohne UI und GPU: `SceneDocument` mit stabilen Entity-Kennungen, Verlauf (`CommandStack`) und Datei, Befehle mit reflektierten Werten (`:commands`), Auswahl, Modelle für Szenenbaum und Inspector; Ereignisse über `events::EventBus` ([ADR 0030](adr/0030-undo-commands-reflected-values.md)); Gizmos und `ViewCamera` (`:gizmo`, [ADR 0031](adr/0031-gizmos-own-math-ui-draw-list.md)), Spielen über eine Sicherung im Dokument ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)) | vorhanden (ab R2.2) |
 
 Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
 `ngine.math` (R1.1), der Renderer `ngine.render` (ab R1.2) und `ngine.asset` (R1.3) dazu, in R2
@@ -254,6 +254,9 @@ flowchart LR
 - `DebugDraw` (`Renderer::debug()`, REND-15) sammelt Linien, Quader, Kugeln und Achsenkreuze für
   einen Frame. Der Renderer schneidet sie an der nahen Ebene ab und zeichnet sie im Vorwärts-Pass
   mit Tiefentest; der Vertex-Shader zieht jede Linie zu einem Rechteck fester Pixelbreite auf.
+  Texte in der Welt (`DebugDraw::text()`, R2.3) zeichnet der Renderer nicht, weil die Engine keine
+  Schrift hat: Die Anwendung liest `texts()` vor `add_passes()` und zeichnet sie mit ihrer UI (der
+  Editor über die Zeichenliste von ImGui); `add_passes()` leert beide Listen.
 - Die Szenen-Shader teilen ihre Datenstrukturen über `scene.slang` (Eckpunkt, Material, Licht,
   Frame, Push Constants).
 
@@ -308,7 +311,20 @@ flowchart LR
 - **Kamera des Editors** gehört nicht zur Szene: `ModelScene` im Modus `Editor` setzt
   `Renderer::camera_override`, damit gespeicherte Szenen keine Editor-Kamera enthalten. Szenen aus
   Dateien haben bis R2.4 keine Meshes; Hilfslinien (`editor.overlay`) zeigen Raster, Lichter und
-  die Auswahl.
+  die Auswahl, dazu Namen als Text in der Welt.
+- **Gizmos** (R2.3, [ADR 0031](adr/0031-gizmos-own-math-ui-draw-list.md)): `edit::Gizmo` prüft
+  Treffer über Strahlen aus `edit::ViewCamera` (gleiche Projektion wie der Renderer) gegen Achsen,
+  Ringe und eine Kugel in der Mitte und setzt beim Ziehen `Transform` über einen
+  zusammenfassenden Befehl; die Hauptschleife versiegelt den Verlauf erst nach dem Loslassen.
+  `editor.viewport_tools` projiziert die Form und zeichnet sie über die Zeichenliste der UI über
+  das Viewport-Bild, also immer über der Szene. Klicks auf den Gizmo gehen nicht an die Auswahl.
+- **Spielen** (R2.3, [ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)):
+  `SceneDocument::begin_play()` sichert die Welt im Binärformat und sperrt das Dokument
+  (`read_only()`), die Hauptschleife ruft `ModelScene::simulate()` auf (Schedule mit dem System
+  „Kreisbahnen“), `end_play()` stellt die Welt mit denselben Kennungen im Dokument und in derselben
+  Reihenfolge wieder her. Der Verlauf gilt danach weiter.
+- **Aufteilung des Editors:** `main.cpp` hält Schleife, Eingaben und Fenster, `editor.menu` Menü,
+  Dialoge, Kurzbefehle und `PlayControls`, `editor.viewport_tools` die Werkzeuge des Viewports.
 
 ### Lebensdauer von GPU-Ressourcen
 
@@ -421,8 +437,14 @@ flowchart LR
 - **Transforms** ([ADR 0025](adr/0025-own-math-mixed-precision.md)): `Transform` ist die Lage
   relativ zum Elternteil mit 64-Bit-Position und wird gespeichert. `WorldTransform` (ein
   `math::Affine`) kommt über `World::require()` automatisch dazu, ist `transient` und wird von
-  `update_transforms()` nach `Schedule::run()` berechnet: eine Abfrage mit Cascade
-  (`World::for_each_parent_first()`) besucht Eltern vor Kindern.
+  `update_transforms()` nach `Schedule::run()` berechnet: eine Abfrage mit Cascade besucht Eltern
+  vor Kindern. Seit R2.3 nur geänderte Teilbäume (`World::for_each_parent_first_changed()`): Die
+  Änderungserkennung von flecs meldet Tabellen, deren `Transform` geschrieben wurde oder die neue,
+  umgehängte oder gelöschte Entities haben; flecs sieht keine Änderung beim Elternteil, deshalb
+  merkt sich der Durchlauf die geschriebenen Bereiche von `WorldTransform` und rechnet Kinder
+  neu, deren Elternteil darin liegt. Wer `Transform` über `get_mut()` ändert, ruft danach
+  `modified()`; `set()`, Befehle und Systeme im Schedule tun das von selbst. `world_affine()`
+  rechnet die Weltlage einer einzelnen Entity direkt aus den Transforms der Vorfahren.
 - **Abfragen** (`world.query<const A, B>()`) merken sich ihre Tabellen. Strukturänderungen in
   `each()` werden aufgeschoben und nach der Schleife ausgeführt.
 - **Systeme** plant `Schedule` ([ADR 0019](adr/0019-systems-on-job-system.md)): Aus `const`

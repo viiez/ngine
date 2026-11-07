@@ -173,6 +173,10 @@ bool button(std::string_view label) {
     return ImGui::Button(zero_terminated(label).c_str());
 }
 
+bool radio_button(std::string_view label, bool active) {
+    return ImGui::RadioButton(zero_terminated(label).c_str(), active);
+}
+
 bool checkbox(std::string_view label, bool& value) {
     return ImGui::Checkbox(zero_terminated(label).c_str(), &value);
 }
@@ -420,6 +424,10 @@ bool is_mouse_clicked(MouseButton button) {
     return ImGui::IsMouseClicked(to_imgui(button));
 }
 
+bool is_mouse_down(MouseButton button) {
+    return ImGui::IsMouseDown(to_imgui(button));
+}
+
 Point mouse_position() {
     const ImVec2 position = ImGui::GetMousePos();
     return {position.x, position.y};
@@ -461,6 +469,53 @@ void set_next_item_width(f32 width) {
 void image(TextureId texture, Size size, Point uv0, Point uv1) {
     ImGui::Image(ImTextureRef{texture}, ImVec2{size.width, size.height}, ImVec2{uv0.x, uv0.y},
                  ImVec2{uv1.x, uv1.y});
+}
+
+// --- Zeichnen ------------------------------------------------------------------------------------
+
+namespace {
+
+ImU32 to_packed(UiColor color) {
+    return ImGui::ColorConvertFloat4ToU32(to_imgui(color));
+}
+
+} // namespace
+
+void draw_line(Point a, Point b, UiColor color, f32 thickness) {
+    ImGui::GetWindowDrawList()->AddLine({a.x, a.y}, {b.x, b.y}, to_packed(color), thickness);
+}
+
+void draw_triangle_filled(Point a, Point b, Point c, UiColor color) {
+    ImGui::GetWindowDrawList()->AddTriangleFilled({a.x, a.y}, {b.x, b.y}, {c.x, c.y},
+                                                  to_packed(color));
+}
+
+void draw_rect_filled(Point min, Point max, UiColor color) {
+    ImGui::GetWindowDrawList()->AddRectFilled({min.x, min.y}, {max.x, max.y}, to_packed(color));
+}
+
+void draw_circle_filled(Point center, f32 radius, UiColor color) {
+    ImGui::GetWindowDrawList()->AddCircleFilled({center.x, center.y}, radius, to_packed(color));
+}
+
+void draw_text(Point position, UiColor color, std::string_view text) {
+    ImGui::GetWindowDrawList()->AddText({position.x, position.y}, to_packed(color), text.data(),
+                                        text.data() + text.size());
+}
+
+Size text_size(std::string_view text) {
+    const ImVec2 size = ImGui::CalcTextSize(text.data(), text.data() + text.size());
+    return {size.x, size.y};
+}
+
+void image_area(std::string_view id, TextureId texture, Size size) {
+    const ImVec2 corner = ImGui::GetCursorScreenPos();
+    const ImVec2 extent{std::max(size.width, 1.0f), std::max(size.height, 1.0f)};
+    ImGui::InvisibleButton(zero_terminated(id).c_str(), extent,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
+    ImGui::GetWindowDrawList()->AddImage(ImTextureRef{texture}, corner,
+                                         {corner.x + size.width, corner.y + size.height});
 }
 
 Size content_region_available() {

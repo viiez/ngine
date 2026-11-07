@@ -46,7 +46,11 @@ export [[nodiscard]] std::optional<ui::Key> to_ui(platform::Key key) {
     case K::X: return ui::Key::X;
     case K::Y: return ui::Key::Y;
     case K::Z: return ui::Key::Z;
+    case K::W: return ui::Key::W;
+    case K::E: return ui::Key::E;
+    case K::R: return ui::Key::R;
     case K::F2: return ui::Key::F2;
+    case K::F5: return ui::Key::F5;
     default: return std::nullopt;
     }
 }

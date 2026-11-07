@@ -51,9 +51,12 @@ public:
     Entity& set(T value);
     template <typename T>
     [[nodiscard]] const T* get() const;
-    // Zeiger zum Ändern. Gültig bis zur nächsten Strukturänderung der Welt.
+    // Zeiger zum Ändern. Gültig bis zur nächsten Strukturänderung der Welt. Danach modified<T>()
+    // aufrufen, damit Änderungserkennung (z. B. update_transforms()) den neuen Wert sieht.
     template <typename T>
     [[nodiscard]] T* get_mut();
+    template <typename T>
+    Entity& modified();
     template <typename T>
     [[nodiscard]] bool has() const;
     template <typename T>
@@ -282,6 +285,12 @@ public:
     // ändern.
     void for_each_parent_first(ComponentId own, ComponentId out, ComponentId parent,
                                HierarchyVisitor visitor);
+    // Wie for_each_parent_first() mit parent = out, besucht aber nur Chunks, deren own seit dem
+    // letzten Aufruf geändert wurde (über modified(), set() oder ein System, das own schreibt),
+    // die neu, umgehängt oder geschrumpft sind, oder deren Elternteil in diesem Aufruf neu
+    // berechnet wurde (TD-15). Liefert die Zahl der besuchten Entities. Wer own über get_mut()
+    // ändert, muss danach modified() aufrufen, sonst bleibt die Änderung unbemerkt.
+    usize for_each_parent_first_changed(ComponentId own, ComponentId out, HierarchyVisitor visitor);
 
     // Wer component bekommt, bekommt required automatisch mit (mit Standardwert).
     void require(ComponentId component, ComponentId required);
@@ -336,6 +345,12 @@ const T* Entity::get() const {
 template <typename T>
 T* Entity::get_mut() {
     return static_cast<T*>(world_->get_mut(id_, world_->component<T>()));
+}
+
+template <typename T>
+Entity& Entity::modified() {
+    world_->modified(id_, world_->component<T>());
+    return *this;
 }
 
 template <typename T>

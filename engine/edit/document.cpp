@@ -1,14 +1,18 @@
 module;
 
+#include <algorithm>
+#include <cstddef>
 #include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 module ngine.edit;
 
 import ngine.core;
+import ngine.reflect;
 import ngine.world;
 
 namespace ngine::edit {
@@ -129,6 +133,9 @@ void SceneDocument::notify_dirty(bool was_dirty) {
 
 Result<void> SceneDocument::execute(std::unique_ptr<Command> command, bool merge) {
     verify(command != nullptr, "execute() ohne Befehl");
+    if (read_only()) {
+        return std::unexpected(std::string{"Während des Spielens lässt sich nichts ändern"});
+    }
     const bool was_dirty = dirty();
     if (auto result = command->apply(*this); !result) {
         return result;
@@ -139,6 +146,9 @@ Result<void> SceneDocument::execute(std::unique_ptr<Command> command, bool merge
 }
 
 bool SceneDocument::undo() {
+    if (read_only()) {
+        return false;
+    }
     const bool was_dirty = dirty();
     Command* command = history_.undo_step();
     if (command == nullptr) {
@@ -150,6 +160,9 @@ bool SceneDocument::undo() {
 }
 
 bool SceneDocument::redo() {
+    if (read_only()) {
+        return false;
+    }
     const bool was_dirty = dirty();
     Command* command = history_.redo_step();
     if (command == nullptr) {
@@ -183,6 +196,7 @@ void SceneDocument::destroy_all() {
 
 void SceneDocument::clear() {
     const bool was_dirty = dirty();
+    drop_play();
     destroy_all();
     path_.clear();
     history_.clear();
@@ -192,6 +206,7 @@ void SceneDocument::clear() {
 
 Result<usize> SceneDocument::open(std::string_view path) {
     const bool was_dirty = dirty();
+    drop_play();
     destroy_all();
     history_.clear();
     path_.clear();
@@ -207,6 +222,9 @@ Result<usize> SceneDocument::open(std::string_view path) {
 }
 
 Result<void> SceneDocument::save(std::string_view path) {
+    if (playing()) {
+        return std::unexpected(std::string{"Während des Spielens wird nicht gespeichert"});
+    }
     if (auto result = world::save_scene_file(*world_, path); !result) {
         return result;
     }
@@ -215,6 +233,91 @@ Result<void> SceneDocument::save(std::string_view path) {
     history_.mark_saved();
     notify_dirty(was_dirty);
     return {};
+}
+
+// --- Spielen ------------------------------------------------------------------------------------
+
+void SceneDocument::drop_play() {
+    if (play_backup_) {
+        play_backup_.reset();
+        notify(PlayStateChanged{.playing = false});
+    }
+}
+
+Result<void> SceneDocument::begin_play() {
+    if (playing()) {
+        return std::unexpected(std::string{"Das Spiel läuft schon"});
+    }
+    // Alle Entities in aufsteigender Reihenfolge ihrer Kennungen in der Welt; end_play() vergibt
+    // neue Kennungen in derselben Reihenfolge.
+    EntitySnapshot backup;
+    const std::vector<u64> entities = world_->entity_ids();
+    backup.nodes.reserve(entities.size());
+    for (const u64 entity : entities) {
+        EntitySnapshot::Node node{
+            .id = id_of(entity), .parent = id_of(world_->parent(entity)), .components = {}};
+        auto visit = [&](const reflect::TypeInfo& type, world::ComponentId /*component*/,
+                         const void* data) {
+            node.components.push_back({.type = type.id, .bytes = capture(data, type)});
+        };
+        world_->for_each_component(
+            entity, world::ComponentVisitor{
+                        .context = &visit,
+                        .visit =
+                            [](void* context, const reflect::TypeInfo& type,
+                               world::ComponentId component, const void* data) {
+                                (*static_cast<decltype(visit)*>(context))(type, component, data);
+                            },
+                    });
+        backup.nodes.push_back(std::move(node));
+    }
+    history_.seal();
+    play_backup_ = std::move(backup);
+    notify(PlayStateChanged{.playing = true});
+    return {};
+}
+
+Result<void> SceneDocument::end_play() {
+    if (!play_backup_) {
+        return std::unexpected(std::string{"Es läuft kein Spiel"});
+    }
+    EntitySnapshot backup = *std::move(play_backup_);
+    play_backup_.reset();
+    destroy_all();
+
+    // Erst alle Entities anlegen und aufsteigend vergeben (die Welt verwendet Kennungen in
+    // umgekehrter Reihenfolge wieder), dann Eltern, dann Komponenten.
+    std::vector<u64> fresh;
+    fresh.reserve(backup.nodes.size());
+    for (usize i = 0; i < backup.nodes.size(); ++i) {
+        fresh.push_back(world_->create().id());
+    }
+    std::ranges::sort(fresh);
+    for (usize i = 0; i < backup.nodes.size(); ++i) {
+        bind(backup.nodes[i].id, fresh[i]);
+    }
+    Result<void> result;
+    for (usize i = 0; i < backup.nodes.size(); ++i) {
+        const EntitySnapshot::Node& node = backup.nodes[i];
+        if (node.parent != 0) {
+            world_->set_parent(fresh[i], entity_of(node.parent));
+        }
+        for (const EntitySnapshot::Component& component : node.components) {
+            const reflect::TypeInfo* type = types().find_id(component.type);
+            if (type == nullptr) {
+                continue;
+            }
+            const world::ComponentId id = world_->component(*type);
+            void* data = world_->ensure(fresh[i], id);
+            if (auto restored = restore(data, *type, component.bytes); !restored && result) {
+                result = std::unexpected(restored.error());
+            }
+            world_->modified(fresh[i], id);
+        }
+    }
+    notify(PlayStateChanged{.playing = false});
+    notify(EntityChanged{});
+    return result;
 }
 
 } // namespace ngine::edit

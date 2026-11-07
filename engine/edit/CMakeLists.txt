@@ -11,13 +11,15 @@ target_sources(ngine_edit
             selection.cppm
             inspector.cppm
             tree.cppm
+            gizmo.cppm
     PRIVATE
         document.cpp
         commands.cpp
         inspector.cpp
-        tree.cpp)
+        tree.cpp
+        gizmo.cpp)
 
-# Editor-Logik ohne UI, Fenster und GPU (R2.2); der Editor und die Tests bauen darauf auf.
+# Editor-Logik ohne UI, Fenster und GPU (R2.2, Gizmos und Spielen seit R2.3); der Editor und die Tests bauen darauf auf.
 target_link_libraries(ngine_edit
     PUBLIC ngine::core ngine::math ngine::reflect ngine::world
     PRIVATE ngine::serialize)

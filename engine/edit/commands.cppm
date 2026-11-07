@@ -44,22 +44,6 @@ struct ResolvedField {
 [[nodiscard]] Result<void> restore(void* target, const reflect::TypeInfo& type,
                                    std::span<const std::byte> bytes);
 
-// Teilbaum einer Entity mit allen reflektierten Komponenten (auch Laufzeitkomponenten wie
-// MeshRenderer), Eltern vor ihren Kindern. Damit macht Undo das Löschen rückgängig.
-struct EntitySnapshot {
-    struct Component {
-        reflect::TypeId type = 0;
-        std::vector<std::byte> bytes;
-    };
-    struct Node {
-        EntityId id = 0;
-        // Elternteil im Dokument; beim ersten Knoten das Elternteil des ganzen Teilbaums.
-        EntityId parent = 0;
-        std::vector<Component> components;
-    };
-    std::vector<Node> nodes;
-};
-
 [[nodiscard]] EntitySnapshot snapshot(SceneDocument& document, EntityId root);
 // Legt den Teilbaum mit denselben Kennungen neu an. Das Elternteil muss existieren (oder 0 sein).
 [[nodiscard]] Result<void> restore(SceneDocument& document, const EntitySnapshot& snapshot);
@@ -69,14 +53,19 @@ struct EntitySnapshot {
 
 // Setzt ein Feld (oder mit leerem Weg die ganze Komponente) auf value; value zeigt auf einen Wert
 // des Feldtyps. Liefert nullptr, wenn der Wert schon so ist. Der alte Wert wird jetzt gelesen.
+// label ersetzt die Beschriftung „<Feld> ändern“ (z. B. „Verschieben“ beim Gizmo).
 [[nodiscard]] Result<std::unique_ptr<Command>> set_field(SceneDocument& document, EntityId entity,
-                                                         const FieldPath& path, const void* value);
+                                                         const FieldPath& path, const void* value,
+                                                         std::string label = {});
 
 // Setzt die Komponente Name (legt sie bei Bedarf an).
 [[nodiscard]] std::unique_ptr<Command> rename(EntityId entity, std::string name);
 
-// Hängt entity unter parent (0: Wurzel). Die lokale Lage (Transform) bleibt, wie sie ist.
-[[nodiscard]] std::unique_ptr<Command> reparent(EntityId entity, EntityId parent);
+// Hängt entity unter parent (0: Wurzel). Die Lage in der Welt bleibt (TD-28): Transform wird so
+// umgerechnet, dass die Entity nicht springt. Scherung durch ungleichmäßig skalierte, gedrehte
+// Eltern geht dabei verloren. Mit keep_world false bleibt die lokale Lage.
+[[nodiscard]] std::unique_ptr<Command> reparent(EntityId entity, EntityId parent,
+                                                bool keep_world = true);
 
 // Neue Entity mit Name und Transform unter parent (0: Wurzel). id ist ihre Kennung, schon bevor
 // der Befehl läuft.

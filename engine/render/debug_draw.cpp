@@ -2,6 +2,8 @@ module;
 
 #include <cmath>
 #include <span>
+#include <string>
+#include <utility>
 #include <vector>
 
 module ngine.render;
@@ -88,8 +90,19 @@ void DebugDraw::axes(const math::Affine& transform, f32 size) {
     }
 }
 
+void DebugDraw::text(DVec3 position, std::string text, Vec3 color) {
+    if (enabled) {
+        texts_.push_back({position, std::move(text), color});
+    }
+}
+
 void DebugDraw::clear() noexcept {
     lines_.clear();
+    texts_.clear();
+}
+
+std::span<const DebugText> DebugDraw::texts() const noexcept {
+    return texts_;
 }
 
 std::span<const DebugLine> DebugDraw::lines() const noexcept {

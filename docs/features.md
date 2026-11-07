@@ -65,7 +65,7 @@ eine Komponente.
 | REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
 | REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling | R3 | geplant |
 | REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren; aus R2 verschoben, Iteration legt spätestens das Review von R3 fest | nach R3 | geplant |
-| REND-15 | Debug-Zeichnen | Linien, Boxen, Kugeln und Achsenkreuze in der Welt (`Renderer::debug()`, R1.4); Text folgt mit der Editor-UI in R2 | R1.4 / R2 | in Arbeit |
+| REND-15 | Debug-Zeichnen | Linien, Boxen, Kugeln und Achsenkreuze in der Welt (`Renderer::debug()`, R1.4); Text in der Welt über `DebugDraw::text()`, im Editor über die Zeichenliste der UI gezeichnet (R2.3) | R1.4 / R2.3 | fertig |
 
 ## Welt und ECS
 
@@ -73,7 +73,7 @@ eine Komponente.
 | --- | --- | --- | --- | --- |
 | WORLD-01 | ECS | flecs hinter `World`, `Entity` und `Query`; Systeme über `Schedule` auf dem Job-System ([ADR 0019](adr/0019-systems-on-job-system.md)) | A4 | fertig |
 | WORLD-02 | Entity-API | Bequeme Schicht im Stil von GameObjects (`entity.set(...)`, `get<T>()`, `name()`); die C#-Seite folgt mit D2 / R4 | A4 | in Arbeit |
-| WORLD-03 | Hierarchie | Eltern-Kind-Beziehungen (A4); `Transform` und `WorldTransform`, Propagation Eltern vor Kindern mit `update_transforms()` (R1.1) | A4 / R1.1 | fertig |
+| WORLD-03 | Hierarchie | Eltern-Kind-Beziehungen (A4); `Transform` und `WorldTransform`, Propagation Eltern vor Kindern mit `update_transforms()` (R1.1), nur für geänderte Teilbäume (R2.3) | A4 / R1.1 / R2.3 | fertig |
 | WORLD-04 | Prefabs | Vorlagen für Entities, Instanzen mit Überschreibungen | R2 | geplant |
 | WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten; binär gekocht später mit der Asset-Pipeline | A4 | fertig |
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern: Positionen in 64 Bit, gezeichnet relativ zur Kamera ([ADR 0012](adr/0012-64bit-world-coordinates.md)); `--far` zeigt es | R1.1 | fertig |
@@ -174,8 +174,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | EDIT-02 | Viewport | Szene im Editor rendern, Kamera steuern (Textur, die dem Fenster folgt; freie Kamera wie in der Sandbox) | R2.1 | fertig |
 | EDIT-03 | Szenenbaum | Entities und Hierarchie; Auswahl auch per Klick im Viewport (ID-Puffer), Umbenennen, Umhängen per Ziehen | R2.2 | fertig |
 | EDIT-04 | Inspector | Komponenten über Reflection bearbeiten; Felder allein aus der Reflection mit Enums, Bereichen und Hinweisen (Farbe, Rotation, Winkel), `ngine.edit` | R2.2 | fertig |
-| EDIT-05 | Gizmos | Verschieben, Drehen, Skalieren | R2 | geplant |
-| EDIT-06 | Spielen im Editor | Spiel im Editor starten und stoppen | R4 | geplant |
+| EDIT-05 | Gizmos | Verschieben, Drehen, Skalieren, lokal und global, mit Raster und Undo; Treffertests über Strahlen in `ngine.edit` ([ADR 0031](adr/0031-gizmos-own-math-ui-draw-list.md)) | R2.3 | fertig |
+| EDIT-06 | Spielen im Editor | Spiel im Editor starten, pausieren und stoppen; die Welt kommt bitgenau zurück ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)). C#-Skripte im Spielmodus folgen mit R4 | R2.3 / R4 | in Arbeit |
 | EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar; Befehle mit reflektierten Werten ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | R2.2 | fertig |
 | EDIT-08 | Voxel-Werkzeuge | Terrain im Editor formen und bemalen | R3 | geplant |
 | EDIT-09 | Asset-Browser | Assets finden, importieren, Vorschau | R2 | geplant |

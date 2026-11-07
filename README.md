@@ -70,9 +70,13 @@ Szenenbaum, den Inspector, eine Konsole mit dem Log und eine Statistik; alle Fen
 andocken und lösen, „Ansicht → Layout zurücksetzen“ stellt die Anordnung wieder her. Kamera wie in
 der Sandbox mit gedrückter rechter Maustaste im Viewport, Linksklick ins Bild wählt aus. Im Baum
 benennt F2 um, Ziehen hängt um, Entf löscht; Strg+Z und Strg+Y machen rückgängig und wiederholen,
-Strg+N, Strg+O und Strg+S legen an, öffnen und speichern. Optionen: `--scene <pfad>` (Szene
-öffnen), `--save <pfad>` (beim Beenden speichern), `--model <pfad>`, `--frames <n>`,
-`--no-vsync`, `--baseline`, `--no-ini` (Lage der Fenster weder laden noch speichern). Log und Lage der Fenster
+Strg+N, Strg+O und Strg+S legen an, öffnen und speichern. Seit R2.3 hat die Auswahl einen Gizmo:
+W verschiebt, E dreht, R skaliert (Werkzeugleiste über dem Viewport, dort auch lokale Achsen und
+Raster; Strg beim Ziehen kehrt das Raster um), jedes Ziehen ist ein Undo-Schritt. F5 spielt (die
+Lichter der Standardszene kreisen) und stoppt; danach steht alles wie vorher. Optionen:
+`--scene <pfad>` (Szene öffnen), `--save <pfad>` (beim Beenden speichern), `--model <pfad>`,
+`--frames <n>`, `--play <n>` (gleich spielen und nach n Frames stoppen), `--no-vsync`,
+`--baseline`, `--no-ini` (Lage der Fenster weder laden noch speichern). Log und Lage der Fenster
 liegen im Benutzerordner unter `NGine/editor.log` und `NGine/editor.ini`.
 
 ## Dokumentation

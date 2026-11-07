@@ -101,6 +101,8 @@ void separator();
 void same_line(f32 spacing = -1.0f);
 
 bool button(std::string_view label);
+// Runder Knopf, gefüllt, wenn active; liefert true, wenn angeklickt (für eine Auswahl aus wenigen).
+bool radio_button(std::string_view label, bool active);
 bool checkbox(std::string_view label, bool& value);
 // Eingabefeld für eine Zeile Text; liefert true, wenn sich der Text geändert hat. Mit
 // enter_returns erst, wenn Enter gedrückt wurde (der Text ändert sich trotzdem sofort).
@@ -184,6 +186,7 @@ void close_current_popup();
 [[nodiscard]] bool is_key_pressed(Key key, bool repeat = false);
 [[nodiscard]] bool is_key_down(Key key);
 [[nodiscard]] bool is_mouse_clicked(MouseButton button);
+[[nodiscard]] bool is_mouse_down(MouseButton button);
 [[nodiscard]] Point mouse_position();
 void set_keyboard_focus_here();
 void set_tooltip(std::string_view text);
@@ -200,6 +203,23 @@ void set_next_item_width(f32 width);
 
 // Zeigt eine Textur (TextureId aus dem Pass) in der angegebenen Größe; uv von oben links.
 void image(TextureId texture, Size size, Point uv0 = {0.0f, 0.0f}, Point uv1 = {1.0f, 1.0f});
+// Wie image(), aber als Element, das die Maus für sich nimmt: Klicken und Ziehen darauf bewegen
+// nicht das Fenster, und solange eine Taste gehalten wird, ist es aktiv (für das Viewport-Bild
+// mit Gizmos, R2.3).
+void image_area(std::string_view id, TextureId texture, Size size);
+
+// --- Zeichnen ----------------------------------------------------------------------------------
+// Formen und Text in die Zeichenliste des aktuellen Fensters, über seinem Inhalt und auf das
+// Fenster beschnitten; Koordinaten in Pixeln der Zeichenfläche (wie mouse_position()). Damit
+// zeichnet der Editor Gizmos und Text in der Welt über das Bild des Viewports (R2.3).
+
+void draw_line(Point a, Point b, UiColor color, f32 thickness = 1.0f);
+void draw_triangle_filled(Point a, Point b, Point c, UiColor color);
+void draw_rect_filled(Point min, Point max, UiColor color);
+void draw_circle_filled(Point center, f32 radius, UiColor color);
+void draw_text(Point position, UiColor color, std::string_view text);
+// Größe von text in Pixeln mit der aktuellen Schrift.
+[[nodiscard]] Size text_size(std::string_view text);
 
 // Freier Platz im aktuellen Fenster ab der Schreibposition.
 [[nodiscard]] Size content_region_available();

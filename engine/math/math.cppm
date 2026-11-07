@@ -13,7 +13,9 @@
 //   :matrix      Mat3, Mat4, DMat3, Umkehrmatrix und Determinante
 //   :quaternion  Quat für Drehungen, slerp, look_rotation
 //   :transform   compose, look_at, Projektionen
-//   :affine      Affine: Drehung und Skalierung in 32 Bit, Verschiebung in 64 Bit (ADR 0012)
+//   :affine      Affine: Drehung und Skalierung in 32 Bit, Verschiebung in 64 Bit (ADR 0012),
+//                zerlegen in Verschiebung, Drehung und Skalierung
+//   :ray         Strahlen, Abstände und Schnitte für Treffertests (64 Bit)
 export module ngine.math;
 
 export import :scalar;
@@ -22,3 +24,4 @@ export import :matrix;
 export import :quaternion;
 export import :transform;
 export import :affine;
+export import :ray;
