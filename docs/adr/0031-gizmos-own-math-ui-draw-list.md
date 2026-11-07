@@ -1,6 +1,6 @@
 # 0031: Gizmos selbst gebaut, Treffertests über Strahlen, gezeichnet über die Zeichenliste der UI
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-07
 
 ## Kontext

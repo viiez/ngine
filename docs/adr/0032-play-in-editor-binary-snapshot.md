@@ -1,6 +1,6 @@
 # 0032: Spielen im Editor über eine binäre Sicherung der Welt im Dokument
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-07
 
 ## Kontext

@@ -20,7 +20,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R2](R2-welt-und-editor.md) | Konstruktion | Reifegrad Welt und Editor (R2.1 bis R2.5) | in Arbeit |
 | [R2.1](R2.1-editor-geruest-und-viewport.md) | Konstruktion | Editor-Gerüst und Viewport | abgeschlossen |
 | [R2.2](R2.2-szenenbaum-inspector-undo.md) | Konstruktion | Szenenbaum, Inspector, Undo | abgeschlossen |
-| [R2.3](R2.3-gizmos-und-spielen.md) | Konstruktion | Gizmos und Spielen im Editor | in Arbeit |
+| [R2.3](R2.3-gizmos-und-spielen.md) | Konstruktion | Gizmos und Spielen im Editor | abgeschlossen |
 
 ## Vorlage
 
