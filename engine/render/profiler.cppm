@@ -1,5 +1,6 @@
 module;
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -12,8 +13,9 @@ export namespace ngine::render {
 
 // GPU-Zonen in Tracy (CORE-07): Zeitstempel vor und nach jeder Zone, abgeholt, wenn derselbe Platz
 // unter den Frames im Flug wieder an der Reihe ist (Frame::timestamps), und über ngine.profile
-// gemeldet. Der Render-Graph setzt eine Zone um jeden Pass. Ohne Tracy oder ohne Zeitstempel auf
-// der GPU tut der Profiler nichts.
+// gemeldet. Der Render-Graph setzt eine Zone um jeden Pass. Kann die GPU kalibrierte Zeitstempel,
+// gleicht der Profiler die Zeitachsen alle paar Sekunden neu ab (TD-22), sonst nur beim Start.
+// Ohne Tracy oder ohne Zeitstempel auf der GPU tut der Profiler nichts.
 class GpuProfiler {
 public:
     // Gleicht die Zeitachsen einmal ab (wartet dafür kurz auf die GPU).
@@ -32,9 +34,13 @@ public:
 
 private:
     [[nodiscard]] u16 query(u32 index) const noexcept;
+    void recalibrate();
 
     bool active_ = false;
     u8 context_ = 0;
+    rhi::Device* device_ = nullptr;
+    // Kalibrierte Zeitstempel: Zeit der CPU (ns) beim letzten Abgleich, sonst nichts.
+    std::optional<u64> calibrated_cpu_ns_;
     u32 slot_ = 0;
     u32 next_ = 0;
     // Pro offener Zone: ob sie Zeitstempel bekommen hat.

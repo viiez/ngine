@@ -162,10 +162,55 @@ std::optional<u32> find_queue_family(VkPhysicalDevice device, VkSurfaceKHR surfa
     return std::nullopt;
 }
 
+// Kann die GPU ihre Zeitstempel ohne Abfrage in der Queue liefern (Zeitbereich Device)?
+bool device_time_domain(VkPhysicalDevice device, const char* extension) {
+    const bool khr = std::string_view{extension} == VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
+    const PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsKHR query =
+        khr ? vkGetPhysicalDeviceCalibrateableTimeDomainsKHR
+            : vkGetPhysicalDeviceCalibrateableTimeDomainsEXT;
+    if (query == nullptr) {
+        return false;
+    }
+    u32 count = 0;
+    if (query(device, &count, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    std::vector<VkTimeDomainKHR> domains(count);
+    if (query(device, &count, domains.data()) != VK_SUCCESS) {
+        return false;
+    }
+    return std::ranges::find(domains, VK_TIME_DOMAIN_DEVICE_KHR) != domains.end();
+}
+
+// Optionale Extensions, die keine Stufe sind: Present-Fences und kalibrierte Zeitstempel.
+void detect_extras(PhysicalDevice& device, bool surface_maintenance1) {
+    const std::vector<std::string> extensions = device_extensions(device.handle);
+    if (surface_maintenance1 &&
+        contains(extensions, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME)) {
+        VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
+        VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                                           .pNext = &maintenance};
+        vkGetPhysicalDeviceFeatures2(device.handle, &features);
+        device.swapchain_maintenance1 = maintenance.swapchainMaintenance1 == VK_TRUE;
+    }
+    if (device.timestamp_bits > 0) {
+        for (const char* name : {VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
+                                 VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME}) {
+            if (contains(extensions, name) && device_time_domain(device.handle, name)) {
+                device.calibrated_timestamps = name;
+                break;
+            }
+        }
+    }
+}
+
 } // namespace
 
-std::expected<PhysicalDevice, std::string>
-pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled) {
+std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance instance,
+                                                                VkSurfaceKHR surface,
+                                                                const Features& disabled,
+                                                                bool surface_maintenance1) {
     u32 count = 0;
     vkEnumeratePhysicalDevices(instance, &count, nullptr);
     std::vector<VkPhysicalDevice> devices(count);
@@ -225,6 +270,9 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& 
         };
     }
 
+    if (best) {
+        detect_extras(*best, surface_maintenance1);
+    }
     if (!best) {
         return std::unexpected("Keine GPU erfüllt die Mindestanforderung (Vulkan 1.3 mit Dynamic "
                                "Rendering, Synchronization2 und Bindless); Details stehen im Log");
@@ -262,8 +310,19 @@ std::expected<VkDevice, std::string> create_logical_device(const PhysicalDevice&
         extensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
         extensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
     }
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
     if (with_swapchain) {
         extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        if (physical_device.swapchain_maintenance1) {
+            extensions.push_back(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+            maintenance.swapchainMaintenance1 = VK_TRUE;
+            maintenance.pNext = features.root.pNext;
+            features.root.pNext = &maintenance;
+        }
+    }
+    if (physical_device.calibrated_timestamps != nullptr) {
+        extensions.push_back(physical_device.calibrated_timestamps);
     }
 
     const VkDeviceCreateInfo device_info{

@@ -219,6 +219,21 @@ Result<void> read_json(const json::Value& value, void* object, const TypeInfo& t
         *static_cast<std::string*>(object) = *text;
         return {};
     }
+    case Kind::Enum: {
+        // Lesbar als Name; Zahlen nimmt das Laden auch, z. B. für Werte ohne Namen.
+        if (const std::string* text = value.string()) {
+            const reflect::Enumerator* enumerator = type.find_enumerator(*text);
+            if (enumerator == nullptr || !store_int(object, type.size, enumerator->value)) {
+                return mismatch(path, type, "einer der Namen des Enums");
+            }
+            return {};
+        }
+        const auto number = value.to_i64();
+        if (!number || !store_int(object, type.size, *number)) {
+            return mismatch(path, type, "Name oder Zahl des Enums");
+        }
+        return {};
+    }
     case Kind::Struct: {
         if (value.object() == nullptr) {
             return mismatch(path, type, "Objekt");
@@ -257,6 +272,13 @@ json::Value to_json(const void* object, const TypeInfo& type) {
     case Kind::UInt: return json::Value{load_uint(object, type.size)};
     case Kind::Float: return json::Value{load_float(object, type.size)};
     case Kind::String: return json::Value{*static_cast<const std::string*>(object)};
+    case Kind::Enum: {
+        const i64 value = load_int(object, type.size);
+        if (const reflect::Enumerator* enumerator = type.find_enumerator(value)) {
+            return json::Value{enumerator->name};
+        }
+        return json::Value{value};
+    }
     case Kind::Struct: {
         json::Object members;
         members.reserve(type.fields.size());
@@ -286,6 +308,7 @@ void write_binary(BinaryWriter& writer, const void* object, const TypeInfo& type
     }
     case Kind::Int:
     case Kind::UInt:
+    case Kind::Enum:
     case Kind::Float: writer.write_scalar(object, type.size); return;
     case Kind::String: writer.write_string(*static_cast<const std::string*>(object)); return;
     case Kind::Struct:
@@ -308,6 +331,7 @@ Result<void> read_binary(BinaryReader& reader, void* object, const TypeInfo& typ
     }
     case Kind::Int:
     case Kind::UInt:
+    case Kind::Enum:
     case Kind::Float:
         if (!reader.read_scalar(object, type.size)) {
             return truncated(type);

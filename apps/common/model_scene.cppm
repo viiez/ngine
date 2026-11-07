@@ -52,6 +52,11 @@ export struct FlyInput {
     f32 look_y = 0.0f;
 };
 
+// Game: Kamera als Entity der Welt, Lichter kreisen (Sandbox). Editor: Die Kamera gehört nicht zur
+// Szene, sondern geht als Renderer::camera_override an den Renderer, und nichts bewegt sich von
+// selbst, damit die Szene genau so gespeichert wird, wie sie im Inspector steht (R2.2).
+export enum class SceneMode : u8 { Game, Editor };
+
 namespace {
 
 constexpr u32 grid_size = 7;
@@ -112,12 +117,14 @@ public:
     // Ohne model_path das Kugelraster. origin verschiebt alles, auch die Kamera (--far).
     [[nodiscard]] static rhi::Result<std::unique_ptr<ModelScene>>
     create(rhi::Device& device, rhi::Format target_format,
-           const std::optional<std::string>& model_path, DVec3 origin) {
+           const std::optional<std::string>& model_path, DVec3 origin,
+           SceneMode mode = SceneMode::Game) {
         auto renderer = render::Renderer::create(device, target_format);
         if (!renderer) {
             return std::unexpected(renderer.error());
         }
-        auto scene = std::unique_ptr<ModelScene>{new ModelScene{*std::move(renderer), origin}};
+        auto scene =
+            std::unique_ptr<ModelScene>{new ModelScene{*std::move(renderer), origin, mode}};
         scene->add_sun();
         if (model_path) {
             if (auto result = scene->load_model(*model_path); !result) {
@@ -157,8 +164,19 @@ public:
         move.y += static_cast<f32>(input.up) - static_cast<f32>(input.down);
         const f32 speed = speed_ * (input.fast ? 4.0f : 1.0f);
         position_ = position_ + math::to_f64(math::normalize(move) * (speed * dt));
-        camera_.set(world::Transform{.position = position_, .rotation = rotation});
-        animate(dt);
+        if (mode_ == SceneMode::Game) {
+            camera_.set(world::Transform{.position = position_, .rotation = rotation});
+            animate(dt);
+        } else {
+            renderer_->camera_override = render::CameraView{.position = position_,
+                                                            .rotation = math::to_mat3(rotation),
+                                                            .camera = camera_settings_};
+        }
+    }
+
+    // Leere Szene im Editor: Lichter, die update() bewegen würde, gibt es dann nicht mehr.
+    void forget_animated_lights() {
+        lights_.clear();
     }
 
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
@@ -195,10 +213,13 @@ private:
         return types;
     }
 
-    ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin)
-        : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)}, origin_{origin} {
-        camera_ = world_.create("Kamera");
-        camera_.set(world::Transform{}).set(render::Camera{});
+    ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin, SceneMode mode)
+        : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)}, origin_{origin},
+          mode_{mode} {
+        if (mode_ == SceneMode::Game) {
+            camera_ = world_.create("Kamera");
+            camera_.set(world::Transform{}).set(render::Camera{});
+        }
     }
 
     rhi::Result<void> load_model(const std::string& path) {
@@ -284,6 +305,7 @@ private:
                 .set(render::MeshRenderer{.mesh = *bulb, .material = glow});
             lights_.push_back(light);
         }
+        animate(0.0f);
         world_.create("Spot")
             .set(world::Transform{.position = origin_ + DVec3{0.0, 9.0, 9.0},
                                   .rotation = shine_along({0.0f, -1.0f, -0.35f})})
@@ -403,7 +425,10 @@ private:
         const f32 distance = radius / std::tan(fov * 0.5f);
         position_ = origin_ + math::to_f64(center + Vec3{0.0f, 0.0f, distance});
         speed_ = std::max(radius, 0.5f);
-        camera_.get_mut<render::Camera>()->near_plane = std::max(radius * 0.01f, 0.01f);
+        camera_settings_.near_plane = std::max(radius * 0.01f, 0.01f);
+        if (mode_ == SceneMode::Game) {
+            camera_.get_mut<render::Camera>()->near_plane = camera_settings_.near_plane;
+        }
         update(0.0f, {});
     }
 
@@ -411,7 +436,9 @@ private:
     world::World world_;
     std::unique_ptr<render::Renderer> renderer_;
     DVec3 origin_;
+    SceneMode mode_;
     world::Entity camera_;
+    render::Camera camera_settings_;
     DVec3 position_{0.0, 0.0, 0.0};
     f32 yaw_ = 0.0f;
     f32 pitch_ = 0.0f;

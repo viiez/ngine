@@ -106,6 +106,7 @@ public:
         return desc_.memory;
     }
     void write(u64 offset, std::span<const std::byte> data) override;
+    void read(u64 offset, std::span<std::byte> data) const override;
 
     [[nodiscard]] VkBuffer handle() const {
         return buffer_;

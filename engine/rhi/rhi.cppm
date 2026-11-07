@@ -29,6 +29,8 @@ enum class Format : u8 {
     BGRA8Srgb,
     RGBA16Float,
     R32Float,
+    // Ganzzahl ohne Vorzeichen pro Pixel, z. B. Entity-IDs zur Auswahl im Editor.
+    R32Uint,
     D32Float,
 };
 enum class ShaderStage : u8 { Vertex, Fragment, Compute };
@@ -70,6 +72,9 @@ enum class ResourceState : u8 {
     TransferDst,
     // Bereit für die Präsentation (nur Swapchain-Bilder).
     Present,
+    // Für die CPU lesbar, nachdem die GPU fertig ist (Puffer mit MemoryUsage::CpuRead). Nur als
+    // Endzustand.
+    HostRead,
 };
 
 [[nodiscard]] constexpr bool is_write(ResourceState state) noexcept {
@@ -125,6 +130,16 @@ struct DeviceDesc {
     // Optionale Stufen, die nicht genutzt werden, auch wenn die GPU sie kann. So lassen sich
     // die Rückfallpfade auf starker Hardware testen.
     Features disabled_features;
+    // Present-Fences (bei Vulkan VK_EXT_swapchain_maintenance1) nutzen, wo vorhanden; aus nur, um
+    // den Rückfallpfad zu testen.
+    bool present_fences = true;
+};
+
+// Zeitstempel der GPU (Ticks) mit der Zeit der CPU zum selben Moment
+// (Device::calibrated_timestamp()).
+struct CalibratedTimestamp {
+    u64 gpu = 0;
+    u64 cpu_ns = 0;
 };
 
 // Beschreibung der gewählten GPU und der optionalen Stufen, die das Device eingeschaltet hat.
@@ -243,6 +258,9 @@ enum class MemoryUsage : u8 {
     // Speicher, den die CPU direkt über Buffer::write() beschreibt. Mit Resizable BAR liegt er auf
     // der GPU, sonst im Systemspeicher.
     CpuWrite,
+    // Systemspeicher mit Cache, den die GPU beschreibt (Kopien) und die CPU über Buffer::read()
+    // liest, wenn die GPU fertig ist (Rücklesen).
+    CpuRead,
 };
 
 struct BufferDesc {
@@ -260,6 +278,10 @@ public:
     // Nur für MemoryUsage::CpuWrite. Wer ihn ändert, während die GPU ihn noch liest, muss selbst
     // warten oder pro Frame im Flug einen eigenen Puffer nehmen (Frame::index).
     virtual void write(u64 offset, std::span<const std::byte> data) = 0;
+    // Nur für MemoryUsage::CpuRead: kopiert data.size() Bytes ab offset. Wer liest, während die GPU
+    // noch schreibt, bekommt alte oder halbe Daten; nach dem Frame mit demselben Platz
+    // (Frame::index) oder nach execute() ist der Inhalt fertig.
+    virtual void read(u64 offset, std::span<std::byte> data) const = 0;
 };
 
 struct ShaderDesc {
@@ -369,6 +391,11 @@ public:
     virtual void bind_index_buffer(const Buffer& buffer) = 0;
     virtual void draw(u32 vertex_count, u32 instance_count = 1) = 0;
     virtual void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0) = 0;
+    // Kopiert ein Rechteck einer Textur (Mip-Stufe 0) Zeile für Zeile ohne Abstand ab offset in
+    // einen Puffer. Die Textur muss im Zustand TransferSrc sein, der Puffer in TransferDst; nur
+    // Farbformate, außerhalb von begin_rendering().
+    virtual void copy_texture_to_buffer(const Texture& texture, const Rect& region,
+                                        const Buffer& buffer, u64 offset) = 0;
     // Nur mit gebundener Compute-Pipeline, außerhalb von begin_rendering().
     virtual void dispatch(u32 groups_x, u32 groups_y = 1, u32 groups_z = 1) = 0;
     // Schreibt einen Zeitstempel der GPU, sobald alle Befehle davor fertig sind. Nur in Frames
@@ -440,6 +467,12 @@ public:
     // Aktueller Zeitstempel der GPU in Ticks; wartet auf die GPU. Zum Abgleich der Zeitachsen von
     // CPU und GPU (Profiler). 0 ohne Zeitstempel.
     [[nodiscard]] virtual u64 gpu_timestamp() = 0;
+    // Zeitstempel der GPU und Zeit der CPU (steady_clock in Nanosekunden) zum selben Moment,
+    // ohne auf die GPU zu warten (bei Vulkan über VK_KHR_calibrated_timestamps, TD-22). Nichts,
+    // wenn die GPU das nicht kann oder die Messung zu ungenau war.
+    [[nodiscard]] virtual std::optional<CalibratedTimestamp> calibrated_timestamp() {
+        return std::nullopt;
+    }
 
     virtual void wait_idle() = 0;
 

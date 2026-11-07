@@ -19,6 +19,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R1.4](R1.4-licht-und-schatten.md) | Konstruktion | Licht und Schatten | abgeschlossen |
 | [R2](R2-welt-und-editor.md) | Konstruktion | Reifegrad Welt und Editor (R2.1 bis R2.5) | in Arbeit |
 | [R2.1](R2.1-editor-geruest-und-viewport.md) | Konstruktion | Editor-Gerüst und Viewport | abgeschlossen |
+| [R2.2](R2.2-szenenbaum-inspector-undo.md) | Konstruktion | Szenenbaum, Inspector, Undo | in Arbeit |
 
 ## Vorlage
 

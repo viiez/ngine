@@ -15,11 +15,12 @@ void frame_mark() noexcept {}
 void plot(const char*, f64) noexcept {}
 void message(std::string_view) noexcept {}
 
-u8 gpu_context(std::string_view, i64, f32) noexcept {
+u8 gpu_context(std::string_view, i64, f32, bool) noexcept {
     return 0;
 }
 void gpu_zone_begin(u8, u16, std::string_view) noexcept {}
 void gpu_zone_end(u8, u16) noexcept {}
 void gpu_time(u8, u16, i64) noexcept {}
+void gpu_calibration(u8, i64, i64) noexcept {}
 
 } // namespace ngine::profile

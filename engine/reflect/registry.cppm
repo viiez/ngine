@@ -43,6 +43,15 @@ public:
         requires std::is_member_object_pointer_v<Member>
     TypeBuilder& field(std::string_view name, Member member);
 
+    // Gültiger Bereich des zuletzt hinzugefügten Feldes (Field::range).
+    TypeBuilder& range(f64 min, f64 max, f64 step = 0.0);
+    // Darstellung des zuletzt hinzugefügten Feldes im Editor (Field::hint).
+    TypeBuilder& hint(Hint hint);
+
+    // Benannter Wert eines Enums: types.add<Mode>("Mode").value("Aus", Mode::Off).
+    TypeBuilder& value(std::string_view name, T value)
+        requires std::is_enum_v<T>;
+
     // Markiert den Typ als nur zur Laufzeit vorhanden (TypeInfo::transient).
     TypeBuilder& transient() noexcept {
         info_->transient = true;
@@ -119,6 +128,9 @@ private:
     TypeInfo& add_type(TypeKey key, TypeInfo info);
     void add_field(TypeInfo& owner, std::string_view name, TypeKey field_type, usize offset,
                    usize field_size);
+    static void set_range(TypeInfo& owner, Range range);
+    static void set_hint(TypeInfo& owner, Hint hint);
+    static void add_enumerator(TypeInfo& owner, std::string_view name, i64 value);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -146,6 +158,27 @@ TypeBuilder<T>& TypeBuilder<T>::field(std::string_view name, Member member) {
                   "Das Feld gehört nicht zu diesem Typ");
     using M = typename Traits::FieldType;
     registry_->add_field(*info_, name, type_key<M>(), offset_of(member), sizeof(M));
+    return *this;
+}
+
+template <typename T>
+TypeBuilder<T>& TypeBuilder<T>::range(f64 min, f64 max, f64 step) {
+    TypeRegistry::set_range(*info_, Range{.min = min, .max = max, .step = step});
+    return *this;
+}
+
+template <typename T>
+TypeBuilder<T>& TypeBuilder<T>::hint(Hint hint) {
+    TypeRegistry::set_hint(*info_, hint);
+    return *this;
+}
+
+template <typename T>
+TypeBuilder<T>& TypeBuilder<T>::value(std::string_view name, T value)
+    requires std::is_enum_v<T>
+{
+    TypeRegistry::add_enumerator(*info_, name,
+                                 static_cast<i64>(static_cast<std::underlying_type_t<T>>(value)));
     return *this;
 }
 

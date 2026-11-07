@@ -5,6 +5,8 @@ module;
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -20,6 +22,7 @@ module ngine.world;
 
 import ngine.core;
 import ngine.math;
+import ngine.memory;
 import ngine.reflect;
 
 namespace ngine::world {
@@ -97,13 +100,76 @@ void flecs_log(i32 level, const char* file, i32 line, const char* message) {
     }
 }
 
+// --- Speicher von flecs im Budget der Welt (TD-08) --------------------------------------------
+// flecs gibt Speicher ohne Größe frei. Jede Allokation bekommt deshalb einen Kopf mit ihrer Größe;
+// 16 Bytes halten die Ausrichtung, die malloc liefert.
+
+constexpr usize allocation_header = 16;
+
+void* track(void* block, usize size) noexcept {
+    if (block == nullptr) {
+        return nullptr;
+    }
+    std::memcpy(block, &size, sizeof(size));
+    memory::record_allocation(memory::Category::World, size);
+    return static_cast<std::byte*>(block) + allocation_header;
+}
+
+// Kopf vor ptr und die dort vermerkte Größe.
+std::byte* header_of(void* ptr, usize& size) noexcept {
+    std::byte* block = static_cast<std::byte*>(ptr) - allocation_header;
+    std::memcpy(&size, block, sizeof(size));
+    return block;
+}
+
+void* tracked_malloc(ecs_size_t size) {
+    const auto bytes = static_cast<usize>(size);
+    return track(std::malloc(bytes + allocation_header), bytes);
+}
+
+void* tracked_calloc(ecs_size_t size) {
+    const auto bytes = static_cast<usize>(size);
+    return track(std::calloc(1, bytes + allocation_header), bytes);
+}
+
+void tracked_free(void* ptr) {
+    if (ptr == nullptr) {
+        return;
+    }
+    usize size = 0;
+    std::byte* block = header_of(ptr, size);
+    memory::record_deallocation(memory::Category::World, size);
+    std::free(block);
+}
+
+void* tracked_realloc(void* ptr, ecs_size_t size) {
+    if (ptr == nullptr) {
+        return tracked_malloc(size);
+    }
+    usize old_size = 0;
+    std::byte* block = header_of(ptr, old_size);
+    const auto bytes = static_cast<usize>(size);
+    void* grown = std::realloc(block, bytes + allocation_header);
+    if (grown == nullptr) {
+        // Der alte Block bleibt gültig und verbucht.
+        return nullptr;
+    }
+    memory::record_deallocation(memory::Category::World, old_size);
+    return track(grown, bytes);
+}
+
 void install_flecs_os_api() {
-    // Die OS-API von flecs ist global. Einmal setzen, bevor die erste Welt entsteht.
+    // Die OS-API von flecs ist global. Einmal setzen, bevor die erste Welt entsteht und flecs
+    // Speicher anfordert; sonst gäbe tracked_free() Blöcke ohne Kopf frei.
     static std::once_flag once;
     std::call_once(once, [] {
         ecs_os_set_api_defaults();
         ecs_os_api_t api = ecs_os_get_api();
         api.log_ = &flecs_log;
+        api.malloc_ = &tracked_malloc;
+        api.calloc_ = &tracked_calloc;
+        api.realloc_ = &tracked_realloc;
+        api.free_ = &tracked_free;
         ecs_os_set_api(&api);
     });
 }
@@ -115,7 +181,10 @@ struct World::Impl {
     // Markiert alle Entities, die über World::create() entstanden sind. So unterscheiden sich
     // Spiel-Entities von den internen Entities, die flecs selbst anlegt (Komponenten usw.).
     ecs_entity_t tag = 0;
-    std::unordered_map<const reflect::TypeInfo*, ComponentId> components;
+    // Komponente pro Typ, nach TypeInfo::index (0: noch nicht angemeldet), und pro C++-Typ für
+    // component<T>(): eine Hashtabelle statt zweier (TD-09).
+    std::vector<ComponentId> by_index;
+    std::unordered_map<reflect::TypeKey, ComponentId> by_key;
     std::unordered_map<ComponentId, const reflect::TypeInfo*> types;
     // Abfragen für for_each_parent_first(), nach (own, out, parent). flecs gibt sie mit der Welt
     // frei.
@@ -158,6 +227,18 @@ usize World::entity_count() const {
     return static_cast<usize>(ecs_count_id(impl_->world, impl_->tag));
 }
 
+u64 World::entity_from_index(u32 index) const {
+    if (index == 0) {
+        return 0;
+    }
+    const ecs_entity_t entity = ecs_get_alive(impl_->world, index);
+    // Nur Spiel-Entities, keine internen von flecs (Komponenten usw.).
+    if (entity == 0 || !ecs_has_id(impl_->world, entity, impl_->tag)) {
+        return 0;
+    }
+    return entity;
+}
+
 std::vector<u64> World::entity_ids() const {
     std::vector<u64> ids;
     ecs_iter_t it = ecs_each_id(impl_->world, impl_->tag);
@@ -168,9 +249,18 @@ std::vector<u64> World::entity_ids() const {
     return ids;
 }
 
-ComponentId World::component(const reflect::TypeInfo& type) {
-    if (const auto it = impl_->components.find(&type); it != impl_->components.end()) {
+ComponentId World::component_by_key(reflect::TypeKey key) {
+    if (const auto it = impl_->by_key.find(key); it != impl_->by_key.end()) {
         return it->second;
+    }
+    const ComponentId id = component(types_->get_key(key));
+    impl_->by_key.emplace(key, id);
+    return id;
+}
+
+ComponentId World::component(const reflect::TypeInfo& type) {
+    if (type.index < impl_->by_index.size() && impl_->by_index[type.index] != 0) {
+        return impl_->by_index[type.index];
     }
     verify(types_->find_id(type.id) == &type, "Komponente stammt nicht aus der Registry der Welt");
     verify(type.kind == reflect::Kind::Struct, "Komponenten müssen Structs sein");
@@ -198,7 +288,10 @@ ComponentId World::component(const reflect::TypeInfo& type) {
     }
     ecs_set_hooks_id(impl_->world, component, &hooks);
 
-    impl_->components.emplace(&type, component);
+    if (impl_->by_index.size() <= type.index) {
+        impl_->by_index.resize(type.index + 1, 0);
+    }
+    impl_->by_index[type.index] = component;
     impl_->types.emplace(component, &type);
     return component;
 }
@@ -485,6 +578,7 @@ void register_types(reflect::TypeRegistry& types) {
         types.add<Transform>("Transform")
             .field("position", &Transform::position)
             .field("rotation", &Transform::rotation)
+            .hint(reflect::Hint::Rotation)
             .field("scale", &Transform::scale);
     }
     if (types.find<WorldTransform>() == nullptr) {

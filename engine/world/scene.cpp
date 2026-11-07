@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <expected>
 #include <format>
 #include <optional>
@@ -30,12 +31,13 @@ void append_subtree(const World& world, u64 entity, std::vector<u64>& out) {
 }
 
 json::Value components_to_json(const World& world, u64 entity) {
-    json::Value components{json::Object{}};
+    // Reihenfolge der Registrierung statt der Anmeldung in der Welt: Welten, die Komponenten in
+    // anderer Reihenfolge angemeldet haben, schreiben so denselben Text.
+    std::vector<std::pair<const reflect::TypeInfo*, const void*>> found;
     auto visit = [&](const reflect::TypeInfo& type, ComponentId /*component*/, const void* data) {
-        if (type.transient) {
-            return;
+        if (!type.transient) {
+            found.emplace_back(&type, data);
         }
-        components[type.name] = serialize::to_json(data, type);
     };
     world.for_each_component(entity, ComponentVisitor{
                                          .context = &visit,
@@ -46,6 +48,11 @@ json::Value components_to_json(const World& world, u64 entity) {
                                                      type, component, data);
                                              },
                                      });
+    std::ranges::sort(found, {}, [](const auto& entry) { return entry.first->index; });
+    json::Value components{json::Object{}};
+    for (const auto& [type, data] : found) {
+        components[type->name] = serialize::to_json(data, *type);
+    }
     return components;
 }
 
@@ -109,24 +116,40 @@ Result<usize> load_scene(World& world, std::string_view text) {
         return std::unexpected(std::string{"Szene ohne \"entities\"-Array"});
     }
 
+    // Alle Entities vorab anlegen und aufsteigend vergeben: Die Welt verwendet Kennungen gelöschter
+    // Entities in umgekehrter Reihenfolge wieder, die Datei soll aber in ihrer Reihenfolge
+    // ankommen, damit sie ohne Änderung textgleich gespeichert wird.
+    std::vector<u64> fresh;
+    fresh.reserve(entities->array()->size());
+    for (usize i = 0; i < entities->array()->size(); ++i) {
+        fresh.push_back(world.create().id());
+    }
+    std::ranges::sort(fresh);
+    usize next = 0;
+    // Bei einem Fehler: nicht benutzte Entities wieder weg, das bisher Geladene bleibt.
+    const auto fail = [&](std::string message) -> Result<usize> {
+        for (usize i = next; i < fresh.size(); ++i) {
+            world.destroy(fresh[i]);
+        }
+        return std::unexpected(std::move(message));
+    };
+
     std::unordered_map<i64, Entity> created;
     for (const json::Value& object : *entities->array()) {
         const json::Value* id_value = object.find("id");
         const auto file_id = id_value != nullptr ? id_value->to_i64() : std::nullopt;
         if (!file_id || created.contains(*file_id)) {
-            return std::unexpected(
-                std::string{"Szene: Entity ohne gültige oder mit doppelter \"id\""});
+            return fail(std::string{"Szene: Entity ohne gültige oder mit doppelter \"id\""});
         }
 
-        Entity entity = world.create();
+        Entity entity = world.entity(fresh[next++]);
         created.emplace(*file_id, entity);
 
         if (const json::Value* parent = object.find("parent")) {
             const auto parent_id = parent->to_i64();
             const auto it = parent_id ? created.find(*parent_id) : created.end();
             if (it == created.end()) {
-                return std::unexpected(
-                    entity_error(*file_id, "Elternteil fehlt oder steht nach dem Kind"));
+                return fail(entity_error(*file_id, "Elternteil fehlt oder steht nach dem Kind"));
             }
             entity.set_parent(it->second);
         }
@@ -136,7 +159,7 @@ Result<usize> load_scene(World& world, std::string_view text) {
             continue;
         }
         if (components->object() == nullptr) {
-            return std::unexpected(entity_error(*file_id, "\"components\" ist kein Objekt"));
+            return fail(entity_error(*file_id, "\"components\" ist kein Objekt"));
         }
         for (const json::Member& member : *components->object()) {
             const reflect::TypeInfo* type = world.types().find(member.key);
@@ -148,7 +171,7 @@ Result<usize> load_scene(World& world, std::string_view text) {
             const ComponentId component = world.component(*type);
             void* data = world.ensure(entity.id(), component);
             if (auto result = serialize::from_json(member.value, data, *type); !result) {
-                return std::unexpected(entity_error(*file_id, result.error()));
+                return fail(entity_error(*file_id, result.error()));
             }
             world.modified(entity.id(), component);
         }

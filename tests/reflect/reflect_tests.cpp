@@ -108,3 +108,60 @@ TEST_CASE("Registered types are listed in order", "[reflect]") {
     REQUIRE(types.types().size() == primitives + 1);
     CHECK(types.types().back()->name == "Vec3");
 }
+
+namespace {
+
+enum class Mode : i16 { Off = 0, Slow = 2, Fast = -1 };
+
+struct Lamp {
+    f32 brightness = 1.0f;
+    Mode mode = Mode::Off;
+    Vec3 tint;
+};
+
+} // namespace
+
+TEST_CASE("Enums list their named values", "[reflect]") {
+    reflect::TypeRegistry types;
+    types.add<Mode>("Mode")
+        .value("Aus", Mode::Off)
+        .value("Langsam", Mode::Slow)
+        .value("Schnell", Mode::Fast);
+    const reflect::TypeInfo& mode = types.get<Mode>();
+    CHECK(mode.kind == reflect::Kind::Enum);
+    CHECK(mode.size == sizeof(i16));
+    REQUIRE(mode.enumerators.size() == 3);
+    CHECK(mode.find_enumerator("Schnell")->value == -1);
+    CHECK(mode.find_enumerator(i64{2})->name == "Langsam");
+    CHECK(mode.find_enumerator("Rückwärts") == nullptr);
+}
+
+TEST_CASE("Fields carry ranges and editor hints", "[reflect]") {
+    reflect::TypeRegistry types;
+    types.add<Vec3>("Vec3").field("x", &Vec3::x).field("y", &Vec3::y).field("z", &Vec3::z);
+    types.add<Mode>("Mode").value("Aus", Mode::Off);
+    types.add<Lamp>("Lamp")
+        .field("brightness", &Lamp::brightness)
+        .range(0.0, 100.0, 0.5)
+        .field("mode", &Lamp::mode)
+        .field("tint", &Lamp::tint)
+        .hint(reflect::Hint::Color);
+    const reflect::TypeInfo& lamp = types.get<Lamp>();
+    const reflect::Field* brightness = lamp.find_field("brightness");
+    REQUIRE(brightness->range);
+    CHECK(brightness->range->min == 0.0);
+    CHECK(brightness->range->max == 100.0);
+    CHECK(brightness->range->step == 0.5);
+    CHECK(brightness->hint == reflect::Hint::None);
+    CHECK_FALSE(lamp.find_field("mode")->range);
+    CHECK(lamp.find_field("tint")->hint == reflect::Hint::Color);
+}
+
+TEST_CASE("Types know their registration index", "[reflect]") {
+    reflect::TypeRegistry types;
+    types.add<Vec3>("Vec3");
+    const auto all = types.types();
+    for (usize i = 0; i < all.size(); ++i) {
+        CHECK(all[i]->index == i);
+    }
+}

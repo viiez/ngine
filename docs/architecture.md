@@ -24,30 +24,31 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 
 | Modul | CMake-Ziel | Inhalt | Status |
 | --- | --- | --- | --- |
-| `ngine.core` | `ngine::core` | Partitionen `types`, `log` (Sinks für Konsole, Datei `FileSink` und Ringpuffer `RingSink`), `check`, `version`; interne Partition `console` stellt die Windows-Konsole auf UTF-8 und öffnet Log-Dateien mit UTF-8-Pfad (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
+| `ngine.core` | `ngine::core` | Partitionen `types`, `log` (Sinks für Konsole, Datei `FileSink` und Ringpuffer `RingSink`), `check`, `version`, `events` (`EventBus` mit Abonnements, sofort oder gesammelt zugestellt); interne Partition `console` stellt die Windows-Konsole auf UTF-8 und öffnet Log-Dateien mit UTF-8-Pfad (`console_windows.cpp`/`console_posix.cpp`) | vorhanden |
 | `ngine.math` | `ngine::math` | Eigene Mathematik: `Vec3`, `DVec3`, `Mat4`, `Quat` …, Projektionen und Blickmatrix nach den Konventionen der Engine, `Affine` mit 64-Bit-Verschiebung ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
 | `ngine.memory` | `ngine::memory` | CPU-Allokatoren als `std::pmr::memory_resource` (`LinearAllocator`, `FrameAllocator`, `PoolAllocator`, `ObjectPool`) und Budget pro Kategorie | vorhanden |
 | `ngine.jobs` | `ngine::jobs` | Job-System mit Work-Stealing, `Counter`, `TaskGraph`, `parallel_for` ([ADR 0015](adr/0015-own-job-system.md)) | vorhanden |
 | `ngine.profile` | `ngine::profile` | Profiling-Zonen, Frame-Marken, Plots, GPU-Zeitleisten mit nachgereichten Zeitstempeln; Adapter für Tracy, Makros in `<ngine/profile.hpp>` ([ADR 0016](adr/0016-profiling-macros.md)) | vorhanden |
 | `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner; Pfade als UTF-8, Plattformcode in `user_dir_linux.cpp`/`user_dir_windows.cpp` | vorhanden |
-| `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo`, Felder, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
+| `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo` mit Index der Registrierung, Felder mit Bereich und Hinweis für den Editor, Enums mit Namen, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
-| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-own-math-mixed-precision.md)) | vorhanden |
+| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden; `Transform`, `WorldTransform` und `update_transforms()` ([ADR 0025](adr/0025-own-math-mixed-precision.md)); Speicher von flecs im Budget `Category::World` | vorhanden |
 | `ngine.asset` | `ngine::asset` | Ressourcen-Schicht: `load_gltf()` liefert `Model` (Meshes mit festem Eckpunktformat, Materialien nach Metallic-Roughness, Texturen, Bilder, Knoten) in reinen CPU-Daten, `decode_image()` RGBA8, Normalen, Tangenten und Kugeln erzeugen; Adapter `gltf_fastgltf.cpp` und `image_stb.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | vorhanden (ab R1.3) |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten nach Scancode mit Loslassen, Texteingabe, Fokus, Maus mit relativem Modus und Zeigerform, Zwischenablage, Bildschirmskalierung, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
-| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Scissor, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
+| `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Scissor, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; Rücklesen über Puffer im Speicher `CpuRead` (`copy_texture_to_buffer()`, `Buffer::read()`); Zeitstempel der GPU ohne Warten (`calibrated_timestamp()`); `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
-| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer`, `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Tone Mapping, Debug-Linien), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
+| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer`, `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Tone Mapping, Debug-Linien, Auswahl per Klick über einen ID-Puffer, Kamera von außen über `camera_override`), `upload_model()` und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Schatten, Debug-Linien, Tone Mapping, Editor-UI); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
 | `ngine.editor_ui` | `ngine::editor_ui` | Editor-UI: Adapter für Dear ImGui mit Docking (`:context`, `:widgets`; nur `context.cpp` und `widgets.cpp` kennen ImGui), Zeichenliste in Engine-Typen (`:draw`), `UiRenderer` als Pass im Render-Graph über die RHI (`:pass`), Log-Konsole (`:console`) und Viewport-Größe (`:viewport`); ohne Fenster und GPU testbar ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | vorhanden (ab R2.1) |
+| `ngine.edit` | `ngine::edit` | Editor-Logik ohne UI und GPU: `SceneDocument` mit stabilen Entity-Kennungen, Verlauf (`CommandStack`) und Datei, Befehle mit reflektierten Werten (`:commands`), Auswahl, Modelle für Szenenbaum und Inspector; Ereignisse über `events::EventBus` ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | vorhanden (ab R2.2) |
 
 Die Durchstiche D1 bis D3 haben die geplanten Module der Ausarbeitung angelegt. In R1 kommen
 `ngine.math` (R1.1), der Renderer `ngine.render` (ab R1.2) und `ngine.asset` (R1.3) dazu, in R2
-`ngine.editor_ui` (R2.1) für den Editor.
+`ngine.editor_ui` (R2.1) und `ngine.edit` (R2.2) für den Editor.
 
 ```mermaid
 flowchart BT
@@ -71,6 +72,7 @@ flowchart BT
     editor["Editor"]
     common["apps/common<br/>(Standardszene)"]
     editor_ui["ngine.editor_ui<br/>(Dear ImGui)"]
+    edit["ngine.edit"]
     math["ngine.math"]
     render["ngine.render"]
     asset["ngine.asset<br/>(fastgltf, stb_image)"]
@@ -115,6 +117,8 @@ flowchart BT
     editor --> common
     common --> render
     editor --> editor_ui
+    editor --> edit
+    edit --> world
     editor --> platform
     editor --> vulkan
 ```
@@ -264,10 +268,13 @@ flowchart LR
     events["platform::Window<br/>Ereignisse"] --> input["editor.input<br/>(Tasten, Maus, Zeiger)"]
     input --> ctx["editor_ui::Context<br/>(ImGui)"]
     input --> fly["FlyInput<br/>(rechte Maustaste im Viewport)"]
-    ctx --> panels["Fenster: Viewport, Konsole,<br/>Statistik, Menü, Andocken"]
+    ctx --> panels["Fenster: Viewport, Szene, Inspector,<br/>Konsole, Statistik, Menü"]
     panels --> list["UiDrawData"]
-    fly --> scene["ModelScene<br/>(apps/common)"]
+    panels --> doc["edit::SceneDocument<br/>Befehle, Verlauf"]
+    doc --> scene
+    fly --> scene["ModelScene<br/>(apps/common, Modus Editor)"]
     scene --> rpass["Renderer::add_passes()<br/>in die Viewport-Textur"]
+    rpass -- "Pixel aus dem ID-Puffer" --> panels
     rpass --> upass["UiRenderer::add_pass()<br/>in den Backbuffer"]
     list --> upass
 ```
@@ -282,15 +289,37 @@ flowchart LR
 - Die Konsole liest einen `log::RingSink`, der vor allem anderen eingetragen wird; dazu schreibt
   ein `log::FileSink` nach `editor.log` im Benutzerordner. Lage und Andocken der Fenster speichert
   ImGui in `editor.ini` daneben.
+- **Dokument und Verlauf** (R2.2, [ADR 0030](adr/0030-undo-commands-reflected-values.md)): Alle
+  Änderungen der Fenster laufen als Befehle über `edit::SceneDocument::execute()`. Befehle kennen
+  Entities nur über stabile `EntityId`s und halten Werte als Bytes im Binärformat der Reflection.
+  Solange ein Eingabefeld aktiv ist, verschmelzen Änderungen desselben Feldes; danach versiegelt
+  die Hauptschleife den Verlauf.
+- **Ereignisse:** Dokument und Auswahl melden `EntityChanged`, `DocumentReset`, `DirtyChanged` und
+  `SelectionChanged` über einen `events::EventBus`. Die Fenster kennen sich nicht; die Auswahl
+  prüft sich nach Änderungen selbst, der Fenstertitel folgt `dirty()`.
+- **Inspector aus der Reflection:** `edit::inspect()` liefert Zeilen mit Art des Eingabefelds,
+  Zahlentyp und Bereich; das Fenster zeichnet sie und gibt neue Werte über `edit::commit()`
+  zurück. Kein Code pro Komponente.
+- **Auswahl per Klick:** Der Editor fragt beim Renderer ein Pixel an (`request_pick()`). Im
+  nächsten Frame zeichnet ein Pass alle Meshes mit dem unteren Teil ihrer Entity-Kennung in eine
+  transiente `R32Uint`-Textur, ein zweiter kopiert das Pixel in einen Rücklesepuffer des Frames im
+  Flug. Ist derselbe Platz wieder an der Reihe, ist die GPU fertig; `take_pick()` liefert die
+  Entity (`World::entity_from_index()`).
+- **Kamera des Editors** gehört nicht zur Szene: `ModelScene` im Modus `Editor` setzt
+  `Renderer::camera_override`, damit gespeicherte Szenen keine Editor-Kamera enthalten. Szenen aus
+  Dateien haben bis R2.4 keine Meshes; Hilfslinien (`editor.overlay`) zeigen Raster, Lichter und
+  die Auswahl.
 
 ### Lebensdauer von GPU-Ressourcen
 
 Jede Abgabe an die Queue signalisiert den nächsten Wert eines Timeline Semaphores. Daran hängen
 die Frames im Flug (ein Frame wartet auf den Wert seines Vorgängers mit demselben Platz), der
 Staging-Speicher und die Löschliste: Zerstört der Aufrufer eine Ressource, gibt das Backend sie und
-ihren bindlosen Index erst frei, wenn die GPU alle Abgaben bis dahin abgearbeitet hat. Auch die
-alte Swapchain kommt nach einem Neuaufbau in die Löschliste, mit zwei Abgaben Abstand für die
-Präsentation (TD-18); `vkDeviceWaitIdle` gibt es nur noch beim Beenden.
+ihren bindlosen Index erst frei, wenn die GPU alle Abgaben bis dahin abgearbeitet hat. Die
+Präsentation deckt die Timeline nicht ab. Mit `VK_EXT_swapchain_maintenance1` bekommt deshalb
+jede Präsentation eine Fence; eine alte Swapchain kommt nach einem Neuaufbau erst in die
+Löschliste, wenn alle Präsentationen an sie fertig sind. Ohne die Extension wartet sie dort zwei
+Abgaben länger. `vkDeviceWaitIdle` gibt es nur noch beim Beenden.
 
 ## Regeln
 

@@ -52,13 +52,19 @@ void message(std::string_view text) noexcept;
 // werden, wenn ihre Zeit gemeldet ist.
 
 // Legt eine GPU-Zeitleiste an. gpu_time: Zeitstempel der GPU, der jetzt gilt (in Ticks);
-// period: Nanosekunden pro Tick. Liefert die Nummer des Kontexts.
-[[nodiscard]] u8 gpu_context(std::string_view name, i64 gpu_time, f32 period) noexcept;
+// period: Nanosekunden pro Tick. Mit calibrated meldet der Aufrufer regelmäßig gpu_calibration().
+// Liefert die Nummer des Kontexts.
+[[nodiscard]] u8 gpu_context(std::string_view name, i64 gpu_time, f32 period,
+                             bool calibrated = false) noexcept;
 // Zone mit Namen (der Text wird kopiert), beginnt beim Zeitstempel query.
 void gpu_zone_begin(u8 context, u16 query, std::string_view name) noexcept;
 // Schließt die zuletzt geöffnete Zone beim Zeitstempel query.
 void gpu_zone_end(u8 context, u16 query) noexcept;
 // Reicht den Wert eines Zeitstempels nach.
 void gpu_time(u8 context, u16 query, i64 gpu_time) noexcept;
+// Gleicht die Zeitachsen neu ab (TD-22): gpu_time ist der Zeitstempel der GPU, der jetzt gilt,
+// cpu_delta die Zeit der CPU in Nanosekunden seit dem letzten Abgleich. Daraus berechnet Tracy,
+// wie weit die Uhren auseinanderlaufen.
+void gpu_calibration(u8 context, i64 gpu_time, i64 cpu_delta) noexcept;
 
 } // namespace ngine::profile

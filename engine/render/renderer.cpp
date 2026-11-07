@@ -40,6 +40,7 @@ using rhi::ResourceState;
 
 constexpr rhi::Format hdr_format = rhi::Format::RGBA16Float;
 constexpr rhi::Format depth_format = rhi::Format::D32Float;
+constexpr rhi::Format id_format = rhi::Format::R32Uint;
 
 struct TonemapPush {
     u32 hdr = 0;
@@ -63,6 +64,23 @@ struct Draw {
     u32 index_count = 0;
     u32 material = 0;
     usize pipeline = 0;
+    // Untere 32 Bit der Entity für den ID-Puffer (World::entity_from_index()).
+    u32 id = 0;
+};
+
+// Push Constants des ID-Puffers, wie id.slang sie liest.
+struct IdPush {
+    math::Vec4 model[3];
+    u64 vertices = 0;
+    u64 frame = 0;
+    u32 id = 0;
+    u32 reserved = 0;
+};
+static_assert(sizeof(IdPush) <= rhi::max_push_constant_size);
+
+struct PickRequest {
+    u32 x = 0;
+    u32 y = 0;
 };
 
 } // namespace
@@ -117,6 +135,16 @@ struct Renderer::Impl {
     std::unique_ptr<rhi::Shader> debug_fragment;
     std::unique_ptr<rhi::Shader> fullscreen_vertex;
     std::unique_ptr<rhi::Shader> tonemap_fragment;
+    std::unique_ptr<rhi::Shader> id_vertex;
+    std::unique_ptr<rhi::Shader> id_fragment;
+    // ID-Puffer mit und ohne Aussortieren von Rückseiten (wie die PBR-Varianten).
+    std::array<std::unique_ptr<rhi::Pipeline>, 2> id_pipelines;
+    // Pro Frame im Flug: Puffer für das zurückgelesene Pixel und die Anfrage, die er beantwortet.
+    std::vector<std::unique_ptr<rhi::Buffer>> pick_buffers;
+    std::vector<std::optional<PickRequest>> pick_pending;
+    std::optional<PickRequest> pick_requested;
+    std::optional<PickRequest> pick_answered;
+    u32 pick_answer = 0;
     // Undurchsichtig, undurchsichtig doppelseitig, durchsichtig, durchsichtig doppelseitig.
     std::array<std::unique_ptr<rhi::Pipeline>, 4> pbr;
     // Schatten ohne und mit Alpha-Maske; neu erzeugt, wenn sich der Tiefenversatz ändert.
@@ -177,6 +205,67 @@ struct Renderer::Impl {
         }
         return buffer.get();
     }
+
+    // ID-Puffer mit allen Draws dieses Frames und Kopie eines Pixels in pick_buffers[slot].
+    void add_pick_passes(RenderGraph& graph, usize slot, PickRequest request, rhi::Extent2D extent,
+                         u64 frame_address) {
+        const TextureHandle ids =
+            graph.create_texture("IDs", {.extent = extent, .format = id_format});
+        const TextureHandle depth =
+            graph.create_texture("Tiefe der IDs", {.extent = extent, .format = depth_format});
+        graph.add_pass(
+            "Auswahl",
+            [&](PassBuilder& pass) {
+                pass.write(ids, ResourceState::ColorTarget);
+                pass.write(depth, ResourceState::DepthTarget);
+            },
+            [this, ids, depth, frame_address](PassContext& context) {
+                // 0.0f hat dieselben Bits wie die Ganzzahl 0: „nichts getroffen“.
+                context.commands.begin_rendering({.color = &context.texture(ids),
+                                                  .clear_color = rhi::Color{0.0f, 0.0f, 0.0f, 0.0f},
+                                                  .depth = &context.texture(depth),
+                                                  .clear_depth = 0.0f});
+                const rhi::Pipeline* bound = nullptr;
+                const rhi::Buffer* indices = nullptr;
+                for (const Draw& draw : draws) {
+                    const rhi::Pipeline* pipeline = id_pipelines[draw.pipeline % 2].get();
+                    if (bound != pipeline) {
+                        bound = pipeline;
+                        context.commands.bind_pipeline(*bound);
+                    }
+                    if (indices != draw.mesh->indices.get()) {
+                        indices = draw.mesh->indices.get();
+                        context.commands.bind_index_buffer(*indices);
+                    }
+                    const IdPush push{.model = {draw.model[0], draw.model[1], draw.model[2]},
+                                      .vertices = draw.mesh->vertices->device_address(),
+                                      .frame = frame_address,
+                                      .id = draw.id};
+                    context.commands.push_constants(std::as_bytes(std::span{&push, 1}));
+                    context.commands.draw_indexed(draw.index_count, 1, draw.first_index);
+                }
+                context.commands.end_rendering();
+            });
+        const BufferHandle readback =
+            graph.import_buffer("Auswahl lesen", *pick_buffers[slot], ResourceState::Undefined,
+                                ResourceState::HostRead);
+        graph.add_pass(
+            "Auswahl lesen",
+            [&](PassBuilder& pass) {
+                pass.read(ids, ResourceState::TransferSrc);
+                pass.write(readback, ResourceState::TransferDst);
+                pass.side_effect();
+            },
+            [ids, readback, request](PassContext& context) {
+                context.commands.copy_texture_to_buffer(context.texture(ids),
+                                                        {.x = static_cast<i32>(request.x),
+                                                         .y = static_cast<i32>(request.y),
+                                                         .width = 1,
+                                                         .height = 1},
+                                                        context.buffer(readback), 0);
+            });
+        pick_pending[slot] = request;
+    }
 };
 
 rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
@@ -200,7 +289,9 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
                         shader(shaders::debug_vertex(), impl->debug_vertex),
                         shader(shaders::debug_fragment(), impl->debug_fragment),
                         shader(shaders::fullscreen_vertex(), impl->fullscreen_vertex),
-                        shader(shaders::tonemap_fragment(), impl->tonemap_fragment)}) {
+                        shader(shaders::tonemap_fragment(), impl->tonemap_fragment),
+                        shader(shaders::id_vertex(), impl->id_vertex),
+                        shader(shaders::id_fragment(), impl->id_fragment)}) {
         if (!result) {
             return std::unexpected("Renderer, Shader: " + result.error());
         }
@@ -247,6 +338,19 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
         return std::unexpected("Renderer, Tone Mapping: " + tonemap.error());
     }
     impl->tonemap = *std::move(tonemap);
+    for (usize i = 0; i < impl->id_pipelines.size(); ++i) {
+        auto pipeline = device.create_pipeline(
+            {.vertex = impl->id_vertex.get(),
+             .fragment = impl->id_fragment.get(),
+             .color_format = id_format,
+             .depth_format = depth_format,
+             .depth_compare = rhi::CompareOp::Greater,
+             .cull_mode = i == 0 ? rhi::CullMode::Back : rhi::CullMode::None});
+        if (!pipeline) {
+            return std::unexpected("Renderer, ID-Puffer: " + pipeline.error());
+        }
+        impl->id_pipelines[i] = *std::move(pipeline);
+    }
 
     // Gather liest vier Texel ohne Filter; nur Klemmen am Rand zählt.
     auto sampler = device.create_sampler({.mag_filter = rhi::Filter::Nearest,
@@ -274,6 +378,14 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
         impl->frames.push_back(*std::move(frame));
         impl->lights.push_back(*std::move(lights));
         impl->lines.emplace_back();
+        auto pick = device.create_buffer({.size = sizeof(u32),
+                                          .usage = rhi::BufferUsage::Storage,
+                                          .memory = rhi::MemoryUsage::CpuRead});
+        if (!pick) {
+            return std::unexpected("Renderer, Puffer der Auswahl: " + pick.error());
+        }
+        impl->pick_buffers.push_back(*std::move(pick));
+        impl->pick_pending.emplace_back();
     }
     return std::unique_ptr<Renderer>{new Renderer{std::move(impl)}};
 }
@@ -294,6 +406,21 @@ const RenderStats& Renderer::stats() const noexcept {
     return impl_->stats;
 }
 
+void Renderer::request_pick(u32 x, u32 y) {
+    impl_->pick_requested = PickRequest{.x = x, .y = y};
+}
+
+std::optional<PickResult> Renderer::take_pick(const world::World& world) {
+    if (!impl_->pick_answered) {
+        return std::nullopt;
+    }
+    const PickResult result{.x = impl_->pick_answered->x,
+                            .y = impl_->pick_answered->y,
+                            .entity = world.entity_from_index(impl_->pick_answer)};
+    impl_->pick_answered.reset();
+    return result;
+}
+
 void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle target) {
     NGINE_PROFILE_ZONE("Renderer::add_passes");
     Impl& r = *impl_;
@@ -310,7 +437,17 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     rhi::Buffer& light_buffer = *r.lights[slot];
     r.stats = {};
 
-    const std::optional<CameraView> camera = find_camera(world);
+    // Antwort einer Auswahl, die dieser Platz vor frames_in_flight Frames angefragt hat; die GPU
+    // ist damit fertig.
+    if (r.pick_pending[slot]) {
+        u32 id = 0;
+        r.pick_buffers[slot]->read(0, std::as_writable_bytes(std::span{&id, 1}));
+        r.pick_answered = r.pick_pending[slot];
+        r.pick_answer = id;
+        r.pick_pending[slot].reset();
+    }
+
+    const std::optional<CameraView> camera = camera_override ? camera_override : find_camera(world);
     const math::DVec3 origin = camera ? camera->position : math::DVec3{};
     const Vec3 forward = camera ? -camera->rotation[2] : Vec3{0.0f, 0.0f, -1.0f};
 
@@ -382,11 +519,13 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     }
     if (camera) {
         world.each<const world::WorldTransform, const MeshRenderer>(
-            [&](const world::WorldTransform& transform, const MeshRenderer& renderer) {
+            [&](world::Entity entity, const world::WorldTransform& transform,
+                const MeshRenderer& renderer) {
                 const GpuMesh* mesh = r.meshes.get(renderer.mesh);
                 if (mesh == nullptr || !mesh->indices) {
                     return;
                 }
+                const auto id = static_cast<u32>(entity.id());
                 const Mat4 rows = math::transpose(transform.value.relative_to(origin));
                 const std::array<Vec4, 3> model{rows[0], rows[1], rows[2]};
                 std::array<bool, cascade_count> casts{};
@@ -408,7 +547,8 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                                        .first_index = submesh.first_index,
                                        .index_count = submesh.index_count,
                                        .material = material,
-                                       .pipeline = variant(properties)});
+                                       .pipeline = variant(properties),
+                                       .id = id});
                     if (properties.alpha_mode == AlphaMode::Blend) {
                         continue;
                     }
@@ -572,6 +712,19 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
             context.commands.draw(3);
             context.commands.end_rendering();
         });
+
+    // Auswahl per Klick: ID-Puffer in Größe des Ziels und ein Pixel davon in den Puffer dieses
+    // Platzes. Ohne Kamera oder außerhalb des Ziels ist die Antwort sofort „nichts“.
+    if (r.pick_requested) {
+        const PickRequest request = *r.pick_requested;
+        r.pick_requested.reset();
+        if (!camera || request.x >= extent.width || request.y >= extent.height) {
+            r.pick_answered = request;
+            r.pick_answer = 0;
+        } else {
+            r.add_pick_passes(graph, slot, request, extent, frame_address);
+        }
+    }
 }
 
 } // namespace ngine::render

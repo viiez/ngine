@@ -226,6 +226,10 @@ public:
         return Entity{*this, id};
     }
     [[nodiscard]] usize entity_count() const;
+    // Lebende Entity, deren Kennung in den unteren 32 Bit index hat, sonst 0. Die unteren 32 Bit
+    // sind unter lebenden Entities eindeutig (darüber steht die Generation); so passt eine Entity
+    // in einen 32-Bit-Wert, etwa in den ID-Puffer des Editors.
+    [[nodiscard]] u64 entity_from_index(u32 index) const;
     // Kennungen aller Entities, aufsteigend sortiert.
     [[nodiscard]] std::vector<u64> entity_ids() const;
 
@@ -235,10 +239,12 @@ public:
 
     template <typename T>
     [[nodiscard]] ComponentId component() {
-        return component(types_->get<T>());
+        return component_by_key(reflect::type_key<T>());
     }
     // Meldet den Typ bei Bedarf als Komponente an. Er muss aus types() stammen.
     [[nodiscard]] ComponentId component(const reflect::TypeInfo& type);
+    // Wie component<T>() für einen Schlüssel aus reflect::type_key<T>().
+    [[nodiscard]] ComponentId component_by_key(reflect::TypeKey key);
     // Typ einer angemeldeten Komponente, sonst nullptr.
     [[nodiscard]] const reflect::TypeInfo* component_type(ComponentId component) const noexcept;
 
