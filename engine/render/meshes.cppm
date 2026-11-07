@@ -45,18 +45,28 @@ public:
     explicit MeshStore(rhi::Device& device) : device_{&device} {}
 
     // Lädt ein Mesh hoch (über Device::upload(), also vor der nächsten Abgabe) und liefert seinen
-    // Index. Ein Mesh ohne Dreiecke ist erlaubt und wird nie gezeichnet.
-    [[nodiscard]] rhi::Result<u32> add(std::span<const SubmeshData> submeshes);
+    // Index. Ein Mesh ohne Dreiecke ist erlaubt und wird nie gezeichnet. Mit ticket laufen die
+    // Kopien im Hintergrund (Device::upload_async(), TD-17); gezeichnet werden darf das Mesh erst,
+    // wenn das Ticket erledigt ist.
+    [[nodiscard]] rhi::Result<u32> add(std::span<const SubmeshData> submeshes,
+                                       rhi::UploadTicket* ticket = nullptr);
+    // Gibt ein Mesh frei (Puffer über die Löschliste des Device); add() vergibt den Index neu.
+    void remove(u32 index);
     [[nodiscard]] const GpuMesh* get(u32 index) const {
         return index < meshes_.size() ? &meshes_[index] : nullptr;
     }
     [[nodiscard]] usize size() const noexcept {
         return meshes_.size();
     }
+    // Belegte Meshes (ohne freigegebene).
+    [[nodiscard]] usize count() const noexcept {
+        return meshes_.size() - free_.size();
+    }
 
 private:
     rhi::Device* device_;
     std::vector<GpuMesh> meshes_;
+    std::vector<u32> free_;
 };
 
 } // namespace ngine::render

@@ -179,7 +179,7 @@ jobs:
       # Editor (R2.1) im virtuellen Fenster: Docking, Viewport-Textur, UI-Pass über die RHI und
       # Konsole, mit und ohne optionale Stufen, ohne Meldung der Validation Layers. Seit R2.2
       # zusätzlich: Standardszene speichern, wieder öffnen und erneut speichern; beide Dateien
-      # müssen textgleich sein.
+      # müssen textgleich sein. Seit R2.4 auch mit einem eingefügten Modell aus dem Asset-Ordner.
       - name: Editor mit Fenster starten (Linux, Xvfb)
         if: ${{ runner.os == 'Linux' && !matrix.tsan }}
         run: |
@@ -192,6 +192,16 @@ jobs:
           xvfb-run -a "$exe" --frames 60 --no-ini --play 30 --scene "$RUNNER_TEMP/szene-a.json" \
             --save "$RUNNER_TEMP/szene-c.json"
           cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-c.json"
+          # Seit R2.4: Modell aus dem Asset-Ordner einfügen (wie Ziehen aus dem Browser) und
+          # speichern; die Szene verweist über die Asset-ID darauf und übersteht Öffnen und
+          # Speichern textgleich.
+          xvfb-run -a "$exe" --frames 60 --no-ini --insert modelle/kiste.gltf \
+            --save "$RUNNER_TEMP/szene-d.json"
+          id=$(sed -n 's/.*"id": *\([0-9]*\).*/\1/p' assets/modelle/kiste.gltf.meta)
+          grep -q "$id" "$RUNNER_TEMP/szene-d.json"
+          xvfb-run -a "$exe" --frames 60 --no-ini --scene "$RUNNER_TEMP/szene-d.json" \
+            --save "$RUNNER_TEMP/szene-e.json"
+          cmp "$RUNNER_TEMP/szene-d.json" "$RUNNER_TEMP/szene-e.json"
 
       # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
       # GPUs laufen, die nur die Mindestanforderung erfüllen.

@@ -41,3 +41,6 @@ betroffene Code einreichen.
 | [0030](0030-undo-commands-reflected-values.md) | Undo über Befehle mit reflektierten Werten und stabilen Entity-Kennungen | angenommen |
 | [0031](0031-gizmos-own-math-ui-draw-list.md) | Gizmos selbst gebaut, Treffertests über Strahlen, gezeichnet über die Zeichenliste der UI | angenommen |
 | [0032](0032-play-in-editor-binary-snapshot.md) | Spielen im Editor über eine binäre Sicherung der Welt im Dokument | angenommen |
+| [0033](0033-asset-ids-meta-resource-manager.md) | Asset-IDs in `.meta`-Dateien, Ressourcen-Manager mit Handles und Laden im Hintergrund | vorgeschlagen |
+| [0034](0034-hot-reload-polling-slang-runtime.md) | Hot Reload über Polling und Slang zur Laufzeit | vorgeschlagen |
+| [0035](0035-transfer-queue-concurrent-sharing.md) | Uploads im Hintergrund über eine Transfer-Queue mit gemeinsam genutzten Ressourcen | vorgeschlagen |

@@ -10,8 +10,10 @@ module;
 #include <vector>
 
 // Hochladen in GPU-Speicher über Staging-Puffer (TD-11). Kopien sammeln sich in einem eigenen
-// Command Buffer, den das Device vor der nächsten Abgabe auf derselben Queue einreiht. Niemand
-// wartet auf die GPU: Staging-Speicher und Command Buffer kommen über die Timeline zurück.
+// Command Buffer, den das Device vor der nächsten Abgabe einreiht. Niemand wartet auf die GPU:
+// Staging-Speicher und Command Buffer kommen über die Timeline zurück. Seit R2.4 (TD-17) gibt es
+// zwei Uploader: einen für die Grafik-Queue und, wo die GPU eine hat, einen für die
+// Transfer-Queue (upload_async()), der nur kopieren kann.
 module ngine.rhi.vulkan:upload;
 
 import ngine.core;
@@ -28,8 +30,10 @@ public:
     // Größe eines Staging-Blocks; größere Kopien bekommen einen eigenen Block.
     static constexpr u64 chunk_size = u64{16} << 20U;
 
-    void init(DeviceContext& context, u32 queue_family) {
+    // transfer_only: Die Queue kann nur kopieren; Barrieren nennen dann keine Shader-Stufen.
+    void init(DeviceContext& context, u32 queue_family, bool transfer_only = false) {
         context_ = &context;
+        transfer_only_ = transfer_only;
         const VkCommandPoolCreateInfo pool_info{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -98,6 +102,62 @@ public:
             return;
         }
         generate_mips(cmd, texture);
+    }
+
+    // Alle Mip-Stufen einer Textur aus data (Stufe 0 zuerst, Zeilen ohne Abstand); danach ist die
+    // Textur im Zustand ShaderRead. Die GPU rechnet nichts nach, deshalb geht es auch auf einer
+    // Queue, die nur kopieren kann.
+    void upload_levels(const VulkanTexture& texture, std::span<const std::byte> data) {
+        verify(has(texture.usage(), TextureUsage::TransferDst) &&
+                   has(texture.usage(), TextureUsage::Sampled),
+               "upload_async() braucht eine Textur mit TransferDst und Sampled");
+        const Extent2D extent = texture.extent();
+        const u32 pixel = bytes_per_pixel(texture.format());
+        const u32 levels = texture.mip_levels();
+        verify(data.size() == mip_chain_size(extent, levels, pixel),
+               "upload_async(): Datenmenge passt nicht zu den Mip-Stufen der Textur");
+        const Slice slice = stage(data);
+        const VkCommandBuffer cmd = batch();
+
+        VkImageMemoryBarrier2 barrier =
+            image_barrier(texture, ResourceState::Undefined, ResourceState::TransferDst);
+        VkDependencyInfo dependency{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &barrier,
+        };
+        vkCmdPipelineBarrier2(cmd, &dependency);
+
+        std::vector<VkBufferImageCopy> regions;
+        u64 offset = slice.offset;
+        u32 width = extent.width;
+        u32 height = extent.height;
+        for (u32 level = 0; level < levels; ++level) {
+            regions.push_back({
+                .bufferOffset = offset,
+                .imageSubresource = {texture.aspect(), level, 0, 1},
+                .imageExtent = {width, height, 1},
+            });
+            offset += u64{width} * height * pixel;
+            width = std::max(width / 2, 1u);
+            height = std::max(height / 2, 1u);
+        }
+        vkCmdCopyBufferToImage(cmd, slice.buffer, texture.image(),
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<u32>(regions.size()), regions.data());
+
+        barrier = image_barrier(texture, ResourceState::TransferDst, ResourceState::ShaderRead);
+        if (transfer_only_) {
+            // Die Shader-Stufen gibt es auf dieser Queue nicht; die Grafik-Queue wartet über die
+            // Timeline der Transfer-Queue.
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+            barrier.dstAccessMask = VK_ACCESS_2_NONE;
+        }
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
+    [[nodiscard]] bool has_batch() const noexcept {
+        return current_ != VK_NULL_HANDLE;
     }
 
     // Schließt die gesammelten Kopien ab. Liefert den Command Buffer für die Abgabe mit dem Wert
@@ -298,6 +358,7 @@ private:
     }
 
     DeviceContext* context_ = nullptr;
+    bool transfer_only_ = false;
     VkCommandPool pool_ = VK_NULL_HANDLE;
     VkCommandBuffer current_ = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> free_commands_;

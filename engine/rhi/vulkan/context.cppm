@@ -24,19 +24,22 @@ namespace ngine::rhi::vulkan {
 // hat. Jeder Eintrag trägt den Wert der Timeline, ab dem er frei ist.
 class DeletionQueue {
 public:
-    void push(u64 retire_value, std::function<void()> destroy) {
+    // transfer_value: Wert der Timeline der Transfer-Queue, den sie ebenfalls erreicht haben muss
+    // (0 ohne Transfer-Queue, TD-17).
+    void push(u64 retire_value, u64 transfer_value, std::function<void()> destroy) {
         const std::scoped_lock lock{mutex_};
-        entries_.push_back({retire_value, std::move(destroy)});
+        entries_.push_back({retire_value, transfer_value, std::move(destroy)});
     }
 
-    // Gibt alles frei, was bis completed fertig ist. Die Einträge sind nach Wert sortiert, weil
-    // der Wert nur wächst.
-    void collect(u64 completed) {
+    // Gibt alles frei, was bis completed (und transfer_completed) fertig ist. Die Einträge sind
+    // nach beiden Werten sortiert, weil beide nur wachsen.
+    void collect(u64 completed, u64 transfer_completed = ~u64{0}) {
         std::vector<Entry> ready;
         {
             const std::scoped_lock lock{mutex_};
-            const auto end = std::ranges::find_if(
-                entries_, [&](const Entry& entry) { return entry.retire_value > completed; });
+            const auto end = std::ranges::find_if(entries_, [&](const Entry& entry) {
+                return entry.retire_value > completed || entry.transfer_value > transfer_completed;
+            });
             ready.assign(std::make_move_iterator(entries_.begin()), std::make_move_iterator(end));
             entries_.erase(entries_.begin(), end);
         }
@@ -58,6 +61,7 @@ public:
 private:
     struct Entry {
         u64 retire_value;
+        u64 transfer_value;
         std::function<void()> destroy;
     };
     mutable std::mutex mutex_;
@@ -253,6 +257,13 @@ struct DeviceContext {
     BindlessHeap bindless;
     // Grenze für anisotrope Filterung; 1, wenn die GPU sie nicht kann.
     f32 max_anisotropy = 1.0f;
+    // Mit eigener Transfer-Queue (TD-17): beide Familien. Puffer im GPU-Speicher und Texturen mit
+    // TransferDst gehören dann beiden Familien gleichzeitig (VK_SHARING_MODE_CONCURRENT), damit
+    // keine Übergaben zwischen den Queues nötig sind.
+    std::array<u32, 2> queue_families{};
+    u32 queue_family_count = 1;
+    // Wert, den die nächste Abgabe an die Transfer-Queue signalisiert; 0 ohne Transfer-Queue.
+    u64 transfer_next = 0;
 
     // Wert der nächsten Abgabe. Eine jetzt zerstörte Ressource kann höchstens bis dahin benutzt
     // werden.
@@ -264,7 +275,16 @@ struct DeviceContext {
     // extra_submissions verzögert weiter (z. B. für die Präsentation, die die Timeline nicht
     // abdeckt).
     void retire(std::function<void()> destroy, u64 extra_submissions = 0) {
-        deletion.push(next_submission() + extra_submissions, std::move(destroy));
+        deletion.push(next_submission() + extra_submissions, transfer_next, std::move(destroy));
+    }
+
+    // Sharing-Modus für Ressourcen, die auch die Transfer-Queue beschreibt.
+    void shared_with_transfer(VkSharingMode& mode, u32& count, const u32*& families) const {
+        if (queue_family_count > 1) {
+            mode = VK_SHARING_MODE_CONCURRENT;
+            count = queue_family_count;
+            families = queue_families.data();
+        }
     }
 
     [[nodiscard]] u64 completed() const {

@@ -16,6 +16,7 @@ import ngine.math;
 import ngine.reflect;
 import ngine.rhi;
 import ngine.rhi.vulkan;
+import ngine.jobs;
 import ngine.asset;
 import ngine.world;
 import ngine.render;
@@ -48,6 +49,18 @@ bool gpu_required() {
 #pragma warning(pop)
 #endif
     return value != nullptr && *value != '\0';
+}
+
+// Meldet ein Mesh aus dem MeshStore als erzeugtes Modell beim Ressourcen-Manager an, damit ein
+// MeshRenderer darauf verweisen kann (R2.4). Das Modell gibt das Mesh beim Zerstören frei.
+asset::AssetRef as_asset(render::Renderer& r, asset::ResourceManager& resources, u32 mesh,
+                         std::string_view name) {
+    const asset::AssetId id = asset::generated_id(name);
+    render::ModelInstance instance;
+    instance.meshes.push_back(mesh);
+    resources.add(id, render::GpuModel{r, std::move(instance), {}});
+    r.set_resources(&resources);
+    return {.asset = id, .index = 0};
 }
 
 } // namespace
@@ -87,10 +100,29 @@ TEST_CASE("Renderer uses the first active camera", "[render]") {
     CHECK(project(vp, {4.0f, 0.0f, 0.0f}).w < 0.0f);
 }
 
-TEST_CASE("MeshRenderer is not saved with scenes", "[render]") {
+TEST_CASE("MeshRenderer is saved with scenes as asset references", "[render]") {
     const auto types = make_types();
-    CHECK(types.get<render::MeshRenderer>().transient);
+    CHECK_FALSE(types.get<render::MeshRenderer>().transient);
     CHECK_FALSE(types.get<render::Camera>().transient);
+
+    world::World world{types};
+    world.create("Kiste")
+        .set(world::Transform{})
+        .set(render::MeshRenderer{.mesh = {.asset = 1234567890123ull, .index = 2},
+                                  .material = {.asset = 99, .index = 1}});
+    const std::string text = world::save_scene(world);
+    world::World loaded{types};
+    REQUIRE(world::load_scene(loaded, text));
+    bool found = false;
+    loaded.each<const render::MeshRenderer>([&](const render::MeshRenderer& renderer) {
+        found = true;
+        CHECK(renderer.mesh.asset == 1234567890123ull);
+        CHECK(renderer.mesh.index == 2);
+        CHECK(renderer.material.asset == 99);
+        CHECK(renderer.material.index == 1);
+    });
+    CHECK(found);
+    CHECK(world::save_scene(loaded) == text);
 }
 
 TEST_CASE("Debug texts are collected per frame and cleared with the lines", "[render]") {
@@ -138,6 +170,8 @@ TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
         {.vertices = sphere.vertices, .indices = sphere.indices, .material = material}};
     const auto mesh = r.meshes().add(submeshes);
     REQUIRE(mesh);
+    asset::ResourceManager resources;
+    const asset::AssetRef sphere_ref = as_asset(r, resources, *mesh, "test.kugel");
 
     const auto types = make_types();
     world::World world{types};
@@ -145,7 +179,7 @@ TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
     const math::DVec3 origin{5.0e6, 2.0e3, -3.0e6};
     world.create("Kugel")
         .set(world::Transform{.position = origin})
-        .set(render::MeshRenderer{.mesh = *mesh});
+        .set(render::MeshRenderer{.mesh = sphere_ref});
     world.create("Kamera")
         .set(world::Transform{.position = origin + math::DVec3{0.0, 0.0, 3.0}})
         .set(render::Camera{.fov_y = math::radians(45.0f)});
@@ -213,19 +247,21 @@ TEST_CASE("Renderer picks the entity under a pixel from the ID buffer", "[render
         {.vertices = box.vertices, .indices = box.indices, .material = 0}};
     const auto mesh = r.meshes().add(submeshes);
     REQUIRE(mesh);
+    asset::ResourceManager resources;
+    const asset::AssetRef box_ref = as_asset(r, resources, *mesh, "test.wuerfel");
 
     const auto types = make_types();
     world::World world{types};
     // Zwei Würfel nebeneinander, der rechte steht vor einem dritten, der verdeckt bleibt.
     const world::Entity left = world.create("Links")
                                    .set(world::Transform{.position = {-1.0, 0.0, 0.0}})
-                                   .set(render::MeshRenderer{.mesh = *mesh});
+                                   .set(render::MeshRenderer{.mesh = box_ref});
     const world::Entity right = world.create("Rechts")
                                     .set(world::Transform{.position = {1.0, 0.0, 0.0}})
-                                    .set(render::MeshRenderer{.mesh = *mesh});
+                                    .set(render::MeshRenderer{.mesh = box_ref});
     world.create("Verdeckt")
         .set(world::Transform{.position = {1.0, 0.0, -3.0}})
-        .set(render::MeshRenderer{.mesh = *mesh});
+        .set(render::MeshRenderer{.mesh = box_ref});
     world.create("Kamera")
         .set(world::Transform{.position = {0.0, 0.0, 5.0}})
         .set(render::Camera{.fov_y = math::radians(45.0f)});
@@ -264,5 +300,89 @@ TEST_CASE("Renderer picks the entity under a pixel from the ID buffer", "[render
     const auto outside = pick(size + 5, 0);
     REQUIRE(outside);
     CHECK(outside->entity == 0);
+    CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Renderer loads glTF models by asset id in the background", "[render][asset][gpu]") {
+    auto created =
+        rhi::vulkan::create_device({.application_name = "NGine Tests", .enable_validation = true});
+    if (!created) {
+        if (gpu_required()) {
+            FAIL("Kein nutzbares Vulkan-Gerät: " + created.error());
+        }
+        SKIP("Kein nutzbares Vulkan-Gerät: " + created.error());
+    }
+    const std::unique_ptr<rhi::Device> device = *std::move(created);
+    constexpr u32 size = 32;
+    auto target = device->create_texture(
+        {.extent = {size, size},
+         .format = rhi::Format::RGBA8Unorm,
+         .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::TransferSrc});
+    REQUIRE(target);
+    auto renderer = render::Renderer::create(*device, rhi::Format::RGBA8Unorm);
+    REQUIRE(renderer);
+    render::Renderer& r = **renderer;
+    r.shadows.enabled = false;
+
+    // Die Beispiel-Assets des Repositorys samt ihrer .meta-Dateien.
+    auto database = asset::AssetDatabase::open(NGINE_ASSET_SOURCE_DIR);
+    REQUIRE(database);
+    const asset::AssetInfo* kiste = database->find_path("modelle/kiste.gltf");
+    REQUIRE(kiste != nullptr);
+
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    asset::ResourceManager resources{&*database, &jobs};
+    render::register_loaders(resources, r);
+    r.set_resources(&resources);
+
+    const auto types = make_types();
+    world::World world{types};
+    world.create("Kiste")
+        .set(world::Transform{})
+        .set(render::MeshRenderer{.mesh = {.asset = kiste->id, .index = 0}});
+    world.create("Kamera")
+        .set(world::Transform{.position = {0.0, 0.0, 3.0}})
+        .set(render::Camera{.fov_y = math::radians(45.0f)});
+    world.create("Sonne")
+        .set(world::Transform{.rotation = math::look_rotation({0.0f, -0.5f, -1.0f}, {0, 1, 0})})
+        .set(render::DirectionalLight{.intensity = 3.0f});
+    world::update_transforms(world);
+
+    render::TexturePool pool{*device};
+    const auto frame = [&] {
+        resources.update();
+        render::RenderGraph graph;
+        const auto output = graph.import_texture("Ziel", **target, rhi::ResourceState::Undefined,
+                                                 rhi::ResourceState::TransferSrc);
+        r.add_passes(graph, world, output);
+        device->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+        pool.end_frame();
+    };
+
+    // Erster Frame: Das Modell lädt noch und wird nicht gezeichnet.
+    frame();
+    CHECK(r.stats().draws == 0);
+    CHECK(r.stats().waiting == 1);
+
+    resources.wait();
+    for (int i = 0; i < 4 && r.stats().draws == 0; ++i) {
+        frame();
+    }
+    REQUIRE(r.stats().draws == 1);
+    CHECK(r.stats().waiting == 0);
+    const render::GpuModel* model = r.find_model(kiste->id);
+    REQUIRE(model != nullptr);
+    CHECK(model->instance().textures.size() == 1);
+    // Der Aufbau bleibt, die großen Daten liegen nur auf der GPU.
+    CHECK(model->layout().meshes.size() == 1);
+    CHECK(model->layout().meshes[0].primitives[0].vertices.empty());
+    CHECK(model->layout().images[0].pixels.empty());
+
+    const auto pixels = device->read_texture(**target, rhi::ResourceState::TransferSrc);
+    const std::size_t center = (static_cast<std::size_t>(size / 2) * size + size / 2) * 4;
+    const std::size_t corner = 0;
+    INFO("Mitte " << int{pixels[center]} << ", Ecke " << int{pixels[corner]});
+    CHECK(pixels[center] != pixels[corner]);
+    CHECK(resources.stats().resident == 1);
     CHECK(device->validation_errors() == 0);
 }

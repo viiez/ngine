@@ -19,8 +19,8 @@ if(NGINE_WITH_DOTNET)
         PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/Sandbox.Scripts.csproj"
         SOURCES scripts/Orbit.cs
         DEPENDS ngine_script_managed)
-    add_dependencies(ngine_sandbox ngine_sandbox_scripts)
-    target_compile_definitions(ngine_sandbox PRIVATE NGINE_DOTNET_DIR="${NGINE_DOTNET_DIR}")
+    ngine_copy_dotnet_assemblies(ngine_sandbox DEPENDS ngine_sandbox_scripts)
+    target_compile_definitions(ngine_sandbox PRIVATE NGINE_WITH_DOTNET=1)
 else()
-    target_compile_definitions(ngine_sandbox PRIVATE NGINE_DOTNET_DIR="")
+    target_compile_definitions(ngine_sandbox PRIVATE NGINE_WITH_DOTNET=0)
 endif()

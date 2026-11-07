@@ -296,6 +296,52 @@ private:
     EntitySnapshot saved_;
 };
 
+// Legt einen festgehaltenen Teilbaum an (z. B. ein Modell aus dem Asset-Browser, R2.4); das
+// Gegenstück zu DestroyEntity.
+class InsertEntities final : public Command {
+public:
+    InsertEntities(EntitySnapshot snapshot, std::string label)
+        : snapshot_{std::move(snapshot)}, label_{std::move(label)} {}
+
+    [[nodiscard]] std::string label() const override {
+        return label_;
+    }
+    [[nodiscard]] Result<void> apply(SceneDocument& document) override {
+        if (snapshot_.nodes.empty()) {
+            return std::unexpected(std::string{"Nichts einzufügen"});
+        }
+        // Vorher prüfen: Beim Aufräumen nach einem Fehler darf nichts verschwinden, was schon da
+        // war.
+        for (const EntitySnapshot::Node& node : snapshot_.nodes) {
+            if (document.exists(node.id)) {
+                return std::unexpected(std::format("Entity {} gibt es schon", node.id));
+            }
+        }
+        if (auto result = restore(document, snapshot_); !result) {
+            // Was schon angelegt ist, wieder weg.
+            remove(document);
+            return result;
+        }
+        document.notify(EntityChanged{.entity = snapshot_.nodes.front().id});
+        return {};
+    }
+    void revert(SceneDocument& document) override {
+        remove(document);
+        document.notify(EntityChanged{.entity = snapshot_.nodes.front().id});
+    }
+
+private:
+    void remove(SceneDocument& document) {
+        if (const u64 root = document.entity_of(snapshot_.nodes.front().id); root != 0) {
+            document.world().destroy(root);
+        }
+        unbind_all(document, snapshot_);
+    }
+
+    EntitySnapshot snapshot_;
+    std::string label_;
+};
+
 // --- Komponenten -------------------------------------------------------------------------------
 
 class AddComponent final : public Command {
@@ -577,6 +623,10 @@ CreatedEntity create_entity(SceneDocument& document, std::string name, EntityId 
 
 std::unique_ptr<Command> destroy_entity(EntityId entity) {
     return std::make_unique<DestroyEntity>(entity);
+}
+
+std::unique_ptr<Command> insert_entities(EntitySnapshot snapshot, std::string label) {
+    return std::make_unique<InsertEntities>(std::move(snapshot), std::move(label));
 }
 
 std::unique_ptr<Command> add_component(EntityId entity, reflect::TypeId component) {

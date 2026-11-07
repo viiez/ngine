@@ -523,3 +523,88 @@ TEST_CASE("Vulkan draws depth only and samples the depth texture", "[rhi][vulkan
     CHECK(red(0, 0) == 255);
     CHECK(device->validation_errors() == 0);
 }
+
+TEST_CASE("Vulkan uploads in the background with precomputed mip levels", "[rhi][vulkan][gpu]") {
+    // Mit eigener Transfer-Queue (wo es eine gibt) und mit dem Rückfallpfad.
+    const bool transfer_queue = GENERATE(true, false);
+    auto created = ngine::rhi::vulkan::create_device({.application_name = "NGine Tests",
+                                                      .enable_validation = true,
+                                                      .transfer_queue = transfer_queue});
+    if (!created) {
+        if (gpu_required()) {
+            FAIL("Kein nutzbares Vulkan-Gerät: " + created.error());
+        }
+        SKIP("Kein nutzbares Vulkan-Gerät: " + created.error());
+    }
+    const std::unique_ptr<ngine::rhi::Device> device = *std::move(created);
+    if (!transfer_queue) {
+        CHECK_FALSE(device->capabilities().transfer_queue);
+    }
+    INFO("Transfer-Queue: " << device->capabilities().transfer_queue);
+
+    // Jede Stufe einfarbig mit eigenem Rotwert; die GPU darf nichts nachrechnen.
+    constexpr u32 size = 8;
+    constexpr u32 levels = 4;
+    CHECK(ngine::rhi::mip_chain_size({size, size}, levels, 4) == (64 + 16 + 4 + 1) * 4);
+    std::vector<u8> chain;
+    u32 extent = size;
+    for (u32 level = 0; level < levels; ++level) {
+        for (u32 i = 0; i < extent * extent; ++i) {
+            chain.insert(chain.end(), {static_cast<u8>(10 + level * 40), 0, 0, 255});
+        }
+        extent /= 2;
+    }
+    auto texture =
+        device->create_texture({.extent = {size, size},
+                                .format = Format::RGBA8Unorm,
+                                .usage = TextureUsage::Sampled | TextureUsage::TransferDst,
+                                .mip_levels = levels});
+    REQUIRE(texture);
+    const auto ticket = device->upload_async(**texture, std::as_bytes(std::span{chain}));
+
+    // Puffer im GPU-Speicher; die Validation Layers prüfen Kopie und Synchronisation.
+    std::vector<u32> numbers(64);
+    for (u32 i = 0; i < numbers.size(); ++i) {
+        numbers[i] = i * 3 + 1;
+    }
+    auto buffer = device->create_buffer({.size = numbers.size() * sizeof(u32),
+                                         .usage = ngine::rhi::BufferUsage::Storage,
+                                         .memory = ngine::rhi::MemoryUsage::Gpu});
+    REQUIRE(buffer);
+    const auto buffer_ticket = device->upload_async(**buffer, std::as_bytes(std::span{numbers}));
+    const auto both = ngine::rhi::later(ticket, buffer_ticket);
+
+    // Eine leere Abgabe gibt die Kopien ab; execute() wartet auch auf die Transfer-Queue.
+    device->execute([](ngine::rhi::CommandList&) {});
+    CHECK(device->upload_done(ticket));
+    CHECK(device->upload_done(both));
+
+    // Im 2x2-Ziel liest die GPU Stufe 2 (ohne Filter zwischen den Stufen nächstliegend).
+    auto target = device->create_texture({.extent = {2, 2}, .format = Format::RGBA8Unorm});
+    auto sampler = device->create_sampler({.mag_filter = ngine::rhi::Filter::Nearest,
+                                           .min_filter = ngine::rhi::Filter::Nearest,
+                                           .mip_filter = ngine::rhi::Filter::Nearest});
+    auto vertex = device->create_shader(ngine::shaders::fullscreen_vertex());
+    auto fragment = device->create_shader(ngine::shaders::fullscreen_fragment());
+    REQUIRE(target);
+    REQUIRE(sampler);
+    REQUIRE(vertex);
+    REQUIRE(fragment);
+    auto pipeline = device->create_pipeline(
+        {.vertex = vertex->get(), .fragment = fragment->get(), .color_format = Format::RGBA8Unorm});
+    REQUIRE(pipeline);
+    const BlitPush push{(*texture)->sampled_index(), (*sampler)->index()};
+    device->execute([&](ngine::rhi::CommandList& commands) {
+        commands.barrier(**target, ResourceState::Undefined, ResourceState::ColorTarget);
+        commands.begin_rendering(**target, std::nullopt);
+        commands.bind_pipeline(**pipeline);
+        commands.push_constants(std::as_bytes(std::span{&push, 1}));
+        commands.draw(3);
+        commands.end_rendering();
+    });
+    const auto result = device->read_texture(**target, ResourceState::ColorTarget);
+    for (std::size_t i = 0; i < result.size(); i += 4) {
+        CHECK(static_cast<int>(result[i]) == 10 + 2 * 40);
+    }
+    CHECK(device->validation_errors() == 0);
+}

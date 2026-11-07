@@ -13,6 +13,11 @@
 // und Spielen im Editor (EDIT-06). Menü, Dialoge und Kurzbefehle stehen in menu.cppm, die
 // Werkzeuge des Viewports in viewport_tools.cppm.
 //
+// Seit R2.4: Asset-Browser (EDIT-09) mit Ziehen von Modellen in den Viewport, Assets über stabile
+// Kennungen (ASSET-05), Laden im Hintergrund (ASSET-04) und Hot Reload von Modellen, Texturen und
+// Shadern (PLAT-06). Asset- und Shader-Ordner sucht der Editor ab Arbeitsordner und Programmordner
+// aufwärts („assets“ bzw. „engine/shaders“), wenn sie nicht angegeben sind.
+//
 // Optionen:
 //   --scene <pfad>  Szene öffnen statt der Standardszene
 //   --save <pfad>   Szene beim Beenden dorthin speichern (für automatische Tests)
@@ -23,6 +28,10 @@
 //   --no-ini        Lage der Fenster weder laden noch speichern (für automatische Tests)
 //   --play <n>      gleich spielen und nach n Frames stoppen (für automatische Tests: die Welt
 //                   muss danach unverändert gespeichert werden)
+//   --assets <pfad> Asset-Ordner
+//   --shaders <pfad> Quellordner der Shader für Hot Reload
+//   --insert <pfad> Modell aus dem Asset-Ordner beim Start einfügen wie per Ziehen (für
+//                   automatische Tests)
 
 #include <algorithm>
 #include <charconv>
@@ -52,6 +61,8 @@ import ngine.rhi.vulkan;
 import ngine.world;
 import ngine.editor_ui;
 import app.model_scene;
+import ngine.asset;
+import editor.assets;
 import editor.input;
 import editor.inspector;
 import editor.menu;
@@ -72,6 +83,9 @@ struct Options {
     std::optional<std::string> scene_path;
     std::optional<std::string> save_path;
     std::optional<std::string> model_path;
+    std::optional<std::string> assets_path;
+    std::optional<std::string> shaders_path;
+    std::optional<std::string> insert_path;
     std::optional<u64> frames;
     std::optional<u64> play_frames;
     bool vsync = true;
@@ -89,6 +103,12 @@ Options parse_options(std::span<char*> args) {
             options.save_path = std::string{args[++i]};
         } else if (arg == "--model" && i + 1 < args.size()) {
             options.model_path = std::string{args[++i]};
+        } else if (arg == "--assets" && i + 1 < args.size()) {
+            options.assets_path = std::string{args[++i]};
+        } else if (arg == "--shaders" && i + 1 < args.size()) {
+            options.shaders_path = std::string{args[++i]};
+        } else if (arg == "--insert" && i + 1 < args.size()) {
+            options.insert_path = std::string{args[++i]};
         } else if ((arg == "--frames" || arg == "--play") && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             u64 frames = 0;
@@ -215,6 +235,27 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             return 1;
         }
 
+        // Asset-Ordner und Shader-Quellen (R2.4). Der Ressourcen-Manager der Szene findet Assets
+        // über die Datenbank; Szenen verweisen nur über Kennungen auf sie.
+        std::optional<asset::AssetDatabase> database;
+        if (const auto root = options.assets_path ? options.assets_path : find_upwards("assets")) {
+            if (auto opened = asset::AssetDatabase::open(*root)) {
+                database = std::move(*opened);
+                log::info("Asset-Ordner: {} ({} Assets)", database->root(),
+                          database->assets().size());
+            } else {
+                log::error("{}", opened.error());
+            }
+        } else {
+            log::warn("Kein Asset-Ordner gefunden (Option --assets <ordner>)");
+        }
+        (*scene)->resources().set_database(database ? &*database : nullptr);
+        const auto shader_dir = options.shaders_path ? options.shaders_path
+                                                     : find_upwards("engine/shaders", "pbr.slang");
+        HotReload hot_reload{database ? &*database : nullptr, shader_dir};
+        AssetPanel asset_panel;
+        ModelDrop model_drop;
+
         // Dokument, Auswahl und Ereignisse: Die Fenster kennen sich nicht, sie reden über den Bus.
         events::EventBus bus;
         edit::SceneDocument document{(*scene)->world(), &bus};
@@ -301,6 +342,18 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     viewport_hovered = ui::is_item_hovered();
                     const ui::Point corner = ui::item_min();
                     const auto& camera_view = (*scene)->renderer().camera_override;
+                    // Modell aus dem Asset-Browser hineingezogen: am Boden unter der Maus
+                    // einfügen, sobald es geladen ist.
+                    if (const auto dropped = ui::drop_target(asset_payload)) {
+                        const asset::AssetInfo* info =
+                            database ? database->find(*dropped) : nullptr;
+                        if (info != nullptr && camera_view && !document.read_only()) {
+                            const ui::Point mouse = ui::mouse_position();
+                            model_drop.start((*scene)->resources(), *info,
+                                             drop_position(view_camera(*camera_view, extent),
+                                                           mouse.x - corner.x, mouse.y - corner.y));
+                        }
+                    }
                     bool gizmo_used = false;
                     if (camera_view) {
                         const edit::ViewCamera camera = view_camera(*camera_view, extent);
@@ -348,6 +401,12 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 }
                 ui::end_window();
             }
+            if (panels.assets) {
+                if (ui::begin_window(assets_window, &panels.assets)) {
+                    asset_panel.draw(database ? &*database : nullptr, (*scene)->resources());
+                }
+                ui::end_window();
+            }
             if (panels.stats) {
                 if (ui::begin_window(stats_window, &panels.stats)) {
                     const render::RenderStats& stats = (*scene)->renderer().stats();
@@ -361,6 +420,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text(std::format("Dreiecke: {}", stats.triangles));
                     ui::text(std::format("Schatten-Draws: {}", stats.shadow_draws));
                     ui::text(std::format("Lichter: {}", stats.lights));
+                    ui::text(std::format("Wartet auf Modelle: {}", stats.waiting));
                     ui::text(std::format("UI-Draws: {}", (*ui_renderer)->draw_count()));
                     ui::separator();
                     ui::text(std::format("Entities: {}", document.world().entity_count()));
@@ -400,6 +460,11 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 }
             }
 
+            // Geänderte Dateien neu laden, ein gezogenes Modell einfügen, sobald es da ist.
+            hot_reload.poll(database ? &*database : nullptr, (*scene)->resources(),
+                            (*scene)->renderer());
+            model_drop.update(document, selection);
+
             // Spielen: Systeme der Szene laufen lassen. Danach Weltlagen und Hilfslinien samt
             // Texten in der Welt, damit die UI die Texte dieses Frames zeichnet.
             if (document.playing() && !play.paused) {
@@ -408,7 +473,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             transforms_updated = world::update_transforms(document.world());
             render::DebugDraw& debug = (*scene)->renderer().debug();
             debug.clear();
-            editor::draw_overlay(debug, (*scene)->renderer().meshes(), document, selection);
+            editor::draw_overlay(debug, (*scene)->renderer(), document, selection);
 
             const auto framebuffer = window->framebuffer_size();
             context.begin_frame(static_cast<f32>(framebuffer.width),
@@ -489,6 +554,15 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         if (options.play_frames) {
             play.start(document, tools.gizmo);
         }
+        if (options.insert_path) {
+            const asset::AssetInfo* info =
+                database ? database->find_path(*options.insert_path) : nullptr;
+            if (info != nullptr) {
+                model_drop.start((*scene)->resources(), *info, math::DVec3{});
+            } else {
+                log::error("--insert: {} gibt es im Asset-Ordner nicht", *options.insert_path);
+            }
+        }
         while (running) {
             namespace event = platform::event;
             for (const platform::Event& e : window->poll_events()) {
@@ -559,7 +633,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             if (options.play_frames && document.playing() && frame_count >= *options.play_frames) {
                 play.stop(document);
             }
-            if (options.frames && frame_count >= *options.frames) {
+            // Mit --frames erst beenden, wenn ein eingefügtes Modell auch da ist.
+            if (options.frames && frame_count >= *options.frames && !model_drop.pending()) {
                 running = false;
             }
         }
