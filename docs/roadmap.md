@@ -16,7 +16,9 @@ ist [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) abgeschlossen; sein
 [R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor),
 [R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload) und
 [R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs) sind abgeschlossen, das
-Review des Reifegrads ebenfalls. Als Nächstes folgt R3 (Voxel-Terrain).
+Review des Reifegrads ebenfalls. Als Nächstes folgt
+[R3](iterations/R3-voxel-terrain.md) (Voxel-Terrain) mit fünf Iterationen; der Plan ist in
+Abstimmung.
 
 ## Phasen und Iterationen
 
@@ -69,7 +71,7 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 | --- | --- |
 | R1 Rendering-Grundlagen | Render-Graph, Bindless, Meshes aus glTF, PBR-Materialien, Kamera, Licht und Schatten; Mathematik, 64-Bit-Positionen und Transform-Propagation. Iterationen R1.1 Mathematik und Transforms, R1.2 Render-Graph, Bindless, GPU-Speicher, R1.3 Meshes, Materialien, Kamera, R1.4 Licht und Schatten ([Plan](iterations/R1-rendering-grundlagen.md)) |
 | R2 Welt und Editor | Szenenbaum, Inspector, Viewport, Spielen im Editor, Asset-Pipeline. Iterationen R2.1 Editor-Gerüst und Viewport, R2.2 Szenenbaum, Inspector, Undo, R2.3 Gizmos und Spielen im Editor, R2.4 Asset-IDs, Ressourcen, Hot Reload, R2.5 Kochen, KTX2, Prefabs ([Plan](iterations/R2-welt-und-editor.md)) |
-| R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas; dazu Mesh Shader und GPU-Culling aus R1 |
+| R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas; dazu Mesh Shader und GPU-Culling aus R1. Iterationen R3.1 Chunks und Meshing in Jobs, R3.2 Prozedurale Welt und Materialien, R3.3 Streaming und LOD, R3.4 Deltas und Voxel-Werkzeuge, R3.5 GPU-getriebenes Zeichnen ([Plan](iterations/R3-voxel-terrain.md)) |
 | R4 Gameplay-Systeme | Physik (Jolt), C#-Scripting vollständig, Audio, Animation |
 | R5 Multiplayer | Listen- und dedizierter Server, Replikation, Vorhersage, Voxel-Deltas übers Netz |
 
