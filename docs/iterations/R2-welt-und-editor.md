@@ -1,7 +1,7 @@
 # R2: Welt und Editor
 
 - **Phase:** Konstruktion
-- **Status:** im Review (R2.1 bis R2.5 abgeschlossen, Szenario auf dem PC steht aus)
+- **Status:** abgeschlossen
 - **Pull Requests:** siehe Review
 
 R2 ist der zweite Reifegrad der Konstruktion. Wie R1 ist er zu groß für eine Iteration; wir teilen
@@ -146,13 +146,13 @@ Cache. Prefabs mit Überschreibungen lassen sich im Editor anlegen, aufbrechen u
 | [R2.2](R2.2-szenenbaum-inspector-undo.md) Szenenbaum, Inspector, Undo | #27, #28 | Szenenbaum, Auswahl über den ID-Puffer, Inspector aus der Reflection, Undo mit reflektierten Werten, Ereignisse |
 | [R2.3](R2.3-gizmos-und-spielen.md) Gizmos und Spielen im Editor | #29, #30 | Gizmos aus `ngine.math`, Text in der Welt, Spielen mit binärer Sicherung, Propagation nur geänderter Teilbäume |
 | [R2.4](R2.4-asset-ids-ressourcen-hot-reload.md) Asset-IDs, Ressourcen, Hot Reload | #31, #32 | `.meta`-Dateien mit IDs, Ressourcen-Manager mit Laden im Hintergrund, Transfer-Queue, Hot Reload, Asset-Browser |
-| [R2.5](R2.5-kochen-ktx2-prefabs.md) Kochen, KTX2, Prefabs | #33, Review-PR | Gekochte Modelle mit KTX2 und BC7 im Cache, MikkTSpace, Prefabs mit Überschreibungen, binäre Szenen |
+| [R2.5](R2.5-kochen-ktx2-prefabs.md) Kochen, KTX2, Prefabs | #33, #34 | Gekochte Modelle mit KTX2 und BC7 im Cache, MikkTSpace, Prefabs mit Überschreibungen, binäre Szenen |
 
 Abnahme: Alle fünf Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
-ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Das Szenario für den ganzen
-Reifegrad steht noch aus: Editor starten, Modell aus dem Asset-Browser platzieren, mit Gizmos
-ausrichten, Licht im Inspector einstellen, alles einmal rückgängig machen und wiederholen,
-speichern, spielen, stoppen, neu starten.
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Auch das Szenario für den ganzen
+Reifegrad lief auf dem PC ohne Fehler: Editor starten, Modell aus dem Asset-Browser platzieren,
+mit Gizmos ausrichten, Licht im Inspector einstellen, alles einmal rückgängig machen und
+wiederholen, speichern, spielen, stoppen, neu starten.
 
 Abweichungen vom Plan:
 

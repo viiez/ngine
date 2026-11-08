@@ -17,7 +17,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R1.2](R1.2-render-graph-bindless-gpu-speicher.md) | Konstruktion | Render-Graph, Bindless, GPU-Speicher | abgeschlossen |
 | [R1.3](R1.3-meshes-materialien-kamera.md) | Konstruktion | Meshes, Materialien, Kamera | abgeschlossen |
 | [R1.4](R1.4-licht-und-schatten.md) | Konstruktion | Licht und Schatten | abgeschlossen |
-| [R2](R2-welt-und-editor.md) | Konstruktion | Reifegrad Welt und Editor (R2.1 bis R2.5) | im Review |
+| [R2](R2-welt-und-editor.md) | Konstruktion | Reifegrad Welt und Editor (R2.1 bis R2.5) | abgeschlossen |
 | [R2.1](R2.1-editor-geruest-und-viewport.md) | Konstruktion | Editor-Gerüst und Viewport | abgeschlossen |
 | [R2.2](R2.2-szenenbaum-inspector-undo.md) | Konstruktion | Szenenbaum, Inspector, Undo | abgeschlossen |
 | [R2.3](R2.3-gizmos-und-spielen.md) | Konstruktion | Gizmos und Spielen im Editor | abgeschlossen |

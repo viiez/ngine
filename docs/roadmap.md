@@ -9,14 +9,14 @@ Konstruktion ist der erste Reifegrad [R1](iterations/R1-rendering-grundlagen.md)
 [R1.1](iterations/R1.1-mathematik-und-transforms.md) (Mathematik und Transforms),
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
 GPU-Speicher), [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes, Materialien, Kamera)
-und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Danach
-kam [R2](iterations/R2-welt-und-editor.md) (Welt und Editor); seine fünf Iterationen
+und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Ebenso
+ist [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) abgeschlossen; seine fünf Iterationen
 [R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und Viewport),
 [R2.2](iterations/R2.2-szenenbaum-inspector-undo.md) (Szenenbaum, Inspector, Undo),
 [R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor),
 [R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload) und
-[R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs) sind abgeschlossen. Das
-Review von R2 wartet noch auf das Szenario auf dem PC; danach folgt R3 (Voxel-Terrain).
+[R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs) sind abgeschlossen, das
+Review des Reifegrads ebenfalls. Als Nächstes folgt R3 (Voxel-Terrain).
 
 ## Phasen und Iterationen
 
@@ -34,7 +34,7 @@ flowchart TB
         A4 --> D3["D3 Durchstich Netzwerk ✓"]
     end
     subgraph B["Konstruktion: Reifegrade"]
-        R1["R1 Rendering-Grundlagen ✓"] --> R2["R2 Welt und Editor"]
+        R1["R1 Rendering-Grundlagen ✓"] --> R2["R2 Welt und Editor ✓"]
         R2 --> R3["R3 Voxel-Terrain"]
         R3 --> R4["R4 Gameplay-Systeme"]
         R4 --> R5["R5 Multiplayer"]
