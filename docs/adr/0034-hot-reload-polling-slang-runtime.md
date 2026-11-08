@@ -1,6 +1,6 @@
 # 0034: Hot Reload über Polling und Slang zur Laufzeit
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-07
 
 ## Kontext

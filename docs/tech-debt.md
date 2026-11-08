@@ -26,7 +26,7 @@ Bekannte Abkürzungen und Probleme mit Grund und Plan. Regeln und Ablauf stehen 
 
 | ID | Was | Wann |
 | --- | --- | --- |
-| TD-17 | Uploads nur auf der Grafik-Queue: eigene Transfer-Queue (wo es eine Familie nur für Kopien gibt) mit Timeline Semaphore, `upload_async()` mit Ticket, gemeinsam genutzte Ressourcen statt Übergaben, Mip-Stufen auf der CPU im Hintergrund ([ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)); auf dem PC zu bestätigen | 2026-11-07, R2.4 |
+| TD-17 | Uploads nur auf der Grafik-Queue: eigene Transfer-Queue (wo es eine Familie nur für Kopien gibt) mit Timeline Semaphore, `upload_async()` mit Ticket, gemeinsam genutzte Ressourcen statt Übergaben, Mip-Stufen auf der CPU im Hintergrund ([ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)); auf dem PC bestätigt | 2026-11-07, R2.4 |
 | TD-12 | C#-Assemblies über einen fest einkompilierten Pfad: Sie werden nach dem Bauen in `dotnet/` neben das Programm kopiert und relativ zu `executable_dir()` gesucht | 2026-11-07, R2.4 |
 | TD-15 | Alle Weltlagen bei jedem Aufruf neu berechnet: `update_transforms()` nutzt die Änderungserkennung von flecs pro Tabelle und merkt sich geschriebene Bereiche, damit Kinder bewegter Eltern mitziehen; Änderungen über `get_mut()` brauchen `modified()`. Parallel über das Job-System bleibt offen (TD-29) | 2026-11-07, R2.3 |
 | TD-28 | Umhängen behielt die lokale Lage: `reparent()` rechnet die lokale Lage aus alter Weltlage und umgekehrter Weltlage des neuen Elternteils (`world_affine()`, `decompose()`); Undo stellt die alte lokale Lage her | 2026-11-07, R2.3 |
