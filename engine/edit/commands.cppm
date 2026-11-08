@@ -79,6 +79,11 @@ struct CreatedEntity {
 // Löscht entity mit allen Kindern.
 [[nodiscard]] std::unique_ptr<Command> destroy_entity(EntityId entity);
 
+// Legt einen Teilbaum an, z. B. ein Modell aus dem Asset-Browser (R2.4). Die Kennungen im Snapshot
+// müssen frei sein (SceneDocument::reserve_id()), der erste Knoten ist die Wurzel; Eltern stehen
+// vor ihren Kindern. Undo löscht den Teilbaum wieder.
+[[nodiscard]] std::unique_ptr<Command> insert_entities(EntitySnapshot snapshot, std::string label);
+
 // Fügt eine Komponente mit Standardwert hinzu bzw. entfernt sie.
 [[nodiscard]] std::unique_ptr<Command> add_component(EntityId entity, reflect::TypeId component);
 [[nodiscard]] std::unique_ptr<Command> remove_component(EntityId entity, reflect::TypeId component);

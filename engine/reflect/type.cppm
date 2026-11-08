@@ -60,6 +60,9 @@ enum class Hint : u8 {
     Rotation,
     // Gleitkommazahl im Bogenmaß, im Editor in Grad.
     Angle,
+    // u64 mit der Kennung eines Assets (R2.4); der Editor zeigt den Pfad und nimmt Assets aus
+    // dem Asset-Browser an.
+    Asset,
 };
 
 struct Field {

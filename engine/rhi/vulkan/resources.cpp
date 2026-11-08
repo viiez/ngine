@@ -93,6 +93,13 @@ Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const Te
         usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
 
+    // Texturen zum Hochladen gehören mit Transfer-Queue beiden Familien (TD-17).
+    VkSharingMode image_sharing = VK_SHARING_MODE_EXCLUSIVE;
+    u32 image_family_count = 0;
+    const u32* image_families = nullptr;
+    if (has(desc.usage, TextureUsage::TransferDst)) {
+        context.shared_with_transfer(image_sharing, image_family_count, image_families);
+    }
     const VkImageCreateInfo image_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
@@ -103,7 +110,9 @@ Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const Te
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage = usage,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .sharingMode = image_sharing,
+        .queueFamilyIndexCount = image_family_count,
+        .pQueueFamilyIndices = image_families,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
     const VmaAllocationCreateInfo allocation_info{.usage = VMA_MEMORY_USAGE_AUTO};
@@ -184,11 +193,21 @@ Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context, const Buff
     if (has(desc.usage, BufferUsage::Index)) {
         usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     }
+    // Puffer im GPU-Speicher sind Ziele von Uploads und gehören mit Transfer-Queue beiden
+    // Familien (TD-17).
+    VkSharingMode sharing = VK_SHARING_MODE_EXCLUSIVE;
+    u32 family_count = 0;
+    const u32* families = nullptr;
+    if (desc.memory == MemoryUsage::Gpu) {
+        context.shared_with_transfer(sharing, family_count, families);
+    }
     const VkBufferCreateInfo buffer_info{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = desc.size,
         .usage = usage,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .sharingMode = sharing,
+        .queueFamilyIndexCount = family_count,
+        .pQueueFamilyIndices = families,
     };
     VmaAllocationCreateInfo allocation_info{.usage = VMA_MEMORY_USAGE_AUTO};
     if (desc.memory == MemoryUsage::CpuWrite) {

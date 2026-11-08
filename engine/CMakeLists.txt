@@ -16,6 +16,7 @@ add_subdirectory(replication)
 add_subdirectory(rhi)
 add_subdirectory(render)
 add_subdirectory(shaders)
+add_subdirectory(shader_compiler)
 add_subdirectory(editor_ui)
 
 if(NGINE_WITH_WINDOW)

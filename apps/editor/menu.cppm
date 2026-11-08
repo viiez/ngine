@@ -28,6 +28,7 @@ export constexpr std::string_view console_window = "Konsole";
 export constexpr std::string_view stats_window = "Statistik";
 export constexpr std::string_view tree_window = "Szene";
 export constexpr std::string_view inspector_window = "Inspector";
+export constexpr std::string_view assets_window = "Assets";
 
 // Sichtbarkeit der Fenster (Menü „Ansicht“).
 export struct Panels {
@@ -36,6 +37,7 @@ export struct Panels {
     bool inspector = true;
     bool console = true;
     bool stats = true;
+    bool assets = true;
 };
 
 export ui::DockLayout default_layout() {
@@ -43,7 +45,8 @@ export ui::DockLayout default_layout() {
             .left = {std::string{tree_window}},
             // Das zuletzt angedockte Fenster liegt vorn.
             .right = {std::string{stats_window}, std::string{inspector_window}},
-            .bottom = {std::string{console_window}}};
+            // Konsole vorn, Assets dahinter als Reiter.
+            .bottom = {std::string{assets_window}, std::string{console_window}}};
 }
 
 // Dateiname für Titel und Meldungen.
@@ -197,6 +200,7 @@ public:
             ui::menu_item(inspector_window, {}, &panels.inspector);
             ui::menu_item(console_window, {}, &panels.console);
             ui::menu_item(stats_window, {}, &panels.stats);
+            ui::menu_item(assets_window, {}, &panels.assets);
             ui::separator();
             if (ui::menu_item("Layout zurücksetzen")) {
                 panels = {};

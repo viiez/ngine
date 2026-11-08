@@ -104,7 +104,9 @@ struct Model {
 // Lädt eine glTF-2.0-Datei (.gltf mit eingebetteten oder externen Puffern, .glb) samt Bildern.
 // Fehlerhafte Dateien liefern eine Meldung mit Pfad und Ursache, nie einen Absturz. Was nicht
 // unterstützt wird (Punkte und Linien, Skins, Animationen, Morph Targets, weitere UV-Sätze), wird
-// mit einer Warnung übergangen.
-[[nodiscard]] Result<Model> load_gltf(std::string_view path);
+// mit einer Warnung übergangen. dependencies bekommt die lokalen Dateien, aus denen externe
+// Puffer und Bilder stammen (normalisiert), z. B. für Hot Reload.
+[[nodiscard]] Result<Model> load_gltf(std::string_view path,
+                                      std::vector<std::string>* dependencies = nullptr);
 
 } // namespace ngine::asset

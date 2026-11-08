@@ -8,6 +8,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <format>
 #include <functional>
 #include <map>
 #include <memory>
@@ -15,6 +16,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -164,8 +166,131 @@ struct Renderer::Impl {
     std::array<std::vector<ShadowDraw>, cascade_count> shadow_draws;
     u32 line_count = 0;
     RenderStats stats;
+    // Modelle, die MeshRenderer brauchen (R2.4). Ein Eintrag hält das Handle, solange ihn ein
+    // Frame benutzt; danach gibt der Ressourcen-Manager das Modell nach einer Weile frei.
+    struct ModelUse {
+        asset::Handle<GpuModel> handle;
+        u64 last_used = 0;
+    };
+    asset::ResourceManager* resources = nullptr;
+    std::unordered_map<asset::AssetId, ModelUse> models;
+    u64 frame_number = 0;
 
     explicit Impl(rhi::Device& device_) : device{&device_}, meshes{device_}, materials{device_} {}
+
+    const GpuModel* model(asset::AssetId id) {
+        if (id == 0 || resources == nullptr) {
+            return nullptr;
+        }
+        auto [it, inserted] = models.try_emplace(id);
+        if (inserted || !it->second.handle) {
+            it->second.handle = resources->load<GpuModel>(id);
+        }
+        it->second.last_used = frame_number;
+        const GpuModel* found = it->second.handle.get();
+        // Uploads im Hintergrund noch nicht fertig (TD-17): wie nicht geladen behandeln.
+        if (found != nullptr && !device->upload_done(found->ticket())) {
+            return nullptr;
+        }
+        return found;
+    }
+
+    const GpuMesh* mesh(const asset::AssetRef& ref) {
+        const GpuModel* found = model(ref.asset);
+        if (found == nullptr || ref.index >= found->instance().meshes.size()) {
+            return nullptr;
+        }
+        return meshes.get(found->instance().meshes[ref.index]);
+    }
+
+    // Material eines Verweises; nichts, wenn der Verweis leer ist oder das Modell fehlt.
+    std::optional<u32> material(const asset::AssetRef& ref) {
+        if (!ref.valid()) {
+            return std::nullopt;
+        }
+        const GpuModel* found = model(ref.asset);
+        if (found == nullptr || ref.index >= found->instance().materials.size()) {
+            return std::nullopt;
+        }
+        return found->instance().materials[ref.index];
+    }
+
+    // Shader des Renderers: Quelldatei, Einstieg und eingebettetes SPIR-V.
+    struct ShaderSpec {
+        std::string_view file;
+        rhi::ShaderDesc (*embedded)();
+        std::unique_ptr<rhi::Shader> Impl::*slot;
+    };
+    static constexpr std::array shader_specs{
+        ShaderSpec{"pbr.slang", shaders::pbr_vertex, &Impl::pbr_vertex},
+        ShaderSpec{"pbr.slang", shaders::pbr_fragment, &Impl::pbr_fragment},
+        ShaderSpec{"shadow.slang", shaders::shadow_vertex, &Impl::shadow_vertex},
+        ShaderSpec{"shadow.slang", shaders::shadow_fragment, &Impl::shadow_fragment},
+        ShaderSpec{"debug.slang", shaders::debug_vertex, &Impl::debug_vertex},
+        ShaderSpec{"debug.slang", shaders::debug_fragment, &Impl::debug_fragment},
+        ShaderSpec{"fullscreen.slang", shaders::fullscreen_vertex, &Impl::fullscreen_vertex},
+        ShaderSpec{"tonemap.slang", shaders::tonemap_fragment, &Impl::tonemap_fragment},
+        ShaderSpec{"id.slang", shaders::id_vertex, &Impl::id_vertex},
+        ShaderSpec{"id.slang", shaders::id_fragment, &Impl::id_fragment},
+    };
+
+    // Alle Pipelines aus den aktuellen Shadern.
+    rhi::Result<void> create_pipelines() {
+        for (usize i = 0; i < pbr.size(); ++i) {
+            const bool blend = i >= 2;
+            auto pipeline = device->create_pipeline({
+                .vertex = pbr_vertex.get(),
+                .fragment = pbr_fragment.get(),
+                .color_format = hdr_format,
+                .depth_format = depth_format,
+                // Umgekehrte Tiefe: näher heißt größer.
+                .depth_compare = rhi::CompareOp::Greater,
+                .depth_write = !blend,
+                .cull_mode = (i % 2 == 1) ? rhi::CullMode::None : rhi::CullMode::Back,
+                .blend = blend ? rhi::BlendMode::Alpha : rhi::BlendMode::None,
+            });
+            if (!pipeline) {
+                return std::unexpected("Renderer, PBR-Pipeline: " + pipeline.error());
+            }
+            pbr[i] = *std::move(pipeline);
+        }
+        if (auto result = create_shadow_pipelines(shadow_bias_constant, shadow_bias_slope);
+            !result) {
+            return result;
+        }
+        auto lines_pipeline =
+            device->create_pipeline({.vertex = debug_vertex.get(),
+                                     .fragment = debug_fragment.get(),
+                                     .color_format = hdr_format,
+                                     .depth_format = depth_format,
+                                     .depth_compare = rhi::CompareOp::GreaterOrEqual,
+                                     .depth_write = false});
+        if (!lines_pipeline) {
+            return std::unexpected("Renderer, Debug-Linien: " + lines_pipeline.error());
+        }
+        debug_lines = *std::move(lines_pipeline);
+        auto tonemap_pipeline = device->create_pipeline({.vertex = fullscreen_vertex.get(),
+                                                         .fragment = tonemap_fragment.get(),
+                                                         .color_format = target_format});
+        if (!tonemap_pipeline) {
+            return std::unexpected("Renderer, Tone Mapping: " + tonemap_pipeline.error());
+        }
+        tonemap = *std::move(tonemap_pipeline);
+        for (usize i = 0; i < id_pipelines.size(); ++i) {
+            auto pipeline = device->create_pipeline(
+                {.vertex = id_vertex.get(),
+                 .fragment = id_fragment.get(),
+                 .color_format = id_format,
+                 .depth_format = depth_format,
+                 .depth_compare = rhi::CompareOp::Greater,
+                 .cull_mode = i == 0 ? rhi::CullMode::Back : rhi::CullMode::None});
+            if (!pipeline) {
+                return std::unexpected("Renderer, ID-Puffer: " + pipeline.error());
+            }
+            id_pipelines[i] = *std::move(pipeline);
+        }
+        return {};
+    }
 
     rhi::Result<void> create_shadow_pipelines(f32 constant, f32 slope) {
         for (const bool masked : {false, true}) {
@@ -273,83 +398,18 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
     auto impl = std::make_unique<Impl>(device);
     impl->target_format = target_format;
 
-    const auto shader = [&](const rhi::ShaderDesc& desc,
-                            std::unique_ptr<rhi::Shader>& out) -> rhi::Result<void> {
-        auto created = device.create_shader(desc);
+    for (const Impl::ShaderSpec& spec : Impl::shader_specs) {
+        auto created = device.create_shader(spec.embedded());
         if (!created) {
-            return std::unexpected(created.error());
+            return std::unexpected("Renderer, Shader: " + created.error());
         }
-        out = *std::move(created);
-        return {};
-    };
-    for (auto result : {shader(shaders::pbr_vertex(), impl->pbr_vertex),
-                        shader(shaders::pbr_fragment(), impl->pbr_fragment),
-                        shader(shaders::shadow_vertex(), impl->shadow_vertex),
-                        shader(shaders::shadow_fragment(), impl->shadow_fragment),
-                        shader(shaders::debug_vertex(), impl->debug_vertex),
-                        shader(shaders::debug_fragment(), impl->debug_fragment),
-                        shader(shaders::fullscreen_vertex(), impl->fullscreen_vertex),
-                        shader(shaders::tonemap_fragment(), impl->tonemap_fragment),
-                        shader(shaders::id_vertex(), impl->id_vertex),
-                        shader(shaders::id_fragment(), impl->id_fragment)}) {
-        if (!result) {
-            return std::unexpected("Renderer, Shader: " + result.error());
-        }
-    }
-
-    for (usize i = 0; i < impl->pbr.size(); ++i) {
-        const bool blend = i >= 2;
-        auto pipeline = device.create_pipeline({
-            .vertex = impl->pbr_vertex.get(),
-            .fragment = impl->pbr_fragment.get(),
-            .color_format = hdr_format,
-            .depth_format = depth_format,
-            // Umgekehrte Tiefe: näher heißt größer.
-            .depth_compare = rhi::CompareOp::Greater,
-            .depth_write = !blend,
-            .cull_mode = (i % 2 == 1) ? rhi::CullMode::None : rhi::CullMode::Back,
-            .blend = blend ? rhi::BlendMode::Alpha : rhi::BlendMode::None,
-        });
-        if (!pipeline) {
-            return std::unexpected("Renderer, PBR-Pipeline: " + pipeline.error());
-        }
-        impl->pbr[i] = *std::move(pipeline);
+        (*impl).*spec.slot = *std::move(created);
     }
     const ShadowSettings defaults;
-    if (auto result =
-            impl->create_shadow_pipelines(defaults.depth_bias_constant, defaults.depth_bias_slope);
-        !result) {
+    impl->shadow_bias_constant = defaults.depth_bias_constant;
+    impl->shadow_bias_slope = defaults.depth_bias_slope;
+    if (auto result = impl->create_pipelines(); !result) {
         return std::unexpected(result.error());
-    }
-    auto debug_lines = device.create_pipeline({.vertex = impl->debug_vertex.get(),
-                                               .fragment = impl->debug_fragment.get(),
-                                               .color_format = hdr_format,
-                                               .depth_format = depth_format,
-                                               .depth_compare = rhi::CompareOp::GreaterOrEqual,
-                                               .depth_write = false});
-    if (!debug_lines) {
-        return std::unexpected("Renderer, Debug-Linien: " + debug_lines.error());
-    }
-    impl->debug_lines = *std::move(debug_lines);
-    auto tonemap = device.create_pipeline({.vertex = impl->fullscreen_vertex.get(),
-                                           .fragment = impl->tonemap_fragment.get(),
-                                           .color_format = target_format});
-    if (!tonemap) {
-        return std::unexpected("Renderer, Tone Mapping: " + tonemap.error());
-    }
-    impl->tonemap = *std::move(tonemap);
-    for (usize i = 0; i < impl->id_pipelines.size(); ++i) {
-        auto pipeline = device.create_pipeline(
-            {.vertex = impl->id_vertex.get(),
-             .fragment = impl->id_fragment.get(),
-             .color_format = id_format,
-             .depth_format = depth_format,
-             .depth_compare = rhi::CompareOp::Greater,
-             .cull_mode = i == 0 ? rhi::CullMode::Back : rhi::CullMode::None});
-        if (!pipeline) {
-            return std::unexpected("Renderer, ID-Puffer: " + pipeline.error());
-        }
-        impl->id_pipelines[i] = *std::move(pipeline);
     }
 
     // Gather liest vier Texel ohne Filter; nur Klemmen am Rand zählt.
@@ -391,13 +451,68 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
 }
 
 Renderer::Renderer(std::unique_ptr<Impl> impl) : impl_{std::move(impl)} {}
-Renderer::~Renderer() = default;
+Renderer::~Renderer() {
+    // Handles zuerst: Ein letztes GpuModel gibt seinen Speicher in Meshes und Materialien frei.
+    impl_->models.clear();
+}
 
 MeshStore& Renderer::meshes() noexcept {
     return impl_->meshes;
 }
 MaterialStore& Renderer::materials() noexcept {
     return impl_->materials;
+}
+rhi::Device& Renderer::device() noexcept {
+    return *impl_->device;
+}
+
+void Renderer::set_resources(asset::ResourceManager* resources) noexcept {
+    impl_->resources = resources;
+    impl_->models.clear();
+}
+asset::ResourceManager* Renderer::resources() noexcept {
+    return impl_->resources;
+}
+const GpuMesh* Renderer::find_mesh(const asset::AssetRef& ref) {
+    return impl_->mesh(ref);
+}
+const GpuModel* Renderer::find_model(asset::AssetId id) {
+    return impl_->model(id);
+}
+
+rhi::Result<void> Renderer::reload_shaders(const ShaderSource& source) {
+    NGINE_PROFILE_ZONE("Renderer::reload_shaders");
+    Impl& r = *impl_;
+    // Erst alles übersetzen; ein Fehler lässt die laufenden Shader stehen.
+    std::vector<std::unique_ptr<rhi::Shader>> compiled;
+    for (const Impl::ShaderSpec& spec : Impl::shader_specs) {
+        const rhi::ShaderDesc embedded = spec.embedded();
+        auto spirv = source(spec.file, embedded.entry_point, embedded.stage);
+        if (!spirv) {
+            return std::unexpected(
+                std::format("{} ({}): {}", spec.file, embedded.entry_point, spirv.error()));
+        }
+        auto shader = r.device->create_shader(
+            {.stage = embedded.stage, .spirv = *spirv, .entry_point = embedded.entry_point});
+        if (!shader) {
+            return std::unexpected(
+                std::format("{} ({}): {}", spec.file, embedded.entry_point, shader.error()));
+        }
+        compiled.push_back(*std::move(shader));
+    }
+    std::vector<std::unique_ptr<rhi::Shader>> previous;
+    for (usize i = 0; i < compiled.size(); ++i) {
+        previous.push_back(std::exchange(r.*Impl::shader_specs[i].slot, std::move(compiled[i])));
+    }
+    if (auto result = r.create_pipelines(); !result) {
+        // Mit den alten Shadern weiter.
+        for (usize i = 0; i < previous.size(); ++i) {
+            r.*Impl::shader_specs[i].slot = std::move(previous[i]);
+        }
+        static_cast<void>(r.create_pipelines());
+        return result;
+    }
+    return {};
 }
 DebugDraw& Renderer::debug() noexcept {
     return impl_->debug;
@@ -436,6 +551,10 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     rhi::Buffer& frame_buffer = *r.frames[slot];
     rhi::Buffer& light_buffer = *r.lights[slot];
     r.stats = {};
+    // Modelle, die zwei Frames lang niemand brauchte, loslassen.
+    ++r.frame_number;
+    std::erase_if(r.models,
+                  [&](const auto& entry) { return entry.second.last_used + 2 < r.frame_number; });
 
     // Antwort einer Auswahl, die dieser Platz vor frames_in_flight Frames angefragt hat; die GPU
     // ist damit fertig.
@@ -521,10 +640,15 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
         world.each<const world::WorldTransform, const MeshRenderer>(
             [&](world::Entity entity, const world::WorldTransform& transform,
                 const MeshRenderer& renderer) {
-                const GpuMesh* mesh = r.meshes.get(renderer.mesh);
-                if (mesh == nullptr || !mesh->indices) {
+                const GpuMesh* mesh = r.mesh(renderer.mesh);
+                if (mesh == nullptr) {
+                    ++r.stats.waiting;
                     return;
                 }
+                if (!mesh->indices) {
+                    return;
+                }
+                const std::optional<u32> override_material = r.material(renderer.material);
                 const auto id = static_cast<u32>(entity.id());
                 const Mat4 rows = math::transpose(transform.value.relative_to(origin));
                 const std::array<Vec4, 3> model{rows[0], rows[1], rows[2]};
@@ -536,8 +660,7 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                     }
                 }
                 for (const Submesh& submesh : mesh->submeshes) {
-                    u32 material = renderer.material != rhi::invalid_index ? renderer.material
-                                                                           : submesh.material;
+                    u32 material = override_material.value_or(submesh.material);
                     if (material >= r.materials.size()) {
                         material = 0;
                     }

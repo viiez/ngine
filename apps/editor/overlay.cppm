@@ -4,10 +4,8 @@ module;
 #include <cmath>
 #include <string>
 
-// Hilfslinien im Viewport des Editors: Raster am Boden, Lichter als Symbole und die Auswahl. Szenen
-// aus Dateien haben bis R2.4 keine Meshes (MeshRenderer ist eine Laufzeitkomponente), deshalb
-// braucht der Editor diese Linien, um überhaupt etwas zu zeigen. Seit R2.3 dazu Namen als Text in
-// der Welt (REND-15): an Lichtern und an der Auswahl.
+// Hilfslinien im Viewport des Editors: Raster am Boden, Lichter als Symbole und die Auswahl. Seit
+// R2.3 dazu Namen als Text in der Welt (REND-15): an Lichtern und an der Auswahl.
 export module editor.overlay;
 
 import ngine.core;
@@ -40,7 +38,7 @@ Vec3 forward_of(const world::WorldTransform& transform) {
     return -math::normalize(transform.value.linear[2]);
 }
 
-export void draw_overlay(render::DebugDraw& debug, render::MeshStore& meshes,
+export void draw_overlay(render::DebugDraw& debug, render::Renderer& renderer,
                          edit::SceneDocument& document, const edit::Selection& selection) {
     world::World& world = document.world();
     world::update_transforms(world);
@@ -86,8 +84,9 @@ export void draw_overlay(render::DebugDraw& debug, render::MeshStore& meshes,
     if (transform == nullptr) {
         return;
     }
-    const auto* renderer = entity.get<render::MeshRenderer>();
-    if (const render::GpuMesh* mesh = renderer != nullptr ? meshes.get(renderer->mesh) : nullptr) {
+    const auto* component = entity.get<render::MeshRenderer>();
+    if (const render::GpuMesh* mesh =
+            component != nullptr ? renderer.find_mesh(component->mesh) : nullptr) {
         debug.box(transform->value, mesh->bounds_min, mesh->bounds_max, selection_color);
     } else {
         debug.box(transform->value, Vec3{-0.3f, -0.3f, -0.3f}, Vec3{0.3f, 0.3f, 0.3f},

@@ -23,6 +23,11 @@ module;
 //
 // Seit R2.3 kreisen die Punktlichter über die Komponente Orbit und ein System im Schedule: in der
 // Sandbox immer, im Editor nur beim Spielen (simulate()).
+//
+// Seit R2.4 verweisen MeshRenderer über Asset-Kennungen (ADR 0033). Meshes und Materialien der
+// Standardszene sind ein erzeugtes Modell mit fester Kennung (default_scene_id), ein Modell aus
+// --model eines mit einer Kennung aus seinem Pfad. Die Szene besitzt den Ressourcen-Manager, aus
+// dem der Renderer Modelle lädt; der Editor gibt ihm seine Asset-Datenbank.
 export module app.model_scene;
 
 import ngine.core;
@@ -132,15 +137,15 @@ math::Quat shine_along(Vec3 direction) {
 }
 
 // Hülle aller MeshRenderer in Weltkoordinaten (relativ zu origin, damit 32 Bit reichen).
-std::optional<std::pair<Vec3, Vec3>> world_bounds(world::World& world, render::MeshStore& meshes,
+std::optional<std::pair<Vec3, Vec3>> world_bounds(world::World& world, render::Renderer& renderer,
                                                   DVec3 origin) {
     constexpr f32 big = std::numeric_limits<f32>::max();
     Vec3 low{big, big, big};
     Vec3 high{-big, -big, -big};
     bool any = false;
     world.each<const world::WorldTransform, const render::MeshRenderer>(
-        [&](const world::WorldTransform& transform, const render::MeshRenderer& renderer) {
-            const render::GpuMesh* mesh = meshes.get(renderer.mesh);
+        [&](const world::WorldTransform& transform, const render::MeshRenderer& component) {
+            const render::GpuMesh* mesh = renderer.find_mesh(component.mesh);
             if (mesh == nullptr || mesh->submeshes.empty()) {
                 return;
             }
@@ -161,7 +166,18 @@ std::optional<std::pair<Vec3, Vec3>> world_bounds(world::World& world, render::M
     return std::make_pair(low, high);
 }
 
+// Meshes der Standardszene im erzeugten Modell (Index in Model::meshes).
+enum DefaultMesh : u32 { ground_mesh, sphere_mesh, pillar_mesh, bulb_mesh };
+// Materialien: Boden, Stein, acht leuchtende, danach die Kugeln Zeile für Zeile.
+enum DefaultMaterial : u32 { ground_material, stone_material, first_glow_material };
+constexpr u32 first_sphere_material = first_glow_material + light_count;
+
 } // namespace
+
+// Kennung des erzeugten Modells der Standardszene.
+export constexpr asset::AssetId default_scene_id = asset::generated_id("app.model_scene.default");
+// Kennung des Bodens unter einem Modell aus --model.
+export constexpr asset::AssetId model_ground_id = asset::generated_id("app.model_scene.ground");
 
 export class ModelScene {
 public:
@@ -235,6 +251,7 @@ public:
 
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
         NGINE_PROFILE_ZONE("ModelScene::add_passes");
+        resources_->update();
         (void)world::update_transforms(world_);
         if (debug_draw_) {
             draw_debug();
@@ -249,13 +266,17 @@ public:
     [[nodiscard]] render::Renderer& renderer() noexcept {
         return *renderer_;
     }
+    // Ressourcen-Manager der Szene; update() läuft in add_passes().
+    [[nodiscard]] asset::ResourceManager& resources() noexcept {
+        return *resources_;
+    }
 
     [[nodiscard]] std::string stats() const {
         const render::RenderStats& stats = renderer_->stats();
         return std::format("{} Draws, {} Dreiecke, {} Schatten-Draws, {} Lichter, {} Meshes, {} "
                            "Materialien, {} Debug-Linien",
                            stats.draws, stats.triangles, stats.shadow_draws, stats.lights,
-                           renderer_->meshes().size(), renderer_->materials().size(),
+                           renderer_->meshes().count(), renderer_->materials().count(),
                            stats.debug_lines);
     }
 
@@ -270,7 +291,11 @@ private:
 
     ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin, SceneMode mode)
         : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)},
-          jobs_{{.worker_count = 2}}, schedule_{world_}, origin_{origin}, mode_{mode} {
+          jobs_{{.worker_count = 2}},
+          resources_{std::make_unique<asset::ResourceManager>(nullptr, &jobs_)}, schedule_{world_},
+          origin_{origin}, mode_{mode} {
+        renderer_->set_resources(resources_.get());
+        render::register_loaders(*resources_, *renderer_);
         schedule_.add<Orbit, world::Transform>("Kreisbahnen",
                                                [this](Orbit& orbit, world::Transform& transform) {
                                                    orbit.time += step_;
@@ -282,26 +307,55 @@ private:
         }
     }
 
+    // Modell aus einer Datei außerhalb der Asset-Datenbank: sofort laden und unter einer Kennung
+    // aus dem Pfad als erzeugtes Modell anmelden.
     rhi::Result<void> load_model(const std::string& path) {
         auto model = asset::load_gltf(path);
         if (!model) {
             return std::unexpected(model.error());
         }
-        auto instance = render::upload_model(*renderer_, *model);
-        if (!instance) {
-            return std::unexpected(instance.error());
+        auto uploaded = render::upload_model(*renderer_, *model);
+        if (!uploaded) {
+            return std::unexpected(uploaded.error());
         }
-        world::Entity root = render::spawn_model(world_, *model, *instance, "Modell");
+        const asset::AssetId id = asset::generated_id("file:" + filesystem::normalize(path));
+        static_cast<void>(resources_->add(id, *std::move(uploaded)));
+        world::Entity root = render::spawn_model(world_, *model, id, "Modell");
         root.set(world::Transform{.position = origin_});
         log::info("Modell geladen: {} ({} Meshes, {} Materialien, {} Bilder)", path,
                   model->meshes.size(), model->materials.size(), model->images.size());
         return {};
     }
 
-    rhi::Result<u32> add_mesh(const asset::Primitive& primitive, u32 material = 0) {
-        const std::vector<render::SubmeshData> submeshes{
-            {.vertices = primitive.vertices, .indices = primitive.indices, .material = material}};
-        return renderer_->meshes().add(submeshes);
+    // Mesh mit einem Teilnetz für ein erzeugtes Modell.
+    static asset::Mesh single_mesh(std::string name, asset::Primitive primitive,
+                                   std::optional<u32> material = std::nullopt) {
+        primitive.material = material;
+        asset::Mesh mesh{.name = std::move(name), .primitives = {}};
+        mesh.primitives.push_back(std::move(primitive));
+        return mesh;
+    }
+
+    // Material nach glTF; die Standardwerte von asset::Material (metallisch) passen hier nicht.
+    static asset::Material material(std::string name, math::Vec4 color, f32 roughness,
+                                    f32 metallic = 0.0f, Vec3 emissive = {0.0f, 0.0f, 0.0f}) {
+        asset::Material result;
+        result.name = std::move(name);
+        result.base_color = color;
+        result.metallic = metallic;
+        result.roughness = roughness;
+        result.emissive = emissive;
+        return result;
+    }
+
+    // Lädt ein erzeugtes Modell hoch und meldet es unter id an.
+    rhi::Result<void> add_generated(asset::AssetId id, const asset::Model& model) {
+        auto uploaded = render::upload_model(*renderer_, model);
+        if (!uploaded) {
+            return std::unexpected(uploaded.error());
+        }
+        static_cast<void>(resources_->add(id, *std::move(uploaded)));
+        return {};
     }
 
     void add_sun() {
@@ -310,55 +364,80 @@ private:
             .set(render::DirectionalLight{.color = {1.0f, 0.95f, 0.88f}, .intensity = 3.0f});
     }
 
-    // Boden als flacher Quader, Oberseite bei height (relativ zu origin).
+    static asset::Material ground() {
+        return material("Boden", {0.5f, 0.5f, 0.48f, 1.0f}, 0.9f);
+    }
+
+    // Boden unter einem Modell aus --model: flacher Quader, Oberseite bei height (relativ zu
+    // origin), als eigenes erzeugtes Modell.
     rhi::Result<void> add_ground(f32 half_size, f32 height) {
-        const u32 material = renderer_->materials().add(
-            {.base_color = {0.5f, 0.5f, 0.48f, 1.0f}, .roughness = 0.9f});
-        auto mesh = add_mesh(asset::make_box({half_size, 0.1f, half_size}), material);
-        if (!mesh) {
-            return std::unexpected(mesh.error());
+        asset::Model model;
+        model.materials.push_back(ground());
+        model.meshes.push_back(
+            single_mesh("Boden", asset::make_box({half_size, 0.1f, half_size}), 0));
+        if (auto result = add_generated(model_ground_id, model); !result) {
+            return result;
         }
         world_.create("Boden")
             .set(world::Transform{.position = origin_ + DVec3{0.0, height - 0.1, 0.0}})
-            .set(render::MeshRenderer{.mesh = *mesh});
+            .set(render::MeshRenderer{.mesh = {.asset = model_ground_id, .index = 0}});
         return {};
+    }
+
+    // Erzeugtes Modell der Standardszene: Boden, Kugel, Säule, Leuchtkugel und alle Materialien.
+    rhi::Result<void> add_default_model() {
+        asset::Model model;
+        model.meshes.push_back(
+            single_mesh("Boden", asset::make_box({60.0f, 0.1f, 60.0f}), ground_material));
+        model.meshes.push_back(single_mesh("Kugel", asset::make_sphere(1.0f, 64, 32)));
+        model.meshes.push_back(
+            single_mesh("Säule", asset::make_box({0.5f, 3.0f, 0.5f}), stone_material));
+        model.meshes.push_back(single_mesh("Leuchtkugel", asset::make_sphere(0.12f, 16, 8)));
+        model.materials.push_back(ground());
+        model.materials.push_back(material("Stein", {0.75f, 0.72f, 0.66f, 1.0f}, 0.7f));
+        for (u32 i = 0; i < light_count; ++i) {
+            const Vec3 color = hue(static_cast<f32>(i) / static_cast<f32>(light_count));
+            model.materials.push_back(material(std::format("Leuchten {}", i),
+                                               {0.0f, 0.0f, 0.0f, 1.0f}, 1.0f, 0.0f, color * 4.0f));
+        }
+        for (u32 row = 0; row < grid_size; ++row) {
+            for (u32 column = 0; column < grid_size; ++column) {
+                const f32 metallic = static_cast<f32>(row) / static_cast<f32>(grid_size - 1);
+                const f32 roughness =
+                    std::max(static_cast<f32>(column) / static_cast<f32>(grid_size - 1), 0.05f);
+                model.materials.push_back(material(std::format("Kugel {} {}", row, column),
+                                                   {0.9f, 0.45f, 0.2f, 1.0f}, roughness, metallic));
+            }
+        }
+        return add_generated(default_scene_id, model);
+    }
+
+    static asset::AssetRef default_ref(u32 index) {
+        return {.asset = default_scene_id, .index = index};
     }
 
     // Standardszene: Kugelraster auf dem Boden, Säulen bis in 60 m Entfernung, acht kreisende
     // Punktlichter mit leuchtenden Kugeln und ein Spotlicht.
     rhi::Result<void> build_default() {
         renderer_->shadows.distance = 100.0f;
-        if (auto result = add_ground(60.0f, 0.0f); !result) {
+        if (auto result = add_default_model(); !result) {
             return result;
         }
-        if (auto result = build_spheres(); !result) {
-            return result;
-        }
+        world_.create("Boden")
+            .set(world::Transform{.position = origin_ + DVec3{0.0, -0.1, 0.0}})
+            .set(render::MeshRenderer{.mesh = default_ref(ground_mesh)});
+        build_spheres();
 
-        render::MaterialStore& materials = renderer_->materials();
-        const u32 stone =
-            materials.add({.base_color = {0.75f, 0.72f, 0.66f, 1.0f}, .roughness = 0.7f});
-        auto pillar = add_mesh(asset::make_box({0.5f, 3.0f, 0.5f}), stone);
-        if (!pillar) {
-            return std::unexpected(pillar.error());
-        }
         for (u32 i = 0; i < 16; ++i) {
             const f64 side = (i % 2 == 0) ? -12.0 : 12.0;
             const f64 z = -4.0 - static_cast<f64>(i / 2) * 7.0;
             world_.create(std::format("Säule {}", i))
                 .set(world::Transform{.position = origin_ + DVec3{side, 3.0, z}})
-                .set(render::MeshRenderer{.mesh = *pillar});
+                .set(render::MeshRenderer{.mesh = default_ref(pillar_mesh)});
         }
 
-        auto bulb = add_mesh(asset::make_sphere(0.12f, 16, 8));
-        if (!bulb) {
-            return std::unexpected(bulb.error());
-        }
         for (u32 i = 0; i < light_count; ++i) {
             const Vec3 color = hue(static_cast<f32>(i) / static_cast<f32>(light_count));
-            const u32 glow = materials.add({.base_color = {0.0f, 0.0f, 0.0f, 1.0f},
-                                            .roughness = 1.0f,
-                                            .emissive = color * 4.0f});
             // Punktlichter kreisen vor dem Kugelraster, jedes auf eigener Höhe.
             const Orbit orbit{.center = origin_ + DVec3{0.0, 0.8, 5.0},
                               .radius_x = 7.0f,
@@ -372,7 +451,8 @@ private:
                 .set(world::Transform{.position = orbit_position(orbit)})
                 .set(orbit)
                 .set(render::PointLight{.color = color, .intensity = 10.0f, .range = 9.0f})
-                .set(render::MeshRenderer{.mesh = *bulb, .material = glow});
+                .set(render::MeshRenderer{.mesh = default_ref(bulb_mesh),
+                                          .material = default_ref(first_glow_material + i)});
         }
         world_.create("Spot")
             .set(world::Transform{.position = origin_ + DVec3{0.0, 9.0, 9.0},
@@ -397,8 +477,8 @@ private:
     void draw_debug() {
         render::DebugDraw& debug = renderer_->debug();
         world_.each<const world::WorldTransform, const render::MeshRenderer>(
-            [&](const world::WorldTransform& transform, const render::MeshRenderer& renderer) {
-                if (const render::GpuMesh* mesh = renderer_->meshes().get(renderer.mesh)) {
+            [&](const world::WorldTransform& transform, const render::MeshRenderer& component) {
+                if (const render::GpuMesh* mesh = renderer_->find_mesh(component.mesh)) {
                     debug.box(transform.value, mesh->bounds_min, mesh->bounds_max,
                               {0.9f, 0.8f, 0.2f});
                 }
@@ -419,26 +499,7 @@ private:
     }
 
     // 7 × 7 Kugeln: Roughness wächst nach rechts, Metallic nach oben.
-    rhi::Result<void> build_spheres() {
-        const asset::Primitive sphere = asset::make_sphere(1.0f, 64, 32);
-        render::MaterialStore& materials = renderer_->materials();
-        std::vector<u32> row_materials;
-        for (u32 row = 0; row < grid_size; ++row) {
-            for (u32 column = 0; column < grid_size; ++column) {
-                const f32 metallic = static_cast<f32>(row) / static_cast<f32>(grid_size - 1);
-                const f32 roughness =
-                    std::max(static_cast<f32>(column) / static_cast<f32>(grid_size - 1), 0.05f);
-                row_materials.push_back(materials.add({.base_color = {0.9f, 0.45f, 0.2f, 1.0f},
-                                                       .metallic = metallic,
-                                                       .roughness = roughness}));
-            }
-        }
-        const std::vector<render::SubmeshData> submeshes{
-            {.vertices = sphere.vertices, .indices = sphere.indices, .material = 0}};
-        auto mesh = renderer_->meshes().add(submeshes);
-        if (!mesh) {
-            return std::unexpected(mesh.error());
-        }
+    void build_spheres() {
         world::Entity root = world_.create("Kugelraster");
         root.set(world::Transform{.position = origin_});
         const f32 half = static_cast<f32>(grid_size - 1) * grid_spacing * 0.5f;
@@ -449,18 +510,18 @@ private:
                     .set(world::Transform{
                         .position = {static_cast<f64>(column) * grid_spacing - half,
                                      static_cast<f64>(row) * grid_spacing + 1.2, 0.0}})
-                    .set(render::MeshRenderer{.mesh = *mesh,
-                                              .material = row_materials[row * grid_size + column]});
+                    .set(render::MeshRenderer{
+                        .mesh = default_ref(sphere_mesh),
+                        .material = default_ref(first_sphere_material + row * grid_size + column)});
                 entity.set_parent(root);
             }
         }
-        return {};
     }
 
     // Kamera vor die Szene stellen, sodass alles ins Bild passt.
     void frame_camera() {
         (void)world::update_transforms(world_);
-        const auto bounds = world_bounds(world_, renderer_->meshes(), origin_);
+        const auto bounds = world_bounds(world_, *renderer_, origin_);
         Vec3 center{0.0f, 0.0f, 0.0f};
         f32 radius = 1.0f;
         if (bounds) {
@@ -489,8 +550,12 @@ private:
     reflect::TypeRegistry types_;
     world::World world_;
     std::unique_ptr<render::Renderer> renderer_;
-    // Wenige Worker reichen für die Systeme der Szene; die Hauptarbeit macht die GPU.
+    // Wenige Worker reichen für die Systeme der Szene und das Laden im Hintergrund; die
+    // Hauptarbeit macht die GPU.
     jobs::JobSystem jobs_;
+    // Nach Renderer und Jobs angelegt, deshalb vor ihnen zerstört: Ressourcen geben ihren
+    // Speicher im Renderer frei, laufende Jobs müssen fertig sein.
+    std::unique_ptr<asset::ResourceManager> resources_;
     world::Schedule schedule_;
     // Zeitschritt für die Systeme in simulate().
     f32 step_ = 0.0f;

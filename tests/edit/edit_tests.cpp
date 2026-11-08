@@ -417,3 +417,40 @@ TEST_CASE("Document changes are announced as events", "[edit]") {
     CHECK(resets == 1);
     CHECK(f.world.entity_count() == 0);
 }
+
+TEST_CASE("Inserted subtrees are undone and redone as one step", "[edit]") {
+    Fixture f;
+    const edit::EntityId source = f.add("Vorlage");
+    const edit::EntityId source_child = f.add("Teil", source);
+    f.entity(source_child).set(Lamp{.intensity = 2.0f, .label = "Teil-Lampe"});
+
+    // Kopie des Teilbaums mit freien Kennungen, wie der Asset-Browser sie baut.
+    edit::EntitySnapshot copy = edit::snapshot(f.document, source);
+    REQUIRE(copy.nodes.size() == 2);
+    const edit::EntityId root = f.document.reserve_id();
+    const edit::EntityId child = f.document.reserve_id();
+    copy.nodes[0].id = root;
+    copy.nodes[0].parent = 0;
+    copy.nodes[1].id = child;
+    copy.nodes[1].parent = root;
+
+    REQUIRE(f.document.execute(edit::insert_entities(copy, "Modell einfügen")));
+    REQUIRE(f.document.exists(root));
+    REQUIRE(f.document.exists(child));
+    CHECK(f.entity(child).parent() == f.entity(root));
+    CHECK(f.entity(child).get<Lamp>()->label == "Teil-Lampe");
+    CHECK(f.world.entity_count() == 4);
+
+    REQUIRE(f.document.undo());
+    CHECK_FALSE(f.document.exists(root));
+    CHECK_FALSE(f.document.exists(child));
+    CHECK(f.world.entity_count() == 2);
+
+    REQUIRE(f.document.redo());
+    CHECK(f.document.exists(child));
+    CHECK(f.world.entity_count() == 4);
+
+    // Kennungen, die schon vergeben sind, lehnt der Befehl ab, ohne etwas zu hinterlassen.
+    REQUIRE_FALSE(f.document.execute(edit::insert_entities(copy, "Doppelt")));
+    CHECK(f.world.entity_count() == 4);
+}

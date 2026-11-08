@@ -21,6 +21,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R2.1](R2.1-editor-geruest-und-viewport.md) | Konstruktion | Editor-Gerüst und Viewport | abgeschlossen |
 | [R2.2](R2.2-szenenbaum-inspector-undo.md) | Konstruktion | Szenenbaum, Inspector, Undo | abgeschlossen |
 | [R2.3](R2.3-gizmos-und-spielen.md) | Konstruktion | Gizmos und Spielen im Editor | abgeschlossen |
+| [R2.4](R2.4-asset-ids-ressourcen-hot-reload.md) | Konstruktion | Asset-IDs, Ressourcen und Hot Reload | in Arbeit |
 
 ## Vorlage
 

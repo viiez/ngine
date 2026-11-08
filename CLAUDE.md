@@ -53,6 +53,8 @@ werden übersprungen (in der CI mit `NGINE_REQUIRE_DOTNET` nicht). Shader sind S
 - `apps/sandbox/` Testanwendung, an der jede Iteration sichtbar wird.
 - `apps/editor/` Editor (ab R2.1, Dear ImGui hinter `ngine.editor_ui`, ADR 0029; Logik ohne UI in
   `ngine.edit`, ADR 0030); `apps/common/` Code, den Sandbox und Editor teilen.
+- `assets/` Quell-Assets mit je einer `.meta`-Datei (Asset-ID, ADR 0033); `.meta`-Dateien gehören
+  ins Repository und wandern beim Verschieben mit.
 - `tests/<system>/` Catch2-Tests, gespiegelt zur Engine-Struktur.
 - `cmake/` gemeinsame CMake-Funktionen, z. B. `ngine_set_compiler_options()`.
 

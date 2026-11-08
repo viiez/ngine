@@ -3,6 +3,7 @@ module;
 #include "vk.hpp"
 
 #include <algorithm>
+#include <array>
 #include <expected>
 #include <format>
 #include <optional>
@@ -162,6 +163,26 @@ std::optional<u32> find_queue_family(VkPhysicalDevice device, VkSurfaceKHR surfa
     return std::nullopt;
 }
 
+// Familie nur für Kopien: Transfer ohne Grafik und Compute, Kopien beliebiger Rechtecke
+// (Granularität 1 × 1 × 1).
+std::optional<u32> find_transfer_family(VkPhysicalDevice device) {
+    u32 family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &family_count, nullptr);
+    std::vector<VkQueueFamilyProperties> families(family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &family_count, families.data());
+    for (u32 i = 0; i < family_count; ++i) {
+        const VkQueueFlags flags = families[i].queueFlags;
+        const VkExtent3D granularity = families[i].minImageTransferGranularity;
+        if ((flags & VK_QUEUE_TRANSFER_BIT) != 0 &&
+            (flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) == 0 &&
+            families[i].queueCount > 0 && granularity.width == 1 && granularity.height == 1 &&
+            granularity.depth == 1) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
 // Kann die GPU ihre Zeitstempel ohne Abfrage in der Queue liefern (Zeitbereich Device)?
 bool device_time_domain(VkPhysicalDevice device, const char* extension) {
     const bool khr = std::string_view{extension} == VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
@@ -207,10 +228,9 @@ void detect_extras(PhysicalDevice& device, bool surface_maintenance1) {
 
 } // namespace
 
-std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance instance,
-                                                                VkSurfaceKHR surface,
-                                                                const Features& disabled,
-                                                                bool surface_maintenance1) {
+std::expected<PhysicalDevice, std::string>
+pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled,
+                     bool surface_maintenance1, bool transfer_queue) {
     u32 count = 0;
     vkEnumeratePhysicalDevices(instance, &count, nullptr);
     std::vector<VkPhysicalDevice> devices(count);
@@ -250,9 +270,12 @@ std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance insta
         std::vector<VkQueueFamilyProperties> families(family_count);
         vkGetPhysicalDeviceQueueFamilyProperties(candidate, &family_count, families.data());
         const u32 timestamp_bits = families[*family].timestampValidBits;
+        const std::optional<u32> transfer =
+            transfer_queue ? find_transfer_family(candidate) : std::nullopt;
         best = PhysicalDevice{
             .handle = candidate,
             .queue_family = *family,
+            .transfer_family = transfer,
             .api_version = evaluation.api_version,
             .capabilities =
                 Capabilities{
@@ -265,6 +288,7 @@ std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance insta
                                           : 1.0f,
                     .timestamp_period =
                         timestamp_bits > 0 ? properties.limits.timestampPeriod : 0.0f,
+                    .transfer_queue = transfer.has_value(),
                 },
             .timestamp_bits = timestamp_bits,
         };
@@ -283,12 +307,22 @@ std::expected<PhysicalDevice, std::string> pick_physical_device(VkInstance insta
 std::expected<VkDevice, std::string> create_logical_device(const PhysicalDevice& physical_device,
                                                            bool with_swapchain) {
     const float priority = 1.0f;
-    const VkDeviceQueueCreateInfo queue_info{
+    std::array<VkDeviceQueueCreateInfo, 2> queue_infos{};
+    u32 queue_count = 0;
+    queue_infos[queue_count++] = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .queueFamilyIndex = physical_device.queue_family,
         .queueCount = 1,
         .pQueuePriorities = &priority,
     };
+    if (physical_device.transfer_family) {
+        queue_infos[queue_count++] = {
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = *physical_device.transfer_family,
+            .queueCount = 1,
+            .pQueuePriorities = &priority,
+        };
+    }
 
     const Features& enabled = physical_device.capabilities.features;
     FeatureChain features{enabled.mesh_shader, enabled.ray_tracing};
@@ -328,8 +362,8 @@ std::expected<VkDevice, std::string> create_logical_device(const PhysicalDevice&
     const VkDeviceCreateInfo device_info{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = &features.root,
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &queue_info,
+        .queueCreateInfoCount = queue_count,
+        .pQueueCreateInfos = queue_infos.data(),
         .enabledExtensionCount = static_cast<u32>(extensions.size()),
         .ppEnabledExtensionNames = extensions.data(),
     };

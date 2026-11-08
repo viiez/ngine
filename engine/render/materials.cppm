@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <span>
@@ -69,17 +70,34 @@ public:
 
     [[nodiscard]] u32 add(const Material& material);
     void set(u32 index, const Material& material);
+    // Gibt ein Material frei; add() vergibt den Index später neu. Das Standardmaterial bleibt.
+    void remove(u32 index);
     [[nodiscard]] const Material& get(u32 index) const {
         return materials_[index];
     }
     [[nodiscard]] usize size() const noexcept {
         return materials_.size();
     }
+    // Belegte Materialien (ohne freigegebene).
+    [[nodiscard]] usize count() const noexcept {
+        return materials_.size() - free_.size();
+    }
 
     // Lädt ein Bild als Textur mit allen Mip-Stufen hoch; srgb für Grundfarbe und Emission.
     // Liefert den bindlosen Index.
     [[nodiscard]] rhi::Result<u32> add_texture(const asset::Image& image, bool srgb,
                                                bool mipmaps = true);
+    // Wie add_texture(), aber mit fertig gerechneten Mip-Stufen (asset::mip_chain()) und im
+    // Hintergrund (Device::upload_async(), TD-17). Benutzt werden darf die Textur erst, wenn das
+    // Ticket erledigt ist.
+    [[nodiscard]] rhi::Result<u32> add_texture_async(rhi::Extent2D extent, bool srgb, u32 levels,
+                                                     std::span<const std::byte> chain,
+                                                     rhi::UploadTicket& ticket);
+    // Gibt eine Textur aus add_texture() frei (über die Löschliste des Device).
+    void remove_texture(u32 index);
+    [[nodiscard]] usize texture_count() const noexcept {
+        return textures_.size();
+    }
     // Sampler mit dieser Beschreibung, angelegt beim ersten Gebrauch. Liefert den bindlosen Index.
     [[nodiscard]] rhi::Result<u32> sampler(const rhi::SamplerDesc& desc);
 
@@ -92,6 +110,7 @@ public:
 private:
     rhi::Device* device_;
     std::vector<Material> materials_;
+    std::vector<u32> free_;
     std::unique_ptr<rhi::Buffer> buffer_;
     bool dirty_ = true;
     std::vector<std::unique_ptr<rhi::Texture>> textures_;

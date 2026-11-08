@@ -44,7 +44,7 @@ eine Komponente.
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
 | PLAT-04 | Dateisystem | Dateien lesen und atomar schreiben, Benutzerordner, UTF-8-Pfade (`ngine.filesystem`, auch ohne Fenster) | A4 | fertig |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
-| PLAT-06 | Hot Reload von Dateien | Änderungen an Shadern und Assets zur Laufzeit erkennen | R1 | geplant |
+| PLAT-06 | Hot Reload von Dateien | Änderungen an Shadern und Assets zur Laufzeit erkennen: `FileWatcher` über Polling, Shader über Slang zur Laufzeit (`ngine.shader_compiler`), Modelle und Texturen über den Ressourcen-Manager ([ADR 0034](adr/0034-hot-reload-polling-slang-runtime.md)) | R2.4 | fertig |
 
 ## Rendering
 
@@ -163,8 +163,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | ASSET-01 | glTF-Import | `.gltf` und `.glb` über fastgltf in CPU-Daten (`ngine.asset`): Meshes, Materialien, Bilder, Hierarchie; Modelle als Entities ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | R1.3 | fertig |
 | ASSET-02 | Texturen | Quellbilder über stb_image mit Mip-Stufen von der GPU (R1.3); KTX2 mit Basis Universal folgt mit der Asset-Pipeline | R1.3 / R2 | in Arbeit |
 | ASSET-03 | Asset-Pipeline | Quelldaten in Laufzeitformate umwandeln („Cooking“) | R2 | geplant |
-| ASSET-04 | Ressourcen-Manager | Laden, Referenzen, Entladen, asynchron | R2 | geplant |
-| ASSET-05 | Asset-IDs | Stabile IDs statt Pfade | R2 | geplant |
+| ASSET-04 | Ressourcen-Manager | Handles mit Referenzzählung, Laden im Hintergrund über das Job-System, Entladen ungenutzter Ressourcen, Neuladen samt Abhängigkeiten; Uploads über eine eigene Transfer-Queue ([ADR 0033](adr/0033-asset-ids-meta-resource-manager.md), [ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)) | R2.4 | fertig |
+| ASSET-05 | Asset-IDs | Stabile 64-Bit-Kennungen in `.meta`-Dateien neben den Quellen, `AssetRef` für Teile eines Assets; `MeshRenderer` verweist darüber, Szenen mit Modellen sind vollständig speicherbar ([ADR 0033](adr/0033-asset-ids-meta-resource-manager.md)) | R2.4 | fertig |
 
 ## Editor
 
@@ -178,7 +178,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | EDIT-06 | Spielen im Editor | Spiel im Editor starten, pausieren und stoppen; die Welt kommt bitgenau zurück ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)). C#-Skripte im Spielmodus folgen mit R4 | R2.3 / R4 | in Arbeit |
 | EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar; Befehle mit reflektierten Werten ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | R2.2 | fertig |
 | EDIT-08 | Voxel-Werkzeuge | Terrain im Editor formen und bemalen | R3 | geplant |
-| EDIT-09 | Asset-Browser | Assets finden, importieren, Vorschau | R2 | geplant |
+| EDIT-09 | Asset-Browser | Assets finden (Liste mit Filter) und Modelle ins Viewport ziehen (Undo-Schritt); Vorschaubilder und Import fremder Formate folgen mit der Asset-Pipeline | R2.4 / R2.5 | in Arbeit |
 | EDIT-10 | Log-Konsole | Log-Sink, der im Editor anzeigt (`log::RingSink`, `editor_ui::LogConsole` mit Filter nach Stufe und Text) | R2.1 | fertig |
 
 ## Spiel-UI

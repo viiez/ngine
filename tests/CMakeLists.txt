@@ -28,6 +28,7 @@ add_executable(ngine_tests
     editor_ui/editor_ui_tests.cpp
     editor_ui/editor_ui_gpu_tests.cpp
     asset/gltf_tests.cpp
+    asset/resources_tests.cpp
     world/world_tests.cpp
     world/schedule_tests.cpp
     world/scene_tests.cpp
@@ -37,12 +38,20 @@ add_executable(ngine_tests
     voxel/voxel_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
-    replication/replication_tests.cpp)
+    replication/replication_tests.cpp
+    shader_compiler/shader_compiler_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
     ngine::core ngine::filesystem ngine::math ngine::memory ngine::jobs ngine::profile ngine::reflect
-    ngine::serialize ngine::world ngine::asset ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::render ngine::shaders ngine::editor_ui ngine::edit
+    ngine::serialize ngine::world ngine::asset ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::render ngine::shaders ngine::editor_ui ngine::edit ngine::shader_compiler
     Catch2::Catch2WithMain glm::glm-header-only)
 ngine_set_compiler_options(ngine_tests)
+# Quellen der Renderer-Shader für den Test des Hot Reload (R2.4).
+set_source_files_properties(shader_compiler/shader_compiler_tests.cpp PROPERTIES
+    COMPILE_DEFINITIONS "NGINE_SHADER_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\"")
+ngine_copy_slang_runtime(ngine_tests)
+# Beispiel-Assets für den Test des Ladens über Asset-IDs.
+set_source_files_properties(render/renderer_tests.cpp PROPERTIES
+    COMPILE_DEFINITIONS "NGINE_ASSET_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}/assets\"")
 set_source_files_properties(math/math_oracle_tests.cpp PROPERTIES
     COMPILE_DEFINITIONS "GLM_FORCE_DEPTH_ZERO_TO_ONE;GLM_FORCE_CTOR_INIT")
 
@@ -52,8 +61,8 @@ if(NGINE_WITH_DOTNET)
         PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/script/scripts/Tests.Scripts.csproj"
         SOURCES script/scripts/TestScripts.cs
         DEPENDS ngine_script_managed)
-    add_dependencies(ngine_tests ngine_test_scripts)
-    target_compile_definitions(ngine_tests PRIVATE NGINE_DOTNET_DIR="${NGINE_DOTNET_DIR}")
+    ngine_copy_dotnet_assemblies(ngine_tests DEPENDS ngine_test_scripts)
+    target_compile_definitions(ngine_tests PRIVATE NGINE_WITH_DOTNET=1)
 endif()
 
 include(Catch)

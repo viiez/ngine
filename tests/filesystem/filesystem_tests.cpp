@@ -117,3 +117,75 @@ TEST_CASE("User data directory exists and contains the application", "[filesyste
     CHECK(dir->find("NGineTests") != std::string::npos);
     static_cast<void>(filesystem::remove(*dir));
 }
+
+TEST_CASE("Paths normalize to absolute forward-slash form", "[filesystem]") {
+    const TempDir dir;
+    const auto base = filesystem::normalize(dir.path());
+    CHECK(base.find('\\') == std::string::npos);
+    CHECK(filesystem::normalize(dir.path() + "/a/../b/") == base + "/b");
+    CHECK(filesystem::relative(base + "/b/c.txt", base) == "b/c.txt");
+    CHECK(filesystem::file_name(base + "/b/c.TXT") == "c.TXT");
+    CHECK(filesystem::extension(base + "/b/c.TXT") == ".txt");
+    CHECK(filesystem::parent_path(base + "/b/c.txt") == base + "/b");
+}
+
+TEST_CASE("Directories list recursively, sorted and without hidden entries", "[filesystem]") {
+    const TempDir dir;
+    REQUIRE(filesystem::write_text(dir.file("b.txt"), "bb"));
+    REQUIRE(filesystem::write_text(dir.file("a/c.txt"), "c"));
+    REQUIRE(filesystem::write_text(dir.file(".git/config"), "x"));
+    REQUIRE(filesystem::write_text(dir.file(".versteckt"), "x"));
+
+    const auto entries = filesystem::list_directory(dir.path(), true);
+    REQUIRE(entries);
+    REQUIRE(entries->size() == 3);
+    CHECK((*entries)[0].path == "a");
+    CHECK((*entries)[0].directory);
+    CHECK((*entries)[1].path == "a/c.txt");
+    CHECK((*entries)[2].path == "b.txt");
+    CHECK((*entries)[2].size == 2);
+    CHECK_FALSE(filesystem::list_directory(dir.file("fehlt"), true));
+}
+
+TEST_CASE("Executable directory exists", "[filesystem]") {
+    const auto dir = filesystem::executable_dir();
+    REQUIRE(dir);
+    CHECK(filesystem::is_directory(*dir));
+}
+
+TEST_CASE("File watcher reports settled changes once", "[filesystem]") {
+    using filesystem::FileChange;
+    const TempDir dir;
+    REQUIRE(filesystem::write_text(dir.file("a.txt"), "a"));
+    filesystem::FileWatcher watcher{dir.path()};
+    CHECK(watcher.scan().empty()); // erster Durchlauf merkt sich nur den Stand
+
+    REQUIRE(filesystem::write_text(dir.file("sub/b.txt"), "b"));
+    REQUIRE(filesystem::write_text(dir.file("c.tmp"), "c"));
+    REQUIRE(filesystem::write_text(dir.file(".d"), "d"));
+    CHECK(watcher.scan().empty()); // noch nicht ruhig
+    auto events = watcher.scan();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].path == filesystem::normalize(dir.file("sub/b.txt")));
+    CHECK(events[0].change == FileChange::Added);
+    CHECK(watcher.scan().empty());
+
+    REQUIRE(filesystem::write_text(dir.file("a.txt"), "aaaa"));
+    CHECK(watcher.scan().empty());
+    events = watcher.scan();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].path == filesystem::normalize(dir.file("a.txt")));
+    CHECK(events[0].change == FileChange::Modified);
+
+    REQUIRE(filesystem::remove(dir.file("sub/b.txt")));
+    events = watcher.scan();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].change == FileChange::Removed);
+}
+
+TEST_CASE("File watcher on a missing directory stays quiet", "[filesystem]") {
+    const TempDir dir;
+    filesystem::FileWatcher watcher{dir.file("fehlt")};
+    CHECK(watcher.scan().empty());
+    CHECK(watcher.scan().empty());
+}
