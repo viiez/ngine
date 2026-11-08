@@ -1,6 +1,6 @@
 # 0037: Prefabs als Dateien, Instanzen voll ausgebaut mit Überschreibungen auf Feldebene
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-08
 
 ## Kontext

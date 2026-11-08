@@ -9,13 +9,14 @@ Konstruktion ist der erste Reifegrad [R1](iterations/R1-rendering-grundlagen.md)
 [R1.1](iterations/R1.1-mathematik-und-transforms.md) (Mathematik und Transforms),
 [R1.2](iterations/R1.2-render-graph-bindless-gpu-speicher.md) (Render-Graph, Bindless,
 GPU-Speicher), [R1.3](iterations/R1.3-meshes-materialien-kamera.md) (Meshes, Materialien, Kamera)
-und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Als
-Nächstes folgt [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) mit fünf Iterationen; davon
-sind [R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und Viewport),
+und [R1.4](iterations/R1.4-licht-und-schatten.md) (Licht und Schatten) abgeschlossen. Danach
+kam [R2](iterations/R2-welt-und-editor.md) (Welt und Editor); seine fünf Iterationen
+[R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und Viewport),
 [R2.2](iterations/R2.2-szenenbaum-inspector-undo.md) (Szenenbaum, Inspector, Undo),
-[R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor) und
-[R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload)
-abgeschlossen; in Arbeit ist [R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs).
+[R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor),
+[R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload) und
+[R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs) sind abgeschlossen. Das
+Review von R2 wartet noch auf das Szenario auf dem PC; danach folgt R3 (Voxel-Terrain).
 
 ## Phasen und Iterationen
 
