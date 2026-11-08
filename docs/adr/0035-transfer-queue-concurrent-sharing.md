@@ -1,6 +1,6 @@
 # 0035: Uploads im Hintergrund über eine Transfer-Queue mit gemeinsam genutzten Ressourcen
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-07
 
 ## Kontext

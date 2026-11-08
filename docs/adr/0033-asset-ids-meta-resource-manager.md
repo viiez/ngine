@@ -1,6 +1,6 @@
 # 0033: Asset-IDs in .meta-Dateien, Ressourcen-Manager mit Handles und Laden im Hintergrund
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-07
 
 ## Kontext
