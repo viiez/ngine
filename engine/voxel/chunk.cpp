@@ -86,7 +86,7 @@ std::vector<ChunkCoord> ChunkStore::coords() const {
     for (const auto& entry : chunks_) {
         result.push_back(entry.first);
     }
-    std::ranges::sort(result);
+    std::sort(result.begin(), result.end());
     return result;
 }
 
@@ -182,7 +182,7 @@ void ChunkStore::mark_changed(ChunkCoord coord) {
 std::vector<ChunkCoord> ChunkStore::take_changes() {
     std::vector<ChunkCoord> result{dirty_.begin(), dirty_.end()};
     dirty_.clear();
-    std::ranges::sort(result);
+    std::sort(result.begin(), result.end());
     return result;
 }
 

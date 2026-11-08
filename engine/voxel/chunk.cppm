@@ -1,6 +1,5 @@
 module;
 
-#include <compare>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -34,7 +33,20 @@ struct ChunkCoord {
     u8 level = 0;
 
     friend constexpr bool operator==(ChunkCoord, ChunkCoord) noexcept = default;
-    friend constexpr auto operator<=>(ChunkCoord, ChunkCoord) noexcept = default;
+    // Ordnung für sortierte Listen und std::map: Stufe, dann z, y, x. Bewusst ohne <=>, das MSVC
+    // beim Import des Moduls ohne <compare> im importierenden Modul nicht übersetzt.
+    friend constexpr bool operator<(ChunkCoord a, ChunkCoord b) noexcept {
+        if (a.level != b.level) {
+            return a.level < b.level;
+        }
+        if (a.z != b.z) {
+            return a.z < b.z;
+        }
+        if (a.y != b.y) {
+            return a.y < b.y;
+        }
+        return a.x < b.x;
+    }
 };
 
 struct ChunkCoordHash {
