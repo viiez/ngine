@@ -3,6 +3,7 @@ module;
 #include <cstddef>
 #include <map>
 #include <span>
+#include <string>
 #include <unordered_map>
 
 module ngine.render;

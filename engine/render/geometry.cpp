@@ -7,6 +7,7 @@ module;
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 module ngine.render;
@@ -112,7 +113,7 @@ rhi::Result<GeometryRange> GeometryBuffer::allocate(u64 size, u64 alignment) {
                                 .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Index,
                                 .memory = rhi::MemoryUsage::Gpu});
     if (!buffer) {
-        return std::unexpected("Geometriepuffer: " + buffer.error());
+        return std::unexpected(std::string{"Geometriepuffer: "} + buffer.error());
     }
     blocks_.push_back({*std::move(buffer), RangeAllocator{capacity}});
     const auto offset = blocks_.back().ranges.allocate(size, alignment);
