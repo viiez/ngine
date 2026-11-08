@@ -1,6 +1,6 @@
 # 0036: Gekochte Modelle mit KTX2 und Basis Universal in einem Cache neben den Quellen
 
-- **Status:** vorgeschlagen
+- **Status:** angenommen
 - **Datum:** 2026-11-08
 
 ## Kontext

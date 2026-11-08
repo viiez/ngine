@@ -1,8 +1,8 @@
 # R2: Welt und Editor
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (R2.1 bis R2.4 abgeschlossen, R2.5 in Arbeit)
-- **Pull Requests:** …
+- **Status:** im Review (R2.1 bis R2.5 abgeschlossen, Szenario auf dem PC steht aus)
+- **Pull Requests:** siehe Review
 
 R2 ist der zweite Reifegrad der Konstruktion. Wie R1 ist er zu groß für eine Iteration; wir teilen
 ihn in fünf Iterationen, jede mit eigenem Dokument, eigenem PR und eigener Abnahme auf dem PC.
@@ -132,4 +132,72 @@ rückgängig machen und wiederholen, speichern, spielen, stoppen, neu starten.
 
 ## Review
 
-*Folgt nach dem letzten Merge.*
+**Ergebnis:** Es gibt einen eigenen Editor. Man öffnet darin eine Szene, fliegt im Viewport durch
+und wählt Entities im Szenenbaum oder per Klick aus. Ihre Komponenten bearbeitet man im Inspector
+und mit Gizmos, jede Änderung lässt sich rückgängig machen. Die Szene wird als JSON oder binär
+gespeichert und kann im Editor gespielt und gestoppt werden. Modelle und Texturen kommen über
+stabile Asset-IDs aus einem Ressourcen-Manager, der im Hintergrund lädt und geänderte Dateien zur
+Laufzeit nachlädt. Die Asset-Pipeline kocht glTF in ein binäres Format mit KTX2-Texturen in einen
+Cache. Prefabs mit Überschreibungen lassen sich im Editor anlegen, aufbrechen und übernehmen.
+
+| Iteration | Pull Requests | Ergebnis |
+| --- | --- | --- |
+| [R2.1](R2.1-editor-geruest-und-viewport.md) Editor-Gerüst und Viewport | #24, #25, #26 | Editor mit Dear ImGui über die RHI, Docking, Viewport als Textur, Log-Konsole und Log-Datei |
+| [R2.2](R2.2-szenenbaum-inspector-undo.md) Szenenbaum, Inspector, Undo | #27, #28 | Szenenbaum, Auswahl über den ID-Puffer, Inspector aus der Reflection, Undo mit reflektierten Werten, Ereignisse |
+| [R2.3](R2.3-gizmos-und-spielen.md) Gizmos und Spielen im Editor | #29, #30 | Gizmos aus `ngine.math`, Text in der Welt, Spielen mit binärer Sicherung, Propagation nur geänderter Teilbäume |
+| [R2.4](R2.4-asset-ids-ressourcen-hot-reload.md) Asset-IDs, Ressourcen, Hot Reload | #31, #32 | `.meta`-Dateien mit IDs, Ressourcen-Manager mit Laden im Hintergrund, Transfer-Queue, Hot Reload, Asset-Browser |
+| [R2.5](R2.5-kochen-ktx2-prefabs.md) Kochen, KTX2, Prefabs | #33, Review-PR | Gekochte Modelle mit KTX2 und BC7 im Cache, MikkTSpace, Prefabs mit Überschreibungen, binäre Szenen |
+
+Abnahme: Alle fünf Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Das Szenario für den ganzen
+Reifegrad steht noch aus: Editor starten, Modell aus dem Asset-Browser platzieren, mit Gizmos
+ausrichten, Licht im Inspector einstellen, alles einmal rückgängig machen und wiederholen,
+speichern, spielen, stoppen, neu starten.
+
+Abweichungen vom Plan:
+
+- Raytracing (REND-14) verließ R2 wie abgestimmt und steht in der Roadmap nach R3.
+- C#-Skripte im Spielmodus fehlen wie geplant; sie kommen mit dem Scripting in R4.
+- Szenen sind weiter JSON nach [ADR 0020](../adr/0020-scene-format-json.md); das binäre Format
+  `.nscene` aus R2.5 ist eine Option zum Laden, keine Ablösung.
+- Der Cache gekochter Modelle legt die BC7-Fassung der Texturen gleich mit ab. Geplant war nur
+  KTX2; ohne die fertige Fassung brachte der Cache kaum Zeit, weil das Umwandeln beim Laden
+  überwog ([ADR 0036](../adr/0036-cooked-assets-ktx2-cache.md)).
+
+**Erkenntnisse:**
+
+- Die Trennung von Editor-Logik (`ngine.edit`) und dünnen Fenstern hat sich gelohnt: Befehle,
+  Undo, Inspector-Modell, Treffertests der Gizmos, Prefab-Befehle und Asset-Datenbank sind ohne
+  Fenster und GPU getestet. Fehler fanden sich fast nur noch im Zusammenspiel auf dem PC.
+- Undo über reflektierte Bytes und stabile Entity-IDs trug durch alle fünf Iterationen; Gizmos,
+  Prefabs und Einfügen aus dem Asset-Browser sind nur neue Befehle.
+- Windows mit MSVC und Modulen bleibt die häufigste Bruchstelle (schwere Header in
+  Schnittstellen in R2.1, `_DEBUG` aus KTX-Software in R2.5). Ein früher Windows-Build in jeder
+  Iteration hat sich bewährt.
+- Messen vor dem Abhaken: Erst die gemessene Ladezeit zeigte, dass der Cache ohne fertige
+  BC7-Texturen kaum etwas bringt.
+
+**Architektur-Review des Reifegrads:**
+
+- Schichten wie geplant: Nur `ngine.editor_ui` kennt Dear ImGui, nur die Adapter in `ngine.asset`
+  und `ngine.cook` kennen KTX-Software und MikkTSpace. Gekocht wird nur im Editor und im Werkzeug
+  `ngine_cook`, Sandbox und Server lesen den Cache. `--headless` und `NGINE_WITH_WINDOW=OFF`
+  bauen und starten weiter.
+- Neue ADRs: 0029 (Editor und ImGui über die RHI), 0030 (Undo über Befehle mit reflektierten
+  Werten), 0031 (Gizmos), 0032 (Spielen mit binärer Sicherung), 0033 (Asset-IDs und
+  Ressourcen-Manager), 0034 (Hot Reload), 0035 (Transfer-Queue), 0036 (gekochte Assets und KTX2),
+  0037 (Prefabs mit Überschreibungen pro Feld).
+- Größte Dateien: `renderer.cpp` (rund 850 Zeilen), `apps/editor/main.cpp` (rund 750),
+  `device.cpp` (rund 720), `apps/common/model_scene.cppm` (rund 715). `main.cpp` des Editors und
+  `model_scene.cppm` sind in R2 gewachsen und die nächsten Kandidaten zum Aufteilen.
+- Schulden: Alle mit Frist R2 sind abgebaut (TD-08, TD-09, TD-12, TD-15, TD-17, TD-18, TD-21,
+  TD-22, dazu TD-28 und TD-30). Neu und offen aus R2 sind TD-26, TD-27, TD-29 und TD-31 bis
+  TD-35, mit Frist R3, R6 oder bei Bedarf.
+- 278 Tests, davon die GPU-Tests über lavapipe; Debug- und Release-Build ohne Warnung.
+
+**Leistung:** Ladezeit der Standardszene in der Sandbox (Linux, lavapipe), gemessen in R2.5:
+
+| Build | Aus dem Cache | Aus den Quellen |
+| --- | --- | --- |
+| Release | 14 ms | 93 bis 109 ms |
+| Debug | 15 ms | 495 bis 543 ms |
