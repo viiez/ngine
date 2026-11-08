@@ -5,6 +5,7 @@ module;
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Standardansicht der Sandbox offscreen als Bild (--image). Die Szene selbst liegt seit R2.1 in
@@ -18,6 +19,8 @@ import ngine.render;
 import ngine.rhi;
 import ngine.rhi.vulkan;
 import app.model_scene;
+import app.paths;
+import ngine.asset;
 
 namespace sandbox {
 
@@ -45,10 +48,51 @@ rhi::Result<void> write_ppm(const std::string& path, std::span<const u8> rgba,
 
 } // namespace
 
+// Asset-Ordner und Cache gekochter Modelle der Sandbox (R2.5). Die Sandbox kocht nicht selbst
+// (Kochen gehört in Editor und ngine_cook); fehlt der Cache, lädt sie aus den Quellen.
+export class SandboxAssets {
+public:
+    explicit SandboxAssets(bool no_cache) {
+        const auto root = app::find_upwards("assets");
+        if (!root) {
+            log::info("Kein Asset-Ordner gefunden; Standardszene ohne Assets");
+            return;
+        }
+        auto opened = asset::AssetDatabase::open(*root);
+        if (!opened) {
+            log::warn("Asset-Ordner {} lässt sich nicht öffnen: {}", *root, opened.error());
+            return;
+        }
+        database_.emplace(std::move(*opened));
+        if (!no_cache) {
+            cache_.emplace(asset::default_cache_dir(database_->root()));
+        }
+        log::info("Asset-Ordner: {} ({} Assets, Cache {})", database_->root(),
+                  database_->assets().size(), no_cache ? "aus" : cache_->directory());
+    }
+
+    [[nodiscard]] app::SceneAssets scene_assets() const {
+        return {.database = database_ ? &*database_ : nullptr,
+                .loading = {.cache = cache_ ? &*cache_ : nullptr, .cook = {}}};
+    }
+
+private:
+    std::optional<asset::AssetDatabase> database_;
+    std::optional<asset::AssetCache> cache_;
+};
+
+// Meldet, wie lange die Modelle der Szene zum Laden brauchten (Messung für die Abnahme von R2.5).
+export void report_load(const app::LoadReport& report) {
+    log::info("Modelle der Szene geladen in {:.1f} ms ({} Modelle, {} aus dem Cache, {} gekocht, "
+              "{} aus Quellen, {} fehlgeschlagen)",
+              report.milliseconds, report.models, report.counts.cached, report.counts.cooked,
+              report.counts.source, report.failed);
+}
+
 // Offscreen auf der GPU zeichnen und als PPM speichern (für die CI): Kugelraster oder Modell.
 export int run_model_offscreen(const std::optional<std::string>& model_path,
                                const std::string& image_path, bool baseline, DVec3 origin,
-                               bool debug_draw) {
+                               bool debug_draw, bool no_cache) {
     auto device = rhi::vulkan::create_device({
         .application_name = "NGine Sandbox",
 #ifdef NDEBUG
@@ -71,12 +115,15 @@ export int run_model_offscreen(const std::optional<std::string>& model_path,
             log::fatal("{}", target.error());
             return 1;
         }
-        auto scene = ModelScene::create(**device, format, model_path, origin);
+        SandboxAssets assets{no_cache};
+        auto scene = ModelScene::create(**device, format, model_path, origin, app::SceneMode::Game,
+                                        assets.scene_assets());
         if (!scene) {
             log::fatal("{}", scene.error());
             return 1;
         }
         (*scene)->set_debug_draw(debug_draw);
+        report_load((*scene)->load_all(**device));
         render::TexturePool pool{**device};
         render::RenderGraph graph;
         const auto output = graph.import_texture("Bild", **target, rhi::ResourceState::Undefined,

@@ -3,6 +3,7 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <expected>
@@ -12,6 +13,7 @@ module;
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -28,6 +30,11 @@ module;
 // Standardszene sind ein erzeugtes Modell mit fester Kennung (default_scene_id), ein Modell aus
 // --model eines mit einer Kennung aus seinem Pfad. Die Szene besitzt den Ressourcen-Manager, aus
 // dem der Renderer Modelle lädt; der Editor gibt ihm seine Asset-Datenbank.
+//
+// Seit R2.5 kommen Boden und Säulen aus dem Asset-Ordner (modelle/boden.gltf, modelle/saeule.gltf
+// mit Texturen und Normalenkarten), dazu vier Laternen als Instanzen von prefabs/laterne.prefab.
+// Modelle kommen gekocht aus dem Cache, wenn er aktuell ist (ASSET-03); ohne Asset-Ordner bleibt
+// alles erzeugt wie bisher.
 export module app.model_scene;
 
 import ngine.core;
@@ -40,6 +47,7 @@ import ngine.reflect;
 import ngine.render;
 import ngine.rhi;
 import ngine.world;
+import app.prefabs;
 
 namespace app {
 
@@ -174,6 +182,23 @@ constexpr u32 first_sphere_material = first_glow_material + light_count;
 
 } // namespace
 
+// Assets der Szene (R2.5): Asset-Ordner und woher Modelle kommen. Ohne Datenbank ist alles erzeugt.
+export struct SceneAssets {
+    // Muss die Szene überleben.
+    const asset::AssetDatabase* database = nullptr;
+    // Cache gekochter Modelle und ggf. Kochen (Editor); muss die Szene überleben.
+    render::ModelLoading loading;
+};
+
+// Wie lange das Laden der Modelle einer Szene dauerte (ModelScene::load_all()).
+export struct LoadReport {
+    f64 milliseconds = 0.0;
+    u32 models = 0;
+    u32 failed = 0;
+    // Aus welcher Quelle der Lader las (Zuwachs während des Wartens).
+    render::ModelLoadCounts counts;
+};
+
 // Kennung des erzeugten Modells der Standardszene.
 export constexpr asset::AssetId default_scene_id = asset::generated_id("app.model_scene.default");
 // Kennung des Bodens unter einem Modell aus --model.
@@ -185,13 +210,13 @@ public:
     [[nodiscard]] static rhi::Result<std::unique_ptr<ModelScene>>
     create(rhi::Device& device, rhi::Format target_format,
            const std::optional<std::string>& model_path, DVec3 origin,
-           SceneMode mode = SceneMode::Game) {
+           SceneMode mode = SceneMode::Game, SceneAssets assets = {}) {
         auto renderer = render::Renderer::create(device, target_format);
         if (!renderer) {
             return std::unexpected(renderer.error());
         }
-        auto scene =
-            std::unique_ptr<ModelScene>{new ModelScene{*std::move(renderer), origin, mode}};
+        auto scene = std::unique_ptr<ModelScene>{
+            new ModelScene{*std::move(renderer), origin, mode, std::move(assets)}};
         scene->add_sun();
         if (model_path) {
             if (auto result = scene->load_model(*model_path); !result) {
@@ -249,14 +274,77 @@ public:
         schedule_.run(jobs_);
     }
 
+    // Geänderte Vorlagen auf ihre Instanzen übertragen (Hot Reload); Zahl der nachgezogenen.
+    usize update_prefabs() {
+        return prefabs_.update(world_);
+    }
+
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
         NGINE_PROFILE_ZONE("ModelScene::add_passes");
         resources_->update();
+        // Im Editor zieht die Hauptschleife die Instanzen selbst nach (update_prefabs()), damit
+        // sie das Dokument benachrichtigen kann.
+        if (mode_ == SceneMode::Game) {
+            (void)update_prefabs();
+        }
         (void)world::update_transforms(world_);
         if (debug_draw_) {
             draw_debug();
         }
         renderer_->add_passes(graph, world_, target);
+    }
+
+    // Fordert die Modelle aller MeshRenderer an und wartet, bis sie fertig hochgeladen (oder
+    // gescheitert) sind, höchstens timeout_seconds. Für Bilder in der CI und die Messung der
+    // Ladezeit (Cache gegen Quellen).
+    LoadReport load_all(rhi::Device& device, f64 timeout_seconds = 60.0) {
+        const auto start = std::chrono::steady_clock::now();
+        const render::ModelLoadCounts before = render::model_load_counts();
+        LoadReport report;
+        while (true) {
+            std::vector<asset::AssetId> ids;
+            world_.each<const render::MeshRenderer>([&](const render::MeshRenderer& component) {
+                for (const asset::AssetRef& ref : {component.mesh, component.material}) {
+                    if (ref.valid() && std::ranges::find(ids, ref.asset) == ids.end()) {
+                        ids.push_back(ref.asset);
+                    }
+                }
+            });
+            u32 waiting = 0;
+            u32 failed = 0;
+            for (const asset::AssetId id : ids) {
+                if (renderer_->find_model(id) != nullptr) {
+                    continue;
+                }
+                const auto handle = resources_->find<render::GpuModel>(id);
+                if (handle && handle.state() == asset::ResourceState::Failed) {
+                    ++failed;
+                } else {
+                    ++waiting;
+                }
+            }
+            report.models = static_cast<u32>(ids.size());
+            report.failed = failed;
+            const f64 elapsed =
+                std::chrono::duration<f64>(std::chrono::steady_clock::now() - start).count();
+            if (waiting == 0 || elapsed > timeout_seconds) {
+                report.milliseconds = elapsed * 1000.0;
+                break;
+            }
+            resources_->wait();
+            // Uploads auf der Transfer-Queue werden erst mit einer Abgabe als fertig erkannt.
+            device.execute([](rhi::CommandList&) {});
+        }
+        const render::ModelLoadCounts after = render::model_load_counts();
+        report.counts = {.cached = after.cached - before.cached,
+                         .cooked = after.cooked - before.cooked,
+                         .source = after.source - before.source};
+        return report;
+    }
+
+    // Prefabs der Szene (Vorlagen aus dem Asset-Ordner, Hot Reload über prefabs().update()).
+    [[nodiscard]] PrefabLibrary& prefabs() noexcept {
+        return prefabs_;
     }
 
     // Welt und Renderer, z. B. für Fenster des Editors.
@@ -289,13 +377,15 @@ private:
         return types;
     }
 
-    ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin, SceneMode mode)
+    ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin, SceneMode mode,
+               SceneAssets assets)
         : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)},
           jobs_{{.worker_count = 2}},
-          resources_{std::make_unique<asset::ResourceManager>(nullptr, &jobs_)}, schedule_{world_},
-          origin_{origin}, mode_{mode} {
+          resources_{std::make_unique<asset::ResourceManager>(assets.database, &jobs_)},
+          prefabs_{*resources_}, schedule_{world_}, origin_{origin}, mode_{mode},
+          database_{assets.database} {
         renderer_->set_resources(resources_.get());
-        render::register_loaders(*resources_, *renderer_);
+        render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
         schedule_.add<Orbit, world::Transform>("Kreisbahnen",
                                                [this](Orbit& orbit, world::Transform& transform) {
                                                    orbit.time += step_;
@@ -423,18 +513,29 @@ private:
         if (auto result = add_default_model(); !result) {
             return result;
         }
-        world_.create("Boden")
-            .set(world::Transform{.position = origin_ + DVec3{0.0, -0.1, 0.0}})
-            .set(render::MeshRenderer{.mesh = default_ref(ground_mesh)});
+        // Boden und Säulen aus dem Asset-Ordner (R2.5), sonst erzeugt wie bis R2.4.
+        if (const asset::AssetId ground = asset_id("modelle/boden.gltf"); ground != 0) {
+            world_.create("Boden")
+                .set(world::Transform{.position = origin_})
+                .set(render::MeshRenderer{.mesh = {.asset = ground, .index = 0}});
+        } else {
+            world_.create("Boden")
+                .set(world::Transform{.position = origin_ + DVec3{0.0, -0.1, 0.0}})
+                .set(render::MeshRenderer{.mesh = default_ref(ground_mesh)});
+        }
         build_spheres();
 
+        const asset::AssetId pillar = asset_id("modelle/saeule.gltf");
         for (u32 i = 0; i < 16; ++i) {
             const f64 side = (i % 2 == 0) ? -12.0 : 12.0;
             const f64 z = -4.0 - static_cast<f64>(i / 2) * 7.0;
             world_.create(std::format("Säule {}", i))
                 .set(world::Transform{.position = origin_ + DVec3{side, 3.0, z}})
-                .set(render::MeshRenderer{.mesh = default_ref(pillar_mesh)});
+                .set(render::MeshRenderer{.mesh = pillar != 0
+                                                      ? asset::AssetRef{.asset = pillar, .index = 0}
+                                                      : default_ref(pillar_mesh)});
         }
+        add_lanterns();
 
         for (u32 i = 0; i < light_count; ++i) {
             const Vec3 color = hue(static_cast<f32>(i) / static_cast<f32>(light_count));
@@ -471,6 +572,45 @@ private:
         speed_ = 6.0f;
         update(0.0f, {});
         return {};
+    }
+
+    // Kennung eines Assets im Asset-Ordner, 0 ohne Datenbank oder wenn es fehlt.
+    [[nodiscard]] asset::AssetId asset_id(std::string_view path) const {
+        const asset::AssetInfo* info = database_ != nullptr ? database_->find_path(path) : nullptr;
+        return info != nullptr ? info->id : 0;
+    }
+
+    // Vier Laternen als Instanzen von prefabs/laterne.prefab (WORLD-04) an den Ecken des Rasters;
+    // die letzte leuchtet zur Probe der Überschreibungen kalt.
+    void add_lanterns() {
+        const asset::AssetId id = asset_id("prefabs/laterne.prefab");
+        const world::Prefab* prefab = id != 0 ? prefabs_.get(id) : nullptr;
+        if (prefab == nullptr) {
+            return;
+        }
+        constexpr DVec3 places[] = {
+            {-10.0, 0.0, 6.0}, {10.0, 0.0, 6.0}, {-10.0, 0.0, -6.0}, {10.0, 0.0, -6.0}};
+        for (u32 i = 0; i < 4; ++i) {
+            auto lantern = world::instantiate(world_, *prefab, id);
+            if (!lantern) {
+                log::warn("Laterne: {}", lantern.error());
+                return;
+            }
+            world::Transform transform = *lantern->get<world::Transform>();
+            transform.position = origin_ + places[i];
+            lantern->set(transform);
+            lantern->set(world::Name{std::format("Laterne {}", i + 1)});
+            if (i == 3) {
+                for (const auto& [node, entity] : world::instance_nodes(world_, lantern->id())) {
+                    world::Entity member = world_.entity(entity);
+                    if (const auto* light = member.get<render::PointLight>()) {
+                        render::PointLight cold = *light;
+                        cold.color = {0.45f, 0.65f, 1.0f};
+                        member.set(cold);
+                    }
+                }
+            }
+        }
     }
 
     // Hüllquader aller Meshes, Lichter als Kugeln, Spotlichter mit Linie, Achsenkreuz im Ursprung.
@@ -556,11 +696,13 @@ private:
     // Nach Renderer und Jobs angelegt, deshalb vor ihnen zerstört: Ressourcen geben ihren
     // Speicher im Renderer frei, laufende Jobs müssen fertig sein.
     std::unique_ptr<asset::ResourceManager> resources_;
+    PrefabLibrary prefabs_;
     world::Schedule schedule_;
     // Zeitschritt für die Systeme in simulate().
     f32 step_ = 0.0f;
     DVec3 origin_;
     SceneMode mode_;
+    const asset::AssetDatabase* database_ = nullptr;
     world::Entity camera_;
     render::Camera camera_settings_;
     DVec3 position_{0.0, 0.0, 0.0};

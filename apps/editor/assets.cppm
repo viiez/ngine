@@ -12,12 +12,14 @@ module;
 #include <vector>
 
 // Assets im Editor (R2.4): Asset-Browser (EDIT-09) mit Ziehen in den Viewport, Einfügen eines
-// Modells als ein Undo-Schritt und Hot Reload (PLAT-06). Die Datenbank, der Ressourcen-Manager und
+// Modells als ein Undo-Schritt und Hot Reload (PLAT-06). Seit R2.5 auch Prefabs ziehen und alle
+// Modelle kochen (ASSET-02). Die Datenbank, der Ressourcen-Manager und
 // der Dateibeobachter liegen in der Engine; hier steht nur, was der Editor daraus macht.
 export module editor.assets;
 
 import ngine.core;
 import ngine.asset;
+import ngine.cook;
 import ngine.edit;
 import ngine.editor_ui;
 import ngine.filesystem;
@@ -35,31 +37,6 @@ namespace ui = editor_ui;
 
 // Art der Nutzlast beim Ziehen eines Assets (Kennung als u64).
 export constexpr std::string_view asset_payload = "ngine.asset";
-
-// Sucht relative (z. B. „assets“) ab dem Arbeitsordner und ab dem Ordner der Anwendung aufwärts,
-// bis zur Wurzel. marker ist eine Datei, die im gefundenen Ordner liegen muss (leer: keine).
-export std::optional<std::string> find_upwards(std::string_view relative,
-                                               std::string_view marker = {}) {
-    std::vector<std::string> starts{filesystem::normalize(".")};
-    if (auto exe = filesystem::executable_dir()) {
-        starts.push_back(filesystem::normalize(*exe));
-    }
-    for (std::string directory : starts) {
-        while (true) {
-            const std::string candidate = filesystem::join(directory, relative);
-            if (filesystem::is_directory(candidate) &&
-                (marker.empty() || filesystem::exists(filesystem::join(candidate, marker)))) {
-                return filesystem::normalize(candidate);
-            }
-            const std::string parent = filesystem::parent_path(directory);
-            if (parent.empty() || parent == directory) {
-                break;
-            }
-            directory = parent;
-        }
-    }
-    return std::nullopt;
-}
 
 // Hält einen Wert eines reflektierten Typs als Komponente eines Snapshots fest.
 template <typename T>
@@ -186,7 +163,9 @@ std::string lower(std::string_view text) {
 // lassen sich in den Viewport ziehen.
 export class AssetPanel {
 public:
-    void draw(asset::AssetDatabase* database, asset::ResourceManager& resources) {
+    // cache: Cache gekochter Modelle für „Alles kochen“ (nullptr: ohne).
+    void draw(asset::AssetDatabase* database, asset::ResourceManager& resources,
+              const asset::AssetCache* cache = nullptr) {
         if (database == nullptr) {
             ui::text_disabled("Kein Asset-Ordner (Option --assets <ordner>)");
             return;
@@ -194,6 +173,16 @@ public:
         if (ui::button("Neu einlesen")) {
             if (auto changes = database->refresh(); !changes) {
                 log::error("Assets: {}", changes.error());
+            }
+        }
+        if (cache != nullptr) {
+            ui::same_line();
+            if (ui::button("Alles kochen")) {
+                cook_everything(*database, *cache, false);
+            }
+            if (ui::is_item_hovered()) {
+                ui::set_tooltip("Modelle, deren Cache veraltet ist, neu kochen (glTF und Texturen "
+                                "zu gekochtem Format mit KTX2)");
             }
         }
         ui::same_line();
@@ -218,18 +207,31 @@ public:
                     selected_ = info.id;
                 }
                 if (ui::is_item_hovered()) {
-                    ui::set_tooltip(std::format("Kennung {}{}", info.id,
-                                                info.type == asset::AssetType::Model
-                                                    ? "\nIn den Viewport ziehen zum Einfügen"
-                                                    : ""));
+                    const bool placeable = info.type == asset::AssetType::Model ||
+                                           info.type == asset::AssetType::Prefab;
+                    ui::set_tooltip(
+                        std::format("Kennung {}{}", info.id,
+                                    placeable ? "\nIn den Viewport ziehen zum Einfügen" : ""));
                 }
-                if (info.type == asset::AssetType::Model) {
+                if (info.type == asset::AssetType::Model || info.type == asset::AssetType::Prefab) {
                     ui::drag_source(asset_payload, info.id, info.path);
                 }
                 ui::pop_id();
             }
         }
         ui::end_child();
+    }
+
+    // Kocht die Modelle des Asset-Ordners (synchron; der Editor steht so lange). force: auch
+    // aktuelle.
+    static void cook_everything(const asset::AssetDatabase& database,
+                                const asset::AssetCache& cache, bool force) {
+        const cook::CookReport report = cook::cook_all(database, cache, {}, force);
+        for (const std::string& error : report.errors) {
+            log::error("Kochen: {}", error);
+        }
+        log::info("Kochen: {} gekocht, {} aktuell, {} fehlgeschlagen in {:.1f} s", report.cooked,
+                  report.current, report.failed, report.seconds);
     }
 
 private:

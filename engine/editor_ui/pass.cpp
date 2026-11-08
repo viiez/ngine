@@ -37,10 +37,6 @@ struct UiPush {
 };
 static_assert(sizeof(UiPush) <= rhi::max_push_constant_size);
 
-bool is_srgb(rhi::Format format) {
-    return format == rhi::Format::RGBA8Srgb || format == rhi::Format::BGRA8Srgb;
-}
-
 // Puffer eines Frames im Flug; wächst bei Bedarf auf das Doppelte.
 struct FrameBuffers {
     std::unique_ptr<rhi::Buffer> vertices;
@@ -210,7 +206,7 @@ void UiRenderer::add_pass(render::RenderGraph& graph, const UiDrawData& draw_dat
         .scale = {2.0f / width, -2.0f / height},
         .translate = {-1.0f, 1.0f},
         .sampler = r.sampler->index(),
-        .encode_srgb = is_srgb(r.target_format) ? 0u : 1u,
+        .encode_srgb = rhi::is_srgb(r.target_format) ? 0u : 1u,
     };
 
     graph.add_pass(

@@ -213,24 +213,51 @@ private:
     rhi::UploadTicket ticket_;
 };
 
-// Mip-Ketten der Texturen eines Modells (asset::mip_chain()), je Bild und Farbraum.
-struct MipChains {
-    std::map<std::pair<u32, bool>, std::vector<std::byte>> chains;
+// Fertige Texturen eines Modells je Bild und Farbraum: Mip-Ketten in RGBA8 (prepare_textures())
+// oder aus KTX2 umgewandelt (gekochte Modelle, R2.5), auch in BC7.
+struct ModelTextures {
+    std::map<std::pair<u32, bool>, asset::TextureData> textures;
 };
 
-// Rechnet die Mip-Ketten aller Texturen, die Materialien des Modells benutzen. Braucht keine GPU
-// und läuft deshalb im Hintergrund beim Laden (TD-17).
-[[nodiscard]] MipChains prepare_mips(const asset::Model& model);
+// Rechnet die Mip-Ketten aller Texturen, die Materialien des Modells benutzen, in RGBA8. Braucht
+// keine GPU und läuft deshalb im Hintergrund beim Laden (TD-17).
+[[nodiscard]] ModelTextures prepare_textures(const asset::Model& model);
+
+// Texturen eines gekochten Modells in target (im Hintergrund): BC7 aus der fertigen Fassung, sonst
+// aus der KTX2-Datei umgewandelt. Nimmt die Daten aus cooked.
+[[nodiscard]] asset::Result<ModelTextures> decode_textures(asset::CookedModel& cooked,
+                                                           asset::TextureFormat target);
 
 // Lädt Bilder, Materialien und Meshes eines Modells hoch. Bilder, die nur als Grundfarbe oder
-// Emission dienen, werden sRGB, alle anderen linear. Mit mips laufen die Uploads im Hintergrund
-// (GpuModel::ticket()); fehlt eine Kette darin, rechnet die GPU die Stufen wie ohne mips.
+// Emission dienen, werden sRGB, alle anderen linear. Mit textures laufen die Uploads im
+// Hintergrund (GpuModel::ticket()); fehlt eine Textur darin, rechnet die GPU die Stufen aus den
+// Pixeln des Modells wie ohne textures.
 [[nodiscard]] rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model,
-                                                 const MipChains* mips = nullptr);
+                                                 const ModelTextures* textures = nullptr);
 
-// Meldet beim Ressourcen-Manager, wie GpuModel aus glTF-Dateien entstehen: lesen und dekodieren
-// im Hintergrund, hochladen in update(). renderer muss den Manager überleben.
-void register_loaders(asset::ResourceManager& resources, Renderer& renderer);
+// Woher der Lader für glTF-Modelle liest (R2.5, ADR 0036).
+struct ModelLoading {
+    // Gekochte Modelle aus diesem Cache, wenn sie aktuell sind. nullptr: immer aus den Quellen.
+    const asset::AssetCache* cache = nullptr;
+    // Kocht veraltete Modelle und legt sie in den Cache (Editor). Ohne kommt ein veraltetes Modell
+    // aus der Quelle, mit einfachen Tangenten und Mip-Stufen auf der CPU (Spiel, Server).
+    asset::ModelCooker cook;
+};
+
+// Meldet beim Ressourcen-Manager, wie GpuModel aus glTF-Dateien entstehen: lesen (aus dem Cache,
+// gekocht oder aus der Quelle) im Hintergrund, hochladen in update(). Ein neu geladenes Modell
+// ersetzt das alte erst, wenn seine Uploads fertig sind (TD-30). renderer und loading.cache müssen
+// den Manager überleben.
+void register_loaders(asset::ResourceManager& resources, Renderer& renderer,
+                      ModelLoading loading = {});
+
+// Wie oft der Lader aus welcher Quelle gelesen hat, seit dem Start (Messung, Tests).
+struct ModelLoadCounts {
+    u32 cached = 0;
+    u32 cooked = 0;
+    u32 source = 0;
+};
+[[nodiscard]] ModelLoadCounts model_load_counts() noexcept;
 
 // Legt für die Knoten der Szene Entities an (Name, Transform, MeshRenderer mit Verweisen auf das
 // Modell model_id, Hierarchie) unter einer neuen Wurzel-Entity und liefert sie.

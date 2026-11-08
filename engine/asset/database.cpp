@@ -44,8 +44,11 @@ AssetType type_of(std::string_view path) {
     if (extension == ".slang") {
         return AssetType::Shader;
     }
-    if (extension == ".json") {
+    if (extension == ".json" || extension == ".nscene") {
         return AssetType::Scene;
+    }
+    if (extension == ".prefab") {
+        return AssetType::Prefab;
     }
     return AssetType::Unknown;
 }
@@ -56,6 +59,7 @@ std::string_view to_string(AssetType type) {
     case AssetType::Texture: return "Textur";
     case AssetType::Shader: return "Shader";
     case AssetType::Scene: return "Szene";
+    case AssetType::Prefab: return "Prefab";
     case AssetType::Unknown: break;
     }
     return "Unbekannt";

@@ -8,6 +8,8 @@
     "fastgltf",
     "flecs",
     "glm",
+    "ktx",
+    "mikktspace",
     {
       "name": "imgui",
       "features": ["docking-experimental"]

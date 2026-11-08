@@ -1,5 +1,7 @@
 # Build-Ausgaben
 /build/
+# Gekochte Assets (R2.5, Cache der Asset-Pipeline)
+/assets/.cache/
 /out/
 /vcpkg_installed/
 

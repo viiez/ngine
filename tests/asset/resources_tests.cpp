@@ -317,3 +317,53 @@ TEST_CASE("Mip chains halve each level and average in linear space", "[asset]") 
     odd.pixels.resize(12, std::byte{60});
     CHECK(asset::mip_chain(odd, false).size() == (3 + 1) * 4);
 }
+
+TEST_CASE("Reloaded resources wait until their loader reports ready", "[asset]") {
+    // TD-30: Ein neu geladener Wert ersetzt den alten erst, wenn er fertig ist (z. B. die GPU
+    // ihre Texturen hochgeladen hat); bis dahin zeigen Handles auf den alten Stand.
+    const TempDir dir;
+    REQUIRE(filesystem::write_text(dir.file("a.slang"), "eins"));
+    auto database = asset::AssetDatabase::open(dir.path());
+    REQUIRE(database);
+    const auto a = database->find_path("a.slang")->id;
+
+    asset::ResourceManager resources{&*database};
+    bool ready = false;
+    resources.add_loader<Text, std::string>(
+        [](const asset::LoadContext& context) -> asset::Result<std::string> {
+            CHECK(context.id != 0);
+            auto text = filesystem::read_text(context.path);
+            if (!text) {
+                return std::unexpected(text.error());
+            }
+            return *text;
+        },
+        [](std::string& text) -> asset::Result<Text> { return Text{text}; },
+        [&ready](const Text&) { return ready; });
+
+    auto handle = resources.load<Text>(a);
+    resources.update();
+    // Erstes Laden: noch nicht bereit, also noch nichts zu sehen.
+    CHECK(handle.get() == nullptr);
+    CHECK(handle.state() == asset::ResourceState::Loading);
+    CHECK(resources.stats().pending == 1);
+    ready = true;
+    resources.update();
+    REQUIRE(handle.get() != nullptr);
+    CHECK(handle.get()->value == "eins");
+    CHECK(handle.version() == 1);
+    CHECK(resources.stats().pending == 0);
+
+    ready = false;
+    REQUIRE(filesystem::write_text(dir.file("a.slang"), "zwei"));
+    resources.reload(a);
+    resources.update();
+    resources.update();
+    // Der alte Stand bleibt sichtbar, bis der neue bereit ist.
+    CHECK(handle.get()->value == "eins");
+    CHECK(handle.version() == 1);
+    ready = true;
+    resources.update();
+    CHECK(handle.get()->value == "zwei");
+    CHECK(handle.version() == 2);
+}

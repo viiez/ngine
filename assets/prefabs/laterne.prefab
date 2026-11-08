@@ -1,0 +1,116 @@
+{
+  "format": "ngine.prefab",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "value": "Laterne"
+        },
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "components": {
+        "Name": {
+          "value": "Pfahl"
+        },
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 1.5,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 0.12,
+            "y": 0.5,
+            "z": 0.12
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 3081548628507823668,
+            "index": 2
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "parent": 1,
+      "components": {
+        "Name": {
+          "value": "Leuchte"
+        },
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 3.15,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1.6,
+            "y": 1.6,
+            "z": 1.6
+          }
+        },
+        "PointLight": {
+          "color": {
+            "x": 1.0,
+            "y": 0.72,
+            "z": 0.38
+          },
+          "intensity": 6,
+          "range": 7,
+          "active": true
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 3081548628507823668,
+            "index": 3
+          },
+          "material": {
+            "asset": 3081548628507823668,
+            "index": 2
+          }
+        }
+      }
+    }
+  ]
+}

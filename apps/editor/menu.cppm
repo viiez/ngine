@@ -7,9 +7,10 @@ module;
 #include <utility>
 
 // Menüleiste, Dialoge und Kurzbefehle des Editors (seit R2.3 aus main.cpp ausgelagert): Datei
-// (Neu, Öffnen, Speichern, Speichern unter, Beenden) mit Dialog für den Pfad und Rückfrage bei
-// ungespeicherten Änderungen, Bearbeiten mit Undo und Redo, Werkzeug (Gizmos), Spiel (Spielen,
-// Pause, Stopp) und Ansicht (Fenster, Layout). Die Hauptschleife ruft draw() einmal pro Frame.
+// (Neu, Öffnen, Speichern, Speichern unter – als .nscene binär –, Beenden) mit Dialog für den Pfad
+// und Rückfrage bei ungespeicherten Änderungen, Bearbeiten mit Undo und Redo, Werkzeug (Gizmos),
+// Spiel (Spielen, Pause, Stopp) und Ansicht (Fenster, Layout). Die Hauptschleife ruft draw() einmal
+// pro Frame.
 export module editor.menu;
 
 import ngine.core;
@@ -104,6 +105,8 @@ export struct MenuTargets {
     PlayControls& play;
     // Beendet die Hauptschleife.
     std::function<void()> quit;
+    // Weitere Menüs hinter „Spiel“ (z. B. Prefab und Assets, R2.5); leer: keine.
+    std::function<void()> extra_menus;
 };
 
 export class EditorMenu {
@@ -193,6 +196,9 @@ public:
             ui::menu_item("Pause", {}, &targets.play.paused, playing);
             ui::end_menu();
         }
+        if (targets.extra_menus) {
+            targets.extra_menus();
+        }
         if (ui::begin_menu("Ansicht")) {
             Panels& panels = targets.panels;
             ui::menu_item(viewport_window, {}, &panels.viewport);
@@ -226,7 +232,7 @@ public:
             if (!ui::begin_popup_modal(name)) {
                 continue;
             }
-            ui::text("Pfad der Szene (JSON):");
+            ui::text("Pfad der Szene (.json als Text, .nscene binär):");
             ui::set_next_item_width(420.0f);
             const bool entered = ui::input_text("##Pfad", path_input_, true);
             const bool confirmed = ui::button("OK") || entered;

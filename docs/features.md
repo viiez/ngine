@@ -74,8 +74,8 @@ eine Komponente.
 | WORLD-01 | ECS | flecs hinter `World`, `Entity` und `Query`; Systeme über `Schedule` auf dem Job-System ([ADR 0019](adr/0019-systems-on-job-system.md)) | A4 | fertig |
 | WORLD-02 | Entity-API | Bequeme Schicht im Stil von GameObjects (`entity.set(...)`, `get<T>()`, `name()`); die C#-Seite folgt mit D2 / R4 | A4 | in Arbeit |
 | WORLD-03 | Hierarchie | Eltern-Kind-Beziehungen (A4); `Transform` und `WorldTransform`, Propagation Eltern vor Kindern mit `update_transforms()` (R1.1), nur für geänderte Teilbäume (R2.3) | A4 / R1.1 / R2.3 | fertig |
-| WORLD-04 | Prefabs | Vorlagen für Entities, Instanzen mit Überschreibungen | R2 | geplant |
-| WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten; binär gekocht später mit der Asset-Pipeline | A4 | fertig |
+| WORLD-04 | Prefabs | Vorlagen als `.prefab`-Datei, Instanzen in der Welt voll ausgebaut, in Szenen als Kennung mit Überschreibungen auf Feldebene; geänderte Vorlagen ziehen alle Instanzen nach (Hot Reload), im Editor anlegen, übernehmen, aufbrechen und aus dem Asset-Browser ziehen ([ADR 0037](adr/0037-prefabs-field-overrides.md)) | R2.5 | fertig |
+| WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten (A4); binär als `.nscene` mit Typtabelle (R2.5) | A4 / R2.5 | fertig |
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern: Positionen in 64 Bit, gezeichnet relativ zur Kamera ([ADR 0012](adr/0012-64bit-world-coordinates.md)); `--far` zeigt es | R1.1 | fertig |
 | WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming | R3 | geplant |
 | WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen | R3 | geplant |
@@ -161,8 +161,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | ASSET-01 | glTF-Import | `.gltf` und `.glb` über fastgltf in CPU-Daten (`ngine.asset`): Meshes, Materialien, Bilder, Hierarchie; Modelle als Entities ([ADR 0027](adr/0027-gltf-assets-material-store.md)) | R1.3 | fertig |
-| ASSET-02 | Texturen | Quellbilder über stb_image mit Mip-Stufen von der GPU (R1.3); KTX2 mit Basis Universal folgt mit der Asset-Pipeline | R1.3 / R2 | in Arbeit |
-| ASSET-03 | Asset-Pipeline | Quelldaten in Laufzeitformate umwandeln („Cooking“) | R2 | geplant |
+| ASSET-02 | Texturen | Quellbilder über stb_image mit Mip-Stufen (R1.3, ab R2.4 auf der CPU); gekocht als KTX2 mit Basis Universal (UASTC), geladen als BC7 oder RGBA8 je nach GPU (R2.5, [ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | R1.3 / R2.5 | fertig |
+| ASSET-03 | Asset-Pipeline | glTF zu gekochten Modellen mit MikkTSpace-Tangenten und KTX2-Texturen in einem Cache, neu gekocht nur bei geänderten Quellen; im Editor beim Laden, mit „Alles kochen“ oder mit `ngine_cook` ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | R2.5 | fertig |
 | ASSET-04 | Ressourcen-Manager | Handles mit Referenzzählung, Laden im Hintergrund über das Job-System, Entladen ungenutzter Ressourcen, Neuladen samt Abhängigkeiten; Uploads über eine eigene Transfer-Queue ([ADR 0033](adr/0033-asset-ids-meta-resource-manager.md), [ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)) | R2.4 | fertig |
 | ASSET-05 | Asset-IDs | Stabile 64-Bit-Kennungen in `.meta`-Dateien neben den Quellen, `AssetRef` für Teile eines Assets; `MeshRenderer` verweist darüber, Szenen mit Modellen sind vollständig speicherbar ([ADR 0033](adr/0033-asset-ids-meta-resource-manager.md)) | R2.4 | fertig |
 
@@ -178,7 +178,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | EDIT-06 | Spielen im Editor | Spiel im Editor starten, pausieren und stoppen; die Welt kommt bitgenau zurück ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)). C#-Skripte im Spielmodus folgen mit R4 | R2.3 / R4 | in Arbeit |
 | EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar; Befehle mit reflektierten Werten ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | R2.2 | fertig |
 | EDIT-08 | Voxel-Werkzeuge | Terrain im Editor formen und bemalen | R3 | geplant |
-| EDIT-09 | Asset-Browser | Assets finden (Liste mit Filter) und Modelle ins Viewport ziehen (Undo-Schritt); Vorschaubilder und Import fremder Formate folgen mit der Asset-Pipeline | R2.4 / R2.5 | in Arbeit |
+| EDIT-09 | Asset-Browser | Assets finden (Liste mit Filter) und Modelle ins Viewport ziehen (Undo-Schritt); seit R2.5 auch Prefabs ziehen und alle Modelle kochen; Vorschaubilder und Import fremder Formate folgen später | R2.4 / R2.5 | in Arbeit |
 | EDIT-10 | Log-Konsole | Log-Sink, der im Editor anzeigt (`log::RingSink`, `editor_ui::LogConsole` mit Filter nach Stufe und Text) | R2.1 | fertig |
 
 ## Spiel-UI

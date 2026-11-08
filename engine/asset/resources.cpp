@@ -37,6 +37,8 @@ struct Slot {
     bool in_flight = false;
     bool removed = false;
     u32 idle_updates = 0;
+    // Fertiger Wert, der noch nicht bereit ist (TD-30); ersetzt dann entry->value.
+    std::shared_ptr<void> pending;
 };
 
 // Ergebnis von read(), wartet auf finish() im Hauptthread.
@@ -98,7 +100,8 @@ struct ResourceManager::Impl {
         auto job = [this, task = std::move(task)] {
             NGINE_PROFILE_ZONE("ResourceManager::read");
             std::vector<std::string> files{task->path};
-            auto data = task->read(LoadContext{.path = task->path, .dependencies = &files});
+            auto data = task->read(
+                LoadContext{.id = task->entry->id, .path = task->path, .dependencies = &files});
             const std::scoped_lock lock{mutex};
             completed.push_back({.entry = std::move(task->entry),
                                  .request = task->request,
@@ -165,6 +168,7 @@ detail::ResourcePtr ResourceManager::add_entry(AssetId id, detail::TypeKey type,
     }
     // Ein laufendes Laden aus einer Datei ist damit veraltet.
     ++slot.request;
+    slot.pending.reset();
     slot.removed = false;
     slot.entry->generated = true;
     slot.entry->value = std::move(value);
@@ -238,8 +242,23 @@ void ResourceManager::update() {
             }
             continue;
         }
+        // Ein neuerer Wert ersetzt einen, der noch auf ready wartet.
+        slot->pending = std::move(*value);
+    }
+
+    // Werte eintauschen, sobald ihr Lader sie für bereit hält. Bis dahin zeigen Handles auf den
+    // alten Wert (TD-30) bzw. beim ersten Laden auf nichts.
+    for (auto& [key, slot] : impl_->slots) {
+        if (slot.pending == nullptr) {
+            continue;
+        }
+        const Loader& loader = impl_->loaders.at(key.second);
+        if (loader.ready && !loader.ready(slot.pending.get())) {
+            continue;
+        }
+        detail::ResourceEntry& entry = *slot.entry;
         const bool again = entry.value != nullptr;
-        entry.value = std::move(*value);
+        entry.value = std::move(slot.pending);
         entry.state = ResourceState::Ready;
         entry.error.clear();
         ++entry.version;
@@ -253,7 +272,7 @@ void ResourceManager::update() {
     for (auto it = impl_->slots.begin(); it != impl_->slots.end();) {
         Slot& slot = it->second;
         const bool unused = slot.entry.use_count() == 1 && !slot.in_flight &&
-                            (!slot.entry->generated || slot.removed);
+                            slot.pending == nullptr && (!slot.entry->generated || slot.removed);
         if (!unused) {
             slot.idle_updates = 0;
             ++it;
@@ -284,6 +303,9 @@ ResourceStats ResourceManager::stats() const {
         }
     }
     stats.reloads = impl_->reloads;
+    for (const auto& [key, slot] : impl_->slots) {
+        stats.pending += slot.pending != nullptr ? 1 : 0;
+    }
     return stats;
 }
 

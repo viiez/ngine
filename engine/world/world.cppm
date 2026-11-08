@@ -4,10 +4,13 @@
 export module ngine.world;
 
 // Transforms bestehen aus Typen von ngine.math; wer die Welt nutzt, rechnet mit dessen Funktionen.
+// Prefabs halten ihre Komponenten als JSON (ngine.serialize).
 export import ngine.math;
+export import ngine.serialize;
 
 export import :ecs;
 export import :components;
 export import :transform;
 export import :schedule;
+export import :prefab;
 export import :scene;

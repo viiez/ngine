@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <optional>
+#include <random>
 #include <span>
 #include <string>
 #include <utility>
@@ -20,6 +22,8 @@ import ngine.jobs;
 import ngine.asset;
 import ngine.world;
 import ngine.render;
+import ngine.cook;
+import ngine.filesystem;
 
 // Renderer: Kamera ohne GPU, dann eine PBR-Kugel mit Tone Mapping über lavapipe.
 
@@ -385,4 +389,68 @@ TEST_CASE("Renderer loads glTF models by asset id in the background", "[render][
     CHECK(pixels[center] != pixels[corner]);
     CHECK(resources.stats().resident == 1);
     CHECK(device->validation_errors() == 0);
+}
+
+TEST_CASE("Renderer loads cooked models from the cache with and without BC7",
+          "[render][asset][gpu]") {
+    // Erst kocht der Lader (wie im Editor) und legt das Modell in den Cache, dann liest ein
+    // zweiter Ressourcen-Manager es gekocht. Mit BC7 und mit dem Rückfall auf RGBA8.
+    std::random_device random;
+    const auto base =
+        std::filesystem::temp_directory_path() / ("ngine_cache_" + std::to_string(random()));
+    const std::u8string base_text = base.u8string();
+    const std::string cache_dir{base_text.begin(), base_text.end()};
+    const asset::AssetCache cache{cache_dir};
+    auto database = asset::AssetDatabase::open(NGINE_ASSET_SOURCE_DIR);
+    REQUIRE(database);
+    const asset::AssetInfo* kiste = database->find_path("modelle/kiste.gltf");
+    REQUIRE(kiste != nullptr);
+
+    for (const bool bc : {true, false}) {
+        INFO("BC7 erlaubt: " << bc);
+        auto created = rhi::vulkan::create_device(
+            {.application_name = "NGine Tests", .enable_validation = true, .bc_compression = bc});
+        if (!created) {
+            if (gpu_required()) {
+                FAIL("Kein nutzbares Vulkan-Gerät: " + created.error());
+            }
+            SKIP("Kein nutzbares Vulkan-Gerät: " + created.error());
+        }
+        const std::unique_ptr<rhi::Device> device = *std::move(created);
+        if (!bc) {
+            CHECK_FALSE(device->capabilities().bc_compression);
+        }
+        auto renderer = render::Renderer::create(*device, rhi::Format::RGBA8Unorm);
+        REQUIRE(renderer);
+        render::Renderer& r = **renderer;
+
+        for (const bool first_load : {true, false}) {
+            // Nur ganz am Anfang ist der Cache leer.
+            const bool first_round = bc && first_load;
+            jobs::JobSystem jobs{{.worker_count = 1}};
+            asset::ResourceManager resources{&*database, &jobs};
+            render::register_loaders(
+                resources, r,
+                {.cache = &cache, .cook = cook::model_cooker({.textures = {.uastc_level = 0}})});
+            const render::ModelLoadCounts before = render::model_load_counts();
+            auto handle = resources.load<render::GpuModel>(kiste->id);
+            for (int i = 0; i < 200 && handle.get() == nullptr; ++i) {
+                resources.wait();
+                device->execute([](rhi::CommandList&) {});
+                resources.update();
+            }
+            REQUIRE(handle.get() != nullptr);
+            const render::ModelLoadCounts after = render::model_load_counts();
+            if (first_round) {
+                CHECK(after.cooked == before.cooked + 1);
+            } else {
+                CHECK(after.cached == before.cached + 1);
+            }
+            CHECK(after.source == before.source);
+            CHECK(handle.get()->instance().textures.size() == 1);
+            CHECK(cache.model_current(kiste->id));
+        }
+        CHECK(device->validation_errors() == 0);
+    }
+    static_cast<void>(filesystem::remove(cache_dir));
 }

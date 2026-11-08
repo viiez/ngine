@@ -50,10 +50,6 @@ struct TonemapPush {
     u32 encode_srgb = 0;
 };
 
-bool is_srgb(rhi::Format format) {
-    return format == rhi::Format::RGBA8Srgb || format == rhi::Format::BGRA8Srgb;
-}
-
 // Pipeline-Variante je Material: durchsichtig oder nicht, doppelseitig oder nicht.
 usize variant(const Material& material) {
     return (material.alpha_mode == AlphaMode::Blend ? 2u : 0u) + (material.double_sided ? 1u : 0u);
@@ -828,7 +824,7 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
         [this, hdr, target, exposure](PassContext& context) {
             const TonemapPush push{.hdr = context.texture(hdr).sampled_index(),
                                    .exposure = exposure,
-                                   .encode_srgb = is_srgb(impl_->target_format) ? 0u : 1u};
+                                   .encode_srgb = rhi::is_srgb(impl_->target_format) ? 0u : 1u};
             context.commands.begin_rendering(context.texture(target), std::nullopt);
             context.commands.bind_pipeline(*impl_->tonemap);
             context.commands.push_constants(std::as_bytes(std::span{&push, 1}));

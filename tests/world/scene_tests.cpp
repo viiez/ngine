@@ -136,8 +136,9 @@ TEST_CASE("Failed scene loads leave no empty entities", "[world][scene]") {
     world::World world{types};
     CHECK_FALSE(world::load_scene(world, R"({"format": "ngine.scene", "version": 1,
         "entities": [{"id": 1}, {"id": 2, "parent": 7}, {"id": 3}]})"));
-    // Die erste Entity ist geladen, die zweite scheitert, die dritte wird nicht angelegt.
-    CHECK(world.entity_count() == 2);
+    // Die erste Entity ist geladen; die zweite scheitert und bleibt wie die dritte nicht übrig
+    // (seit R2.5 prüft das Laden den Elternteil, bevor es die Entity vergibt).
+    CHECK(world.entity_count() == 1);
 }
 
 TEST_CASE("Invalid scenes report errors", "[world][scene]") {

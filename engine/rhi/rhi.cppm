@@ -32,13 +32,28 @@ enum class Format : u8 {
     // Ganzzahl ohne Vorzeichen pro Pixel, z. B. Entity-IDs zur Auswahl im Editor.
     R32Uint,
     D32Float,
+    // Blockkomprimiert (BC7, 4x4 Texel in 16 Bytes), nur zum Lesen in Shadern (R2.5). Ob die GPU
+    // es kann, sagt Capabilities::bc_compression.
+    BC7Unorm,
+    BC7Srgb,
 };
 enum class ShaderStage : u8 { Vertex, Fragment, Compute };
 enum class DeviceType : u8 { Other, Integrated, Discrete, Virtual, Cpu };
 
+[[nodiscard]] constexpr bool is_compressed(Format format) noexcept {
+    return format == Format::BC7Unorm || format == Format::BC7Srgb;
+}
+
+[[nodiscard]] constexpr bool is_srgb(Format format) noexcept {
+    return format == Format::RGBA8Srgb || format == Format::BGRA8Srgb || format == Format::BC7Srgb;
+}
+
+// Bytes pro Texel; 0 für blockkomprimierte Formate (dort gilt texture_level_size()).
 [[nodiscard]] constexpr u32 bytes_per_pixel(Format format) noexcept {
     switch (format) {
-    case Format::Unknown: return 0;
+    case Format::Unknown:
+    case Format::BC7Unorm:
+    case Format::BC7Srgb: return 0;
     case Format::RGBA16Float: return 8;
     default: return 4;
     }
@@ -136,6 +151,9 @@ struct DeviceDesc {
     // Eigene Transfer-Queue für upload_async() nutzen, wo die GPU eine hat (TD-17); aus nur, um
     // den Rückfallpfad zu testen.
     bool transfer_queue = true;
+    // Blockkomprimierte Texturen (BC7) nutzen, wo die GPU sie kann; aus nur, um den Rückfallpfad
+    // (RGBA8) zu testen.
+    bool bc_compression = true;
 };
 
 // Zeitstempel der GPU (Ticks) mit der Zeit der CPU zum selben Moment
@@ -157,9 +175,33 @@ struct Capabilities {
     f32 timestamp_period = 0.0f;
     // upload_async() läuft auf einer eigenen Transfer-Queue (TD-17).
     bool transfer_queue = false;
+    // Texturen in BC7 lassen sich anlegen und lesen (R2.5); sonst nimmt der Renderer RGBA8.
+    bool bc_compression = false;
 };
 
+// Bytes einer Stufe der Größe width x height; blockkomprimierte Formate zählen angefangene
+// 4x4-Blöcke ganz.
+[[nodiscard]] constexpr u64 texture_level_size(Format format, u32 width, u32 height) noexcept {
+    if (is_compressed(format)) {
+        return u64{(width + 3) / 4} * ((height + 3) / 4) * 16;
+    }
+    return u64{width} * height * bytes_per_pixel(format);
+}
+
 // Bytes aller Mip-Stufen einer Textur, Stufe 0 zuerst, jede Zeile ohne Abstand.
+[[nodiscard]] constexpr u64 mip_chain_size(Extent2D extent, u32 levels, Format format) noexcept {
+    u64 size = 0;
+    u32 width = extent.width;
+    u32 height = extent.height;
+    for (u32 level = 0; level < levels; ++level) {
+        size += texture_level_size(format, width, height);
+        width = width > 1 ? width / 2 : 1;
+        height = height > 1 ? height / 2 : 1;
+    }
+    return size;
+}
+
+// Wie oben für ein Format mit pixel_bytes Bytes pro Texel.
 [[nodiscard]] constexpr u64 mip_chain_size(Extent2D extent, u32 levels, u32 pixel_bytes) noexcept {
     u64 size = 0;
     u32 width = extent.width;
@@ -485,7 +527,8 @@ public:
     [[nodiscard]] virtual UploadTicket upload_async(Buffer& buffer,
                                                     std::span<const std::byte> data) = 0;
     // Für Texturen mit TransferDst: data enthält alle Mip-Stufen (mip_chain_size()); die GPU
-    // rechnet keine Stufen nach. Danach ist die Textur im Zustand ShaderRead.
+    // rechnet keine Stufen nach. Danach ist die Textur im Zustand ShaderRead. Der einzige Weg für
+    // blockkomprimierte Texturen.
     [[nodiscard]] virtual UploadTicket upload_async(Texture& texture,
                                                     std::span<const std::byte> data) = 0;
     // Der Upload ist fertig und für alle Abgaben ab jetzt sichtbar. Ändert sich nur in

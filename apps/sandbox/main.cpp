@@ -30,6 +30,7 @@
 //   --server        dedizierter Server ohne Fenster (Port mit --port, Standard 27020); ohne
 //                   --frames läuft er, bis man ihn beendet
 //   --client <adr>  ohne Fenster zu einem Server verbinden, z. B. 127.0.0.1 oder host:27020
+//   --no-cache      Modelle aus den Quellen laden statt gekocht aus dem Cache (Vergleich, R2.5)
 
 #include <algorithm>
 #include <charconv>
@@ -57,6 +58,8 @@ import sandbox.frame_stats;
 import sandbox.voxel_demo;
 import sandbox.model_demo;
 import app.model_scene;
+import app.paths;
+import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import ngine.voxel;
@@ -83,6 +86,7 @@ struct Options {
     bool baseline = false;
     bool far = false;
     bool debug_draw = false;
+    bool no_cache = false;
     std::optional<ngine::u64> frames;
 };
 
@@ -127,6 +131,8 @@ Options parse_options(std::span<char*> args) {
             options.far = true;
         } else if (arg == "--debug-draw") {
             options.debug_draw = true;
+        } else if (arg == "--no-cache") {
+            options.no_cache = true;
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u64 frames = 0;
@@ -179,6 +185,8 @@ int run_windowed(const Options& options) {
         // Ressourcen leben in diesem Block, damit sie vor dem Device zerstört werden.
         // Voxel-Demo (Durchstich D1) oder Standardansicht mit Renderer und Welt (R1.3).
         std::optional<sandbox::VoxelScene> voxels;
+        // Asset-Ordner und Cache leben länger als die Szene.
+        sandbox::SandboxAssets sandbox_assets{options.no_cache};
         std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
             voxels.emplace(32u, sandbox::voxel_origin(options.far));
@@ -190,13 +198,15 @@ int run_windowed(const Options& options) {
         } else {
             auto created =
                 app::ModelScene::create(**device, (*device)->swapchain_format(), options.model_path,
-                                        sandbox::voxel_origin(options.far));
+                                        sandbox::voxel_origin(options.far), app::SceneMode::Game,
+                                        sandbox_assets.scene_assets());
             if (!created) {
                 ngine::log::fatal("{}", created.error());
                 return 1;
             }
             scene = *std::move(created);
             scene->set_debug_draw(options.debug_draw);
+            sandbox::report_load(scene->load_all(**device));
         }
 
         ngine::render::TexturePool pool{**device};
@@ -394,9 +404,9 @@ int main(int argc, char** argv) {
         exit_code = sandbox::run_voxel_demo_offscreen(
             options.frames.value_or(60), *options.image_path, options.baseline, options.far);
     } else if (options.image_path && !options.voxel_demo) {
-        exit_code =
-            sandbox::run_model_offscreen(options.model_path, *options.image_path, options.baseline,
-                                         sandbox::voxel_origin(options.far), options.debug_draw);
+        exit_code = sandbox::run_model_offscreen(
+            options.model_path, *options.image_path, options.baseline,
+            sandbox::voxel_origin(options.far), options.debug_draw, options.no_cache);
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {
