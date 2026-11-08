@@ -87,11 +87,11 @@ public:
     // Liefert den bindlosen Index.
     [[nodiscard]] rhi::Result<u32> add_texture(const asset::Image& image, bool srgb,
                                                bool mipmaps = true);
-    // Wie add_texture(), aber mit fertig gerechneten Mip-Stufen (asset::mip_chain()) und im
-    // Hintergrund (Device::upload_async(), TD-17). Benutzt werden darf die Textur erst, wenn das
-    // Ticket erledigt ist.
-    [[nodiscard]] rhi::Result<u32> add_texture_async(rhi::Extent2D extent, bool srgb, u32 levels,
-                                                     std::span<const std::byte> chain,
+    // Wie add_texture(), aber mit fertig gerechneten Mip-Stufen in format (RGBA8 aus
+    // asset::mip_chain() oder BC7 aus KTX2) und im Hintergrund (Device::upload_async(), TD-17).
+    // Benutzt werden darf die Textur erst, wenn das Ticket erledigt ist.
+    [[nodiscard]] rhi::Result<u32> add_texture_async(rhi::Extent2D extent, rhi::Format format,
+                                                     u32 levels, std::span<const std::byte> chain,
                                                      rhi::UploadTicket& ticket);
     // Gibt eine Textur aus add_texture() frei (über die Löschliste des Device).
     void remove_texture(u32 index);

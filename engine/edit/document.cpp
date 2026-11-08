@@ -210,7 +210,7 @@ Result<usize> SceneDocument::open(std::string_view path) {
     destroy_all();
     history_.clear();
     path_.clear();
-    auto loaded = world::load_scene_file(*world_, path);
+    auto loaded = world::load_scene_file(*world_, path, prefabs_);
     if (!loaded) {
         destroy_all();
     } else {
@@ -225,7 +225,7 @@ Result<void> SceneDocument::save(std::string_view path) {
     if (playing()) {
         return std::unexpected(std::string{"Während des Spielens wird nicht gespeichert"});
     }
-    if (auto result = world::save_scene_file(*world_, path); !result) {
+    if (auto result = world::save_scene_file(*world_, path, prefabs_); !result) {
         return result;
     }
     const bool was_dirty = dirty();

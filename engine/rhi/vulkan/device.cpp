@@ -215,9 +215,9 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
         }
     }
 
-    auto physical_device =
-        pick_physical_device(instance_.handle(), instance_.surface(), desc.disabled_features,
-                             instance_.surface_maintenance1(), desc.transfer_queue);
+    auto physical_device = pick_physical_device(
+        instance_.handle(), instance_.surface(), desc.disabled_features,
+        instance_.surface_maintenance1(), desc.transfer_queue, desc.bc_compression);
     if (!physical_device) {
         return std::unexpected(std::move(physical_device).error());
     }
@@ -274,6 +274,7 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
               transfer_queue_ != VK_NULL_HANDLE
                   ? std::format("ja (Familie {})", *physical_device_.transfer_family)
                   : std::string{"nein"});
+    log::info("Blockkomprimierte Texturen (BC7): {}", caps.bc_compression ? "ja" : "nein");
     log::debug(
         "Present-Fences (VK_EXT_swapchain_maintenance1): {}, kalibrierte Zeitstempel: {}",
         with_swapchain && desc.present_fences && physical_device_.swapchain_maintenance1 ? "ja"

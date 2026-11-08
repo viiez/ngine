@@ -74,6 +74,8 @@ public:
         verify(has(texture.usage(), TextureUsage::TransferDst) &&
                    has(texture.usage(), TextureUsage::Sampled),
                "upload() braucht eine Textur mit TransferDst und Sampled");
+        verify(!is_compressed(texture.format()),
+               "upload() kann keine blockkomprimierten Texturen, dafür gibt es upload_async()");
         const Extent2D extent = texture.extent();
         verify(data.size() == u64{extent.width} * extent.height * bytes_per_pixel(texture.format()),
                "upload(): Datenmenge passt nicht zur Textur");
@@ -112,9 +114,9 @@ public:
                    has(texture.usage(), TextureUsage::Sampled),
                "upload_async() braucht eine Textur mit TransferDst und Sampled");
         const Extent2D extent = texture.extent();
-        const u32 pixel = bytes_per_pixel(texture.format());
+        const Format format = texture.format();
         const u32 levels = texture.mip_levels();
-        verify(data.size() == mip_chain_size(extent, levels, pixel),
+        verify(data.size() == mip_chain_size(extent, levels, format),
                "upload_async(): Datenmenge passt nicht zu den Mip-Stufen der Textur");
         const Slice slice = stage(data);
         const VkCommandBuffer cmd = batch();
@@ -138,7 +140,7 @@ public:
                 .imageSubresource = {texture.aspect(), level, 0, 1},
                 .imageExtent = {width, height, 1},
             });
-            offset += u64{width} * height * pixel;
+            offset += texture_level_size(format, width, height);
             width = std::max(width / 2, 1u);
             height = std::max(height / 2, 1u);
         }

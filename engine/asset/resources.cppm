@@ -50,6 +50,8 @@ enum class ResourceState : u8 {
 
 // Was read() außer dem Pfad bekommt.
 struct LoadContext {
+    // Kennung des Assets (z. B. für den Cache gekochter Daten).
+    AssetId id = 0;
     // Datei des Assets, absolut und normalisiert.
     std::string_view path;
     // read() trägt weitere Dateien ein, die es gelesen hat (externe Puffer und Bilder einer
@@ -119,6 +121,8 @@ struct ResourceStats {
     usize failed = 0;
     // Wie oft neu geladen wurde (Hot Reload), seit dem Start.
     usize reloads = 0;
+    // Fertige Werte, die auf ready warten (Uploads laufen noch).
+    usize pending = 0;
 };
 
 class ResourceManager {
@@ -134,27 +138,36 @@ public:
     void set_database(const AssetDatabase* database) noexcept;
 
     // Wie Ressourcen vom Typ T entstehen. read läuft im Hintergrund und darf nichts anfassen,
-    // was andere Threads benutzen; finish läuft im Hauptthread in update().
+    // was andere Threads benutzen; finish läuft im Hauptthread in update(). Mit ready wird ein
+    // fertiger Wert erst sichtbar, wenn ready ihn für benutzbar hält (z. B. Uploads auf die GPU
+    // erledigt); bis dahin bleibt beim Neuladen der alte Wert stehen (TD-30).
     template <typename T, typename Cpu>
     void add_loader(std::function<Result<Cpu>(const LoadContext&)> read,
-                    std::function<Result<T>(Cpu&)> finish) {
-        set_loader(
-            detail::type_key<T>(),
-            {.read = [read = std::move(read)](
-                         const LoadContext& context) -> Result<std::shared_ptr<void>> {
-                 auto data = read(context);
-                 if (!data) {
-                     return std::unexpected(std::move(data.error()));
-                 }
-                 return std::shared_ptr<void>{std::make_shared<Cpu>(std::move(*data))};
-             },
-             .finish = [finish = std::move(finish)](void* cpu) -> Result<std::shared_ptr<void>> {
-                 auto value = finish(*static_cast<Cpu*>(cpu));
-                 if (!value) {
-                     return std::unexpected(std::move(value.error()));
-                 }
-                 return std::shared_ptr<void>{std::make_shared<T>(std::move(*value))};
-             }});
+                    std::function<Result<T>(Cpu&)> finish,
+                    std::function<bool(const T&)> ready = {}) {
+        Loader loader{
+            .read = [read = std::move(read)](
+                        const LoadContext& context) -> Result<std::shared_ptr<void>> {
+                auto data = read(context);
+                if (!data) {
+                    return std::unexpected(std::move(data.error()));
+                }
+                return std::shared_ptr<void>{std::make_shared<Cpu>(std::move(*data))};
+            },
+            .finish = [finish = std::move(finish)](void* cpu) -> Result<std::shared_ptr<void>> {
+                auto value = finish(*static_cast<Cpu*>(cpu));
+                if (!value) {
+                    return std::unexpected(std::move(value.error()));
+                }
+                return std::shared_ptr<void>{std::make_shared<T>(std::move(*value))};
+            },
+            .ready = {}};
+        if (ready) {
+            loader.ready = [ready = std::move(ready)](const void* value) {
+                return ready(*static_cast<const T*>(value));
+            };
+        }
+        set_loader(detail::type_key<T>(), std::move(loader));
     }
 
     // Ressource zu einer Kennung; beginnt das Laden, wenn sie noch nicht da ist.
@@ -183,10 +196,11 @@ public:
     // Pfade, z. B. vom Dateibeobachter). Liefert, wie viele es waren.
     usize reload_files(std::span<const std::string> files);
 
-    // Hauptthread, einmal pro Frame: macht fertig gelesene Ressourcen fertig und gibt solche
-    // frei, die seit keep_updates Aufrufen niemand mehr hält.
+    // Hauptthread, einmal pro Frame: macht fertig gelesene Ressourcen fertig, tauscht bereite
+    // Werte ein und gibt Ressourcen frei, die seit keep_updates Aufrufen niemand mehr hält.
     void update();
-    // Wartet, bis alles gelesen ist, und ruft update() auf (Tests, Laden einer Szene).
+    // Wartet, bis alles gelesen ist, und ruft update() auf (Tests, Laden einer Szene). Werte, die
+    // ihr Lader noch nicht für bereit hält, bleiben ausstehend.
     void wait();
 
     [[nodiscard]] ResourceStats stats() const;
@@ -199,6 +213,7 @@ private:
     struct Loader {
         std::function<Result<std::shared_ptr<void>>(const LoadContext&)> read;
         std::function<Result<std::shared_ptr<void>>(void*)> finish;
+        std::function<bool(const void*)> ready;
     };
 
     void set_loader(detail::TypeKey type, Loader loader);

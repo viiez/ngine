@@ -7,6 +7,7 @@ module;
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 export module ngine.edit:document;
@@ -187,10 +188,19 @@ public:
     void reset_history();
 
     // --- Datei ---
-    // Leert die Welt, lädt die Szene und verwirft den Verlauf. Bei einem Fehler bleibt die Welt
-    // leer.
+    // Vorlagen der Prefab-Instanzen für Öffnen und Speichern (R2.5); ohne werden Instanzen nur
+    // mit ihrer Wurzel geladen.
+    void set_prefabs(world::PrefabLookup prefabs) {
+        prefabs_ = std::move(prefabs);
+    }
+    [[nodiscard]] const world::PrefabLookup& prefabs() const noexcept {
+        return prefabs_;
+    }
+    // Leert die Welt, lädt die Szene (JSON oder binär) und verwirft den Verlauf. Bei einem Fehler
+    // bleibt die Welt leer.
     Result<usize> open(std::string_view path);
-    // Speichert die Szene; danach ist das Dokument nicht mehr verändert.
+    // Speichert die Szene (binär, wenn der Pfad auf .nscene endet); danach ist das Dokument nicht
+    // mehr verändert.
     Result<void> save(std::string_view path);
     // Leert die Welt und verwirft den Verlauf.
     void clear();
@@ -244,6 +254,7 @@ private:
     EntityId next_id_ = 1;
     std::string path_;
     std::optional<EntitySnapshot> play_backup_;
+    world::PrefabLookup prefabs_;
 };
 
 } // namespace ngine::edit

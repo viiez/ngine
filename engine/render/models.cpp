@@ -2,8 +2,10 @@ module;
 
 #include <ngine/profile.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <expected>
+#include <format>
 #include <functional>
 #include <map>
 #include <optional>
@@ -95,20 +97,57 @@ void for_each_texture(const asset::Model& model, Fn&& fn) {
 
 } // namespace
 
-MipChains prepare_mips(const asset::Model& model) {
-    NGINE_PROFILE_ZONE("render::prepare_mips");
-    MipChains mips;
+namespace {
+
+std::atomic<u32> loads_cached{0};
+std::atomic<u32> loads_cooked{0};
+std::atomic<u32> loads_source{0};
+
+rhi::Format to_rhi(asset::TextureFormat format, bool srgb) {
+    if (format == asset::TextureFormat::BC7) {
+        return srgb ? rhi::Format::BC7Srgb : rhi::Format::BC7Unorm;
+    }
+    return srgb ? rhi::Format::RGBA8Srgb : rhi::Format::RGBA8Unorm;
+}
+
+} // namespace
+
+ModelTextures prepare_textures(const asset::Model& model) {
+    NGINE_PROFILE_ZONE("render::prepare_textures");
+    ModelTextures result;
     for_each_texture(model, [&](u32 image, bool srgb, bool mipmaps) {
         const auto key = std::make_pair(image, srgb);
-        if (!mips.chains.contains(key)) {
-            mips.chains.emplace(key, asset::mip_chain(model.images[image], srgb, mipmaps ? 0 : 1));
+        if (!result.textures.contains(key)) {
+            result.textures.emplace(key,
+                                    asset::texture_from_image(model.images[image], srgb, mipmaps));
         }
     });
-    return mips;
+    return result;
+}
+
+asset::Result<ModelTextures> decode_textures(asset::CookedModel& cooked,
+                                             asset::TextureFormat target) {
+    NGINE_PROFILE_ZONE("render::decode_textures");
+    ModelTextures result;
+    for (asset::CookedTexture& texture : cooked.textures) {
+        if (target == asset::TextureFormat::BC7 && !texture.bc7.data.empty()) {
+            texture.bc7.srgb = texture.srgb;
+            result.textures.insert_or_assign({texture.image, texture.srgb}, std::move(texture.bc7));
+            continue;
+        }
+        auto decoded = asset::decode_ktx2(texture.ktx2, target);
+        if (!decoded) {
+            return std::unexpected(std::move(decoded.error()));
+        }
+        // Der Farbraum kommt aus dem Material, nicht aus der Datei.
+        decoded->srgb = texture.srgb;
+        result.textures.insert_or_assign({texture.image, texture.srgb}, *std::move(decoded));
+    }
+    return result;
 }
 
 rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model,
-                                   const MipChains* mips) {
+                                   const ModelTextures* textures) {
     NGINE_PROFILE_ZONE("render::upload_model");
     MaterialStore& materials = renderer.materials();
     ModelInstance instance;
@@ -131,19 +170,17 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
         auto found = uploaded.find(key);
         if (found == uploaded.end()) {
             const asset::Image& image = model.images[source.image];
-            const std::vector<std::byte>* chain = nullptr;
-            if (mips != nullptr) {
-                if (const auto it = mips->chains.find(key); it != mips->chains.end()) {
-                    chain = &it->second;
+            const asset::TextureData* ready = nullptr;
+            if (textures != nullptr) {
+                if (const auto it = textures->textures.find(key); it != textures->textures.end()) {
+                    ready = &it->second;
                 }
             }
-            const rhi::Extent2D extent{image.width, image.height};
-            auto index =
-                chain != nullptr
-                    ? materials.add_texture_async(
-                          extent, srgb, source.sampler.mipmaps ? rhi::full_mip_count(extent) : 1,
-                          *chain, ticket)
-                    : materials.add_texture(image, srgb, source.sampler.mipmaps);
+            auto index = ready != nullptr
+                             ? materials.add_texture_async({ready->width, ready->height},
+                                                           to_rhi(ready->format, srgb),
+                                                           ready->levels, ready->data, ticket)
+                             : materials.add_texture(image, srgb, source.sampler.mipmaps);
             if (!index) {
                 error = index.error();
                 return {};
@@ -209,7 +246,7 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
                     : 0;
             submeshes.push_back({primitive.vertices, primitive.indices, material});
         }
-        auto index = renderer.meshes().add(submeshes, mips != nullptr ? &ticket : nullptr);
+        auto index = renderer.meshes().add(submeshes, textures != nullptr ? &ticket : nullptr);
         if (!index) {
             partial = GpuModel{renderer, std::move(instance), {}};
             return std::unexpected("Modell, Mesh " + mesh.name + ": " + index.error());
@@ -227,8 +264,10 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
         asset::Mesh& copy = layout.meshes.emplace_back();
         copy.name = mesh.name;
         for (const asset::Primitive& primitive : mesh.primitives) {
-            copy.primitives.push_back(
-                {.vertices = {}, .indices = {}, .material = primitive.material});
+            copy.primitives.push_back({.vertices = {},
+                                       .indices = {},
+                                       .material = primitive.material,
+                                       .generated_tangents = primitive.generated_tangents});
         }
     }
     for (const asset::Image& image : model.images) {
@@ -238,29 +277,81 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
     return GpuModel{renderer, std::move(instance), std::move(layout), ticket};
 }
 
-void register_loaders(asset::ResourceManager& resources, Renderer& renderer) {
-    // Was im Hintergrund entsteht: das dekodierte Modell und seine Mip-Ketten.
+void register_loaders(asset::ResourceManager& resources, Renderer& renderer, ModelLoading loading) {
+    // Was im Hintergrund entsteht: das Modell und seine fertigen Texturen.
     struct Prepared {
         asset::Model model;
-        MipChains mips;
+        ModelTextures textures;
+    };
+    const asset::TextureFormat target = renderer.device().capabilities().bc_compression
+                                            ? asset::TextureFormat::BC7
+                                            : asset::TextureFormat::RGBA8;
+    const auto from_cooked =
+        [target](asset::CookedModel& cooked,
+                 const asset::LoadContext& context) -> asset::Result<Prepared> {
+        auto textures = decode_textures(cooked, target);
+        if (!textures) {
+            return std::unexpected(std::format("{}: {}", context.path, textures.error()));
+        }
+        if (context.dependencies != nullptr) {
+            for (const asset::SourceStamp& stamp : cooked.sources) {
+                context.dependencies->push_back(stamp.path);
+            }
+        }
+        return Prepared{.model = std::move(cooked.model), .textures = *std::move(textures)};
     };
     resources.add_loader<GpuModel, Prepared>(
-        [](const asset::LoadContext& context) -> asset::Result<Prepared> {
+        [loading = std::move(loading),
+         from_cooked](const asset::LoadContext& context) -> asset::Result<Prepared> {
+            // 1. Aktuell gekocht im Cache.
+            if (loading.cache != nullptr) {
+                auto cached = loading.cache->load_model(context.id);
+                if (cached && *cached) {
+                    ++loads_cached;
+                    return from_cooked(**cached, context);
+                }
+            }
+            // 2. Jetzt kochen und in den Cache legen (Editor).
+            if (loading.cook) {
+                auto cooked = loading.cook(context.path);
+                if (!cooked) {
+                    return std::unexpected(std::move(cooked.error()));
+                }
+                if (loading.cache != nullptr) {
+                    if (auto stored = loading.cache->store_model(context.id, *cooked); !stored) {
+                        log::warn("Cache: {}", stored.error());
+                    }
+                }
+                ++loads_cooked;
+                return from_cooked(*cooked, context);
+            }
+            // 3. Aus der Quelle.
             auto model = asset::load_gltf(context.path, context.dependencies);
             if (!model) {
                 return std::unexpected(std::move(model.error()));
             }
-            Prepared prepared{.model = *std::move(model), .mips = {}};
-            prepared.mips = prepare_mips(prepared.model);
+            ++loads_source;
+            Prepared prepared{.model = *std::move(model), .textures = {}};
+            prepared.textures = prepare_textures(prepared.model);
             return prepared;
         },
         [&renderer](Prepared& prepared) -> asset::Result<GpuModel> {
-            auto uploaded = upload_model(renderer, prepared.model, &prepared.mips);
+            auto uploaded = upload_model(renderer, prepared.model, &prepared.textures);
             if (!uploaded) {
                 return std::unexpected(std::move(uploaded.error()));
             }
             return std::move(*uploaded);
+        },
+        // TD-30: erst eintauschen, wenn die Uploads im Hintergrund fertig sind.
+        [&renderer](const GpuModel& model) {
+            return renderer.device().upload_done(model.ticket());
         });
+}
+
+ModelLoadCounts model_load_counts() noexcept {
+    return {.cached = loads_cached.load(),
+            .cooked = loads_cooked.load(),
+            .source = loads_source.load()};
 }
 
 world::Entity spawn_model(world::World& world, const asset::Model& model, asset::AssetId model_id,

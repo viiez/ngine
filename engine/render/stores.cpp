@@ -94,16 +94,16 @@ rhi::Result<u32> MaterialStore::add_texture(const asset::Image& image, bool srgb
     return index;
 }
 
-rhi::Result<u32> MaterialStore::add_texture_async(rhi::Extent2D extent, bool srgb, u32 levels,
-                                                  std::span<const std::byte> chain,
+rhi::Result<u32> MaterialStore::add_texture_async(rhi::Extent2D extent, rhi::Format format,
+                                                  u32 levels, std::span<const std::byte> chain,
                                                   rhi::UploadTicket& ticket) {
     if (extent.width == 0 || extent.height == 0 || levels == 0 ||
-        chain.size() != rhi::mip_chain_size(extent, levels, 4)) {
+        chain.size() != rhi::mip_chain_size(extent, levels, format)) {
         return std::unexpected("Mip-Kette passt nicht zur Textur");
     }
     auto texture = device_->create_texture({
         .extent = extent,
-        .format = srgb ? rhi::Format::RGBA8Srgb : rhi::Format::RGBA8Unorm,
+        .format = format,
         .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
         .mip_levels = levels,
     });

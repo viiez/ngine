@@ -54,6 +54,8 @@ add_subdirectory(engine)
 
 if(NGINE_BUILD_SANDBOX OR (NGINE_BUILD_EDITOR AND NGINE_WITH_WINDOW))
     add_subdirectory(apps/common)
+    # Werkzeug zum Kochen des Asset-Ordners (R2.5).
+    add_subdirectory(apps/cook)
 endif()
 
 if(NGINE_BUILD_SANDBOX)

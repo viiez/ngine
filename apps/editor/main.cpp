@@ -18,6 +18,11 @@
 // Shadern (PLAT-06). Asset- und Shader-Ordner sucht der Editor ab Arbeitsordner und Programmordner
 // aufwärts („assets“ bzw. „engine/shaders“), wenn sie nicht angegeben sind.
 //
+// Seit R2.5: Modelle kommen gekocht aus dem Cache im Asset-Ordner; fehlt er oder ist er veraltet,
+// kocht der Editor beim Laden (ASSET-02, ASSET-03). Menü „Prefab“: Auswahl als Prefab speichern,
+// Instanz aufbrechen, Änderungen in die Vorlage übernehmen; Prefabs lassen sich aus dem
+// Asset-Browser ziehen (WORLD-04). Szenen mit der Endung .nscene speichert er binär.
+//
 // Optionen:
 //   --scene <pfad>  Szene öffnen statt der Standardszene
 //   --save <pfad>   Szene beim Beenden dorthin speichern (für automatische Tests)
@@ -30,8 +35,9 @@
 //                   muss danach unverändert gespeichert werden)
 //   --assets <pfad> Asset-Ordner
 //   --shaders <pfad> Quellordner der Shader für Hot Reload
-//   --insert <pfad> Modell aus dem Asset-Ordner beim Start einfügen wie per Ziehen (für
-//                   automatische Tests)
+//   --insert <pfad> Modell oder Prefab aus dem Asset-Ordner beim Start einfügen wie per Ziehen
+//                   (für automatische Tests)
+//   --no-cache      Modelle nicht kochen und nicht aus dem Cache laden, sondern aus den Quellen
 
 #include <algorithm>
 #include <charconv>
@@ -61,6 +67,10 @@ import ngine.rhi.vulkan;
 import ngine.world;
 import ngine.editor_ui;
 import app.model_scene;
+import app.paths;
+import app.prefabs;
+import ngine.cook;
+import editor.prefab_tools;
 import ngine.asset;
 import editor.assets;
 import editor.input;
@@ -91,6 +101,7 @@ struct Options {
     bool vsync = true;
     bool baseline = false;
     bool ini = true;
+    bool cache = true;
 };
 
 Options parse_options(std::span<char*> args) {
@@ -122,6 +133,8 @@ Options parse_options(std::span<char*> args) {
             options.baseline = true;
         } else if (arg == "--no-ini") {
             options.ini = false;
+        } else if (arg == "--no-cache") {
+            options.cache = false;
         } else {
             log::warn("Unbekannte Option: {}", arg);
         }
@@ -228,17 +241,11 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             log::fatal("{}", ui_renderer.error());
             return 1;
         }
-        auto scene = app::ModelScene::create(**device, viewport_format, options.model_path,
-                                             math::DVec3{}, app::SceneMode::Editor);
-        if (!scene) {
-            log::fatal("{}", scene.error());
-            return 1;
-        }
-
         // Asset-Ordner und Shader-Quellen (R2.4). Der Ressourcen-Manager der Szene findet Assets
         // über die Datenbank; Szenen verweisen nur über Kennungen auf sie.
         std::optional<asset::AssetDatabase> database;
-        if (const auto root = options.assets_path ? options.assets_path : find_upwards("assets")) {
+        if (const auto root =
+                options.assets_path ? options.assets_path : app::find_upwards("assets")) {
             if (auto opened = asset::AssetDatabase::open(*root)) {
                 database = std::move(*opened);
                 log::info("Asset-Ordner: {} ({} Assets)", database->root(),
@@ -249,9 +256,26 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         } else {
             log::warn("Kein Asset-Ordner gefunden (Option --assets <ordner>)");
         }
-        (*scene)->resources().set_database(database ? &*database : nullptr);
-        const auto shader_dir = options.shaders_path ? options.shaders_path
-                                                     : find_upwards("engine/shaders", "pbr.slang");
+        // Cache gekochter Modelle (R2.5): Der Editor kocht beim Laden, was fehlt oder veraltet ist.
+        std::optional<asset::AssetCache> cache;
+        if (database && options.cache) {
+            cache.emplace(asset::default_cache_dir(database->root()));
+            log::info("Cache gekochter Assets: {}", cache->directory());
+        }
+        app::SceneAssets scene_assets{.database = database ? &*database : nullptr, .loading = {}};
+        if (cache) {
+            scene_assets.loading = {.cache = &*cache, .cook = cook::model_cooker()};
+        }
+        auto scene =
+            app::ModelScene::create(**device, viewport_format, options.model_path, math::DVec3{},
+                                    app::SceneMode::Editor, std::move(scene_assets));
+        if (!scene) {
+            log::fatal("{}", scene.error());
+            return 1;
+        }
+        const auto shader_dir = options.shaders_path
+                                    ? options.shaders_path
+                                    : app::find_upwards("engine/shaders", "pbr.slang");
         HotReload hot_reload{database ? &*database : nullptr, shader_dir};
         AssetPanel asset_panel;
         ModelDrop model_drop;
@@ -259,6 +283,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         // Dokument, Auswahl und Ereignisse: Die Fenster kennen sich nicht, sie reden über den Bus.
         events::EventBus bus;
         edit::SceneDocument document{(*scene)->world(), &bus};
+        document.set_prefabs((*scene)->prefabs().lookup());
         edit::Selection selection{&bus};
         editor::SceneTreePanel tree_panel;
         editor::InspectorPanel inspector_panel;
@@ -315,7 +340,38 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                             .panels = panels,
                             .gizmo = tools.gizmo,
                             .play = play,
-                            .quit = [&] { running = false; }};
+                            .quit = [&] { running = false; },
+                            .extra_menus = {}};
+        targets.extra_menus = [&] {
+            const edit::EntityId selected = selection.current();
+            const u64 entity = document.entity_of(selected);
+            const bool in_instance =
+                entity != 0 && world::instance_root(document.world(), entity) != 0;
+            const bool editable = !document.read_only();
+            if (ui::begin_menu("Prefab")) {
+                if (ui::menu_item("Als Prefab speichern", {}, nullptr,
+                                  editable && database && entity != 0 && !in_instance)) {
+                    PrefabTools::save_as_prefab(document, selected, *database);
+                }
+                if (ui::menu_item("Änderungen in Vorlage übernehmen", {}, nullptr,
+                                  database && in_instance)) {
+                    PrefabTools::apply_to_prefab(document, selected, *database);
+                }
+                if (ui::menu_item("Prefab aufbrechen", {}, nullptr, editable && in_instance)) {
+                    PrefabTools::unpack(document, selected);
+                }
+                ui::end_menu();
+            }
+            if (ui::begin_menu("Assets")) {
+                if (ui::menu_item("Alles kochen", {}, nullptr, database && cache)) {
+                    AssetPanel::cook_everything(*database, *cache, false);
+                }
+                if (ui::menu_item("Alles neu kochen", {}, nullptr, database && cache)) {
+                    AssetPanel::cook_everything(*database, *cache, true);
+                }
+                ui::end_menu();
+            }
+        };
         auto last_time = std::chrono::steady_clock::now();
         // Neu berechnete Weltlagen im letzten Frame (TD-15), für die Statistik.
         usize transforms_updated = 0;
@@ -349,9 +405,15 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                             database ? database->find(*dropped) : nullptr;
                         if (info != nullptr && camera_view && !document.read_only()) {
                             const ui::Point mouse = ui::mouse_position();
-                            model_drop.start((*scene)->resources(), *info,
-                                             drop_position(view_camera(*camera_view, extent),
-                                                           mouse.x - corner.x, mouse.y - corner.y));
+                            const math::DVec3 position =
+                                drop_position(view_camera(*camera_view, extent), mouse.x - corner.x,
+                                              mouse.y - corner.y);
+                            if (info->type == asset::AssetType::Prefab) {
+                                PrefabTools::insert(document, selection, (*scene)->prefabs(), *info,
+                                                    position);
+                            } else {
+                                model_drop.start((*scene)->resources(), *info, position);
+                            }
                         }
                     }
                     bool gizmo_used = false;
@@ -403,7 +465,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             }
             if (panels.assets) {
                 if (ui::begin_window(assets_window, &panels.assets)) {
-                    asset_panel.draw(database ? &*database : nullptr, (*scene)->resources());
+                    asset_panel.draw(database ? &*database : nullptr, (*scene)->resources(),
+                                     cache ? &*cache : nullptr);
                 }
                 ui::end_window();
             }
@@ -464,6 +527,10 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             hot_reload.poll(database ? &*database : nullptr, (*scene)->resources(),
                             (*scene)->renderer());
             model_drop.update(document, selection);
+            // Geänderte Vorlagen: Instanzen nachziehen (Überschreibungen bleiben).
+            if ((*scene)->update_prefabs() > 0) {
+                document.notify(edit::EntityChanged{});
+            }
 
             // Spielen: Systeme der Szene laufen lassen. Danach Weltlagen und Hilfslinien samt
             // Texten in der Welt, damit die UI die Texte dieses Frames zeichnet.
@@ -557,7 +624,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         if (options.insert_path) {
             const asset::AssetInfo* info =
                 database ? database->find_path(*options.insert_path) : nullptr;
-            if (info != nullptr) {
+            if (info != nullptr && info->type == asset::AssetType::Prefab) {
+                PrefabTools::insert(document, selection, (*scene)->prefabs(), *info, math::DVec3{});
+            } else if (info != nullptr) {
                 model_drop.start((*scene)->resources(), *info, math::DVec3{});
             } else {
                 log::error("--insert: {} gibt es im Asset-Ordner nicht", *options.insert_path);

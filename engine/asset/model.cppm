@@ -29,6 +29,9 @@ struct Primitive {
     std::vector<u32> indices;
     // Index in Model::materials; ohne Material nimmt der Renderer sein Standardmaterial.
     std::optional<u32> material;
+    // Die Datei hatte keine Tangenten; sie sind einfach erzeugt (generate_tangents()). Beim
+    // Kochen ersetzt MikkTSpace sie und setzt das zurück (TD-21).
+    bool generated_tangents = false;
 };
 
 struct Mesh {

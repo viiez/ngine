@@ -38,9 +38,10 @@ struct PhysicalDevice {
 // bei gleichem Typ die mit mehr optionalen Stufen. Mit surface muss die Queue-Familie auch
 // präsentieren können. Stufen in disabled bleiben aus. surface_maintenance1: die Instanz hat
 // VK_EXT_surface_maintenance1 eingeschaltet. transfer_queue: eine eigene Transfer-Familie suchen.
+// bc_compression: BC7 einschalten, wo die GPU es kann.
 [[nodiscard]] std::expected<PhysicalDevice, std::string>
 pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled,
-                     bool surface_maintenance1, bool transfer_queue);
+                     bool surface_maintenance1, bool transfer_queue, bool bc_compression);
 
 // Erzeugt das logische Gerät mit allen Pflicht-Features und den erkannten optionalen Stufen
 // und lädt seine Funktionen.

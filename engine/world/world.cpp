@@ -651,6 +651,7 @@ void register_types(reflect::TypeRegistry& types) {
         // Ohne Felder: wird nur berechnet, nie gespeichert oder bearbeitet.
         types.add<WorldTransform>("WorldTransform").transient();
     }
+    register_prefab_types(types);
 }
 
 } // namespace ngine::world

@@ -226,11 +226,29 @@ void detect_extras(PhysicalDevice& device, bool surface_maintenance1) {
     }
 }
 
+// BC7 als Textur zum Lesen mit linearem Filter, in beiden Farbräumen (R2.5).
+bool supports_bc7(VkPhysicalDevice device, const VkPhysicalDeviceFeatures& basic) {
+    if (basic.textureCompressionBC != VK_TRUE) {
+        return false;
+    }
+    constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                                            VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+                                            VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+    for (const VkFormat format : {VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK}) {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(device, format, &properties);
+        if ((properties.optimalTilingFeatures & needed) != needed) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 std::expected<PhysicalDevice, std::string>
 pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& disabled,
-                     bool surface_maintenance1, bool transfer_queue) {
+                     bool surface_maintenance1, bool transfer_queue, bool bc_compression) {
     u32 count = 0;
     vkEnumeratePhysicalDevices(instance, &count, nullptr);
     std::vector<VkPhysicalDevice> devices(count);
@@ -289,6 +307,7 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, const Features& 
                     .timestamp_period =
                         timestamp_bits > 0 ? properties.limits.timestampPeriod : 0.0f,
                     .transfer_queue = transfer.has_value(),
+                    .bc_compression = bc_compression && supports_bc7(candidate, basic),
                 },
             .timestamp_bits = timestamp_bits,
         };
@@ -329,6 +348,9 @@ std::expected<VkDevice, std::string> create_logical_device(const PhysicalDevice&
     for_each_required_feature(features, [](std::string_view, VkBool32& value) { value = VK_TRUE; });
     if (physical_device.capabilities.max_anisotropy > 1.0f) {
         features.root.features.samplerAnisotropy = VK_TRUE;
+    }
+    if (physical_device.capabilities.bc_compression) {
+        features.root.features.textureCompressionBC = VK_TRUE;
     }
 
     std::vector<const char*> extensions;

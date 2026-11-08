@@ -213,6 +213,7 @@ Converted<Primitive> convert_primitive(const fastgltf::Asset& gltf,
             });
     } else {
         generate_tangents(primitive.vertices, primitive.indices);
+        primitive.generated_tangents = true;
     }
     return primitive;
 }

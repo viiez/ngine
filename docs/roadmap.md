@@ -15,7 +15,7 @@ sind [R2.1](iterations/R2.1-editor-geruest-und-viewport.md) (Editor-Gerüst und 
 [R2.2](iterations/R2.2-szenenbaum-inspector-undo.md) (Szenenbaum, Inspector, Undo),
 [R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor) und
 [R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload)
-abgeschlossen, als Nächstes kommt R2.5 (Kochen, KTX2, Prefabs).
+abgeschlossen; in Arbeit ist [R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs).
 
 ## Phasen und Iterationen
 

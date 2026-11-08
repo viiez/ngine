@@ -80,8 +80,13 @@ Result<std::unique_ptr<Texture>> create_texture(DeviceContext& context, const Te
     if (usage == 0) {
         return std::unexpected("Textur ohne Verwendung");
     }
-    if (mipmapped) {
-        // upload() rechnet die Stufen per Blit von Stufe zu Stufe.
+    if (is_compressed(desc.format) &&
+        (has(desc.usage, TextureUsage::RenderTarget) || has(desc.usage, TextureUsage::Storage))) {
+        return std::unexpected("Blockkomprimierte Texturen nur zum Lesen");
+    }
+    if (mipmapped && !is_compressed(desc.format)) {
+        // upload() rechnet die Stufen per Blit von Stufe zu Stufe. Blockkomprimierte Texturen
+        // bekommen alle Stufen über upload_async().
         VkFormatProperties properties{};
         vkGetPhysicalDeviceFormatProperties(context.physical_device, format, &properties);
         constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_BLIT_SRC_BIT |
