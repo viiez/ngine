@@ -203,28 +203,30 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::Upl
     if (!indices.empty()) {
         const auto vertex_bytes = std::as_bytes(std::span{vertices});
         const auto index_bytes = std::as_bytes(std::span{indices});
-        auto vertex_buffer = device_->create_buffer({.size = vertex_bytes.size(),
-                                                     .usage = rhi::BufferUsage::Storage,
-                                                     .memory = rhi::MemoryUsage::Gpu});
-        if (!vertex_buffer) {
-            return std::unexpected(vertex_buffer.error());
+        auto vertex_range = geometry_->allocate(vertex_bytes.size());
+        if (!vertex_range) {
+            return std::unexpected(vertex_range.error());
         }
-        auto index_buffer =
-            device_->create_buffer({.size = index_bytes.size(),
-                                    .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Index,
-                                    .memory = rhi::MemoryUsage::Gpu});
-        if (!index_buffer) {
-            return std::unexpected(index_buffer.error());
+        auto index_range = geometry_->allocate(index_bytes.size());
+        if (!index_range) {
+            geometry_->free(*vertex_range);
+            return std::unexpected(index_range.error());
         }
         if (ticket != nullptr) {
-            *ticket = rhi::later(*ticket, device_->upload_async(**vertex_buffer, vertex_bytes));
-            *ticket = rhi::later(*ticket, device_->upload_async(**index_buffer, index_bytes));
+            *ticket = rhi::later(*ticket, geometry_->upload_async(*vertex_range, vertex_bytes));
+            *ticket = rhi::later(*ticket, geometry_->upload_async(*index_range, index_bytes));
         } else {
-            device_->upload(**vertex_buffer, 0, vertex_bytes);
-            device_->upload(**index_buffer, 0, index_bytes);
+            geometry_->upload(*vertex_range, vertex_bytes);
+            geometry_->upload(*index_range, index_bytes);
         }
-        mesh.vertices = *std::move(vertex_buffer);
-        mesh.indices = *std::move(index_buffer);
+        mesh.vertices = *vertex_range;
+        mesh.indices = *index_range;
+        mesh.vertex_address = geometry_->address(*vertex_range);
+        mesh.index_buffer = &geometry_->buffer(*index_range);
+        const auto first = static_cast<u32>(index_range->offset / sizeof(u32));
+        for (Submesh& submesh : mesh.submeshes) {
+            submesh.first_index += first;
+        }
     }
     if (!free_.empty()) {
         const u32 index = free_.back();
@@ -240,7 +242,9 @@ void MeshStore::remove(u32 index) {
     if (index >= meshes_.size() || std::ranges::find(free_, index) != free_.end()) {
         return;
     }
-    // Die Puffer gibt das Device frei, wenn die GPU sie nicht mehr braucht.
+    // Die Bereiche werden wiederverwendet, wenn die GPU sie nicht mehr braucht.
+    geometry_->free(meshes_[index].vertices);
+    geometry_->free(meshes_[index].indices);
     meshes_[index] = GpuMesh{};
     free_.push_back(index);
 }

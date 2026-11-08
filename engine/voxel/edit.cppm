@@ -6,6 +6,7 @@ export module ngine.voxel:edit;
 
 import ngine.core;
 import :grid;
+import :chunk;
 
 export namespace ngine::voxel {
 
@@ -33,6 +34,12 @@ struct Brush {
 // die Version des Gitters.
 Box apply(Grid& grid, const Brush& brush);
 
+// Wendet den Pinsel auf alle Chunks an, die er berührt (Mitte und Radius in Voxeln relativ zum
+// Ursprung des Terrains). Legt fehlende Chunks beim Auftragen an, schrumpft einheitlich
+// gewordene und merkt die betroffenen Netze vor (auch die der Nachbarn, VOX-03). Liefert den
+// geänderten Bereich, leer, wenn sich nichts geändert hat.
+SampleBox apply(ChunkStore& store, const Brush& brush);
+
 struct RayHit {
     Vec3 position;
     f32 distance = 0.0f;
@@ -41,6 +48,10 @@ struct RayHit {
 // Sucht entlang eines Strahls (Gitterkoordinaten, direction normiert) die erste Oberfläche. Läuft
 // in Schritten von einem Viertel Voxel und verfeinert den Treffer linear.
 [[nodiscard]] std::optional<RayHit> raycast(const Grid& grid, Vec3 origin, Vec3 direction,
+                                            f32 max_length);
+// Wie oben über alle Chunks; Koordinaten in Voxeln relativ zum Ursprung des Terrains. Läuft über
+// Chunk-Grenzen hinweg, außerhalb der Chunks ist Luft.
+[[nodiscard]] std::optional<RayHit> raycast(const ChunkStore& store, Vec3 origin, Vec3 direction,
                                             f32 max_length);
 
 } // namespace ngine::voxel

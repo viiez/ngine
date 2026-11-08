@@ -107,6 +107,8 @@ export struct MenuTargets {
     std::function<void()> quit;
     // Weitere Menüs hinter „Spiel“ (z. B. Prefab und Assets, R2.5); leer: keine.
     std::function<void()> extra_menus;
+    // Fügt ein Voxel-Terrain ein (R3.1); leer: kein Menüeintrag.
+    std::function<void()> new_terrain;
 };
 
 export class EditorMenu {
@@ -158,6 +160,9 @@ public:
             ui::separator();
             if (ui::menu_item("Neue Entity", {}, nullptr, editable)) {
                 targets.tree.create(document, targets.selection, 0);
+            }
+            if (targets.new_terrain && ui::menu_item("Neues Terrain", {}, nullptr, editable)) {
+                targets.new_terrain();
             }
             const bool selected = targets.selection.current() != 0;
             if (ui::menu_item("Umbenennen", "F2", nullptr, editable && selected)) {

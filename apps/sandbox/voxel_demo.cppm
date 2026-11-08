@@ -15,20 +15,22 @@ module;
 #include <utility>
 #include <vector>
 
-// Durchstich D1: ein Chunk Voxel-Terrain mit einem glatten Hügel, als Netz aus Surface Nets
-// gezeichnet und zur Laufzeit veränderbar. Seit R1.2 zeichnet die Demo über den Render-Graph und
-// hält das Netz im GPU-Speicher, seit R1.3 mit der Kamera des Renderers.
+// Voxel-Terrain in der Sandbox. Seit R3.1 ein Terrain aus mehreren Chunks als Komponente der
+// Welt, gemeshed im Job-System und gezeichnet vom Renderer mit PBR und Schatten (vorher, im
+// Durchstich D1, ein Chunk mit eigenem Pass). Mit der Maus veränderbar, auch über Chunk-Grenzen.
 export module sandbox.voxel_demo;
 
 import ngine.core;
 import ngine.filesystem;
+import ngine.jobs;
 import ngine.math;
 import ngine.profile;
+import ngine.reflect;
 import ngine.render;
 import ngine.rhi;
 import ngine.rhi.vulkan;
-import ngine.shaders;
 import ngine.voxel;
+import ngine.world;
 
 namespace sandbox {
 
@@ -36,93 +38,50 @@ using namespace ngine;
 namespace {
 
 using math::DVec3;
-using math::Mat4;
 using math::Quat;
 using math::Vec3;
-using math::Vec4;
 
-// Umlaufende Kamera der Demo. Lage, Blick und Projektion (umgekehrte Tiefe, kamerarelativ nach
-// ADR 0012) kommen aus dem Renderer (REND-08); die Demo hat keine Welt, darum keine Entity.
-struct Camera {
-    render::CameraView view;
-
-    [[nodiscard]] Vec3 forward() const {
-        return -view.rotation[2];
-    }
-    [[nodiscard]] Vec3 right() const {
-        return view.rotation[0];
-    }
-    [[nodiscard]] Vec3 up() const {
-        return view.rotation[1];
-    }
-
-    // Strahl durch einen Bildpunkt (Ursprung oben links).
-    [[nodiscard]] Vec3 ray(f32 x, f32 y, rhi::Extent2D extent) const {
-        const f32 aspect = static_cast<f32>(extent.width) / static_cast<f32>(extent.height);
-        const f32 t = std::tan(view.camera.fov_y * 0.5f);
-        const f32 nx = 2.0f * x / static_cast<f32>(extent.width) - 1.0f;
-        const f32 ny = 1.0f - 2.0f * y / static_cast<f32>(extent.height);
-        return math::normalize(forward() + right() * (nx * t * aspect) + up() * (ny * t));
-    }
-};
-
-Camera look_at(DVec3 eye, DVec3 target) {
-    const Quat rotation = math::look_rotation(math::to_f32(target - eye), Vec3{0, 1, 0});
-    return Camera{.view = {.position = eye,
-                           .rotation = math::to_mat3(rotation),
-                           .camera = {.fov_y = math::radians(50.0f), .near_plane = 0.5f}}};
+reflect::TypeRegistry make_types() {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    render::register_types(types);
+    return types;
 }
 
-struct PushConstants {
-    // Zeilen der Matrix von Gitter- in Clip-Koordinaten, so wie voxel.slang sie liest.
-    Mat4 view_projection_rows;
-    Vec4 light;
-    Vec4 camera;
-    u64 vertices;
-};
-static_assert(sizeof(PushConstants) <= rhi::max_push_constant_size);
+// Strahl durch einen Bildpunkt (Ursprung oben links) einer Kamera mit Drehung rotation.
+Vec3 camera_ray(const math::Mat3& rotation, f32 fov_y, f32 x, f32 y, rhi::Extent2D extent) {
+    const f32 aspect = static_cast<f32>(extent.width) / static_cast<f32>(extent.height);
+    const f32 t = std::tan(fov_y * 0.5f);
+    const f32 nx = 2.0f * x / static_cast<f32>(extent.width) - 1.0f;
+    const f32 ny = 1.0f - 2.0f * y / static_cast<f32>(extent.height);
+    return math::normalize(-rotation[2] + rotation[0] * (nx * t * aspect) + rotation[1] * (ny * t));
+}
 
-// Netz im GPU-Speicher. Ein Exemplar genügt: upload() kopiert erst, wenn frühere Frames mit dem
-// Puffer fertig sind.
-struct GpuMesh {
-    std::unique_ptr<rhi::Buffer> vertices;
-    std::unique_ptr<rhi::Buffer> indices;
-    u32 index_count = 0;
-    u64 version = ~u64{0};
-};
-
-// Puffer mindestens der Größe size, mit Luft nach oben, damit nicht jede Änderung neu anfordert.
-bool ensure_capacity(rhi::Device& device, std::unique_ptr<rhi::Buffer>& buffer, u64 size,
-                     rhi::BufferUsage usage) {
-    if (buffer && buffer->size() >= size) {
-        return true;
-    }
-    // Der alte Puffer darf sofort weg: Die RHI gibt ihn erst frei, wenn die GPU fertig ist.
-    auto created = device.create_buffer({.size = std::max<u64>(size + size / 2, 4096),
-                                         .usage = usage,
-                                         .memory = rhi::MemoryUsage::Gpu});
-    if (!created) {
-        log::error("Puffer für das Voxel-Netz: {}", created.error());
-        return false;
-    }
-    buffer = *std::move(created);
-    return true;
+f64 elapsed_ms(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
 } // namespace
 
-// Zustand der Demo: Gitter, Netz, Kamera, Pinsel und GPU-Ressourcen.
+// Zustand der Demo: Welt mit Terrain, Sonne und Kamera, Pinsel, Renderer.
 export class VoxelScene {
 public:
-    // origin: Lage der Gitterecke in der Welt. Weit vom Ursprung zeigt die Demo, dass nichts
+    // origin: Lage des Terrains in der Welt. Weit vom Ursprung zeigt die Demo, dass nichts
     // zittert, weil relativ zur Kamera gezeichnet wird (--far).
-    explicit VoxelScene(u32 voxels = 32, DVec3 origin = DVec3{0, 0, 0})
-        : grid_{{voxels + 1, voxels + 1, voxels + 1}}, origin_{origin} {
-        voxel::fill_hill(
-            grid_, {.ground = 6.0f, .height = 14.0f, .radius = static_cast<f32>(voxels) * 0.28f});
-        center_ = {static_cast<f32>(voxels) * 0.5f, 10.0f, static_cast<f32>(voxels) * 0.5f};
-        distance_ = static_cast<f32>(voxels) * 1.5f;
-        camera_ = make_camera();
+    explicit VoxelScene(DVec3 origin = DVec3{0, 0, 0}, world::Terrain terrain = {})
+        : types_{make_types()}, world_{types_}, origin_{origin} {
+        terrain_ = world_.create("Terrain");
+        terrain_.set(world::Transform{.position = origin}).set(terrain);
+        world_.create("Sonne")
+            .set(world::Transform{.rotation = math::look_rotation(
+                                      math::normalize(Vec3{0.5f, -0.7f, -0.45f}), {0, 1, 0})})
+            .set(render::DirectionalLight{.color = {1.0f, 0.95f, 0.88f}, .intensity = 3.0f});
+        camera_ = world_.create("Kamera");
+        camera_.set(world::Transform{}).set(render::Camera{.near_plane = 0.2f});
+        // Mitte der Oberfläche: Hier treffen sich vier Chunks, Änderungen kreuzen ihre Grenzen.
+        center_ = {0.0f, terrain.ground, 0.0f};
+        distance_ = static_cast<f32>(std::max(terrain.size_x, terrain.size_z)) * 16.0f;
+        update_camera();
         remesh();
     }
 
@@ -137,7 +96,7 @@ public:
         brush_timer_ = 0.0f;
     }
     void zoom(f32 steps) {
-        distance_ = std::clamp(distance_ * std::pow(0.9f, steps), 10.0f, 200.0f);
+        distance_ = std::clamp(distance_ * std::pow(0.9f, steps), 5.0f, 300.0f);
     }
     void toggle_rotation() {
         rotating_ = !rotating_;
@@ -148,9 +107,9 @@ public:
     // Bewegt die Kamera und wendet den gehaltenen Pinsel an (30-mal pro Sekunde).
     void update(f32 dt, rhi::Extent2D viewport) {
         if (rotating_) {
-            yaw_ += dt * 0.25f;
+            yaw_ += dt * 0.15f;
         }
-        camera_ = make_camera();
+        update_camera();
         if (!brush_ || !cursor_) {
             return;
         }
@@ -159,24 +118,26 @@ public:
             return;
         }
         brush_timer_ = 1.0f / 30.0f;
-        const Vec3 direction = camera_.ray(cursor_->first, cursor_->second, viewport);
-        if (const auto hit = voxel::raycast(grid_, eye_in_grid(), direction, 500.0f)) {
+        const Vec3 direction = camera_ray(math::to_mat3(rotation_), render::Camera{}.fov_y,
+                                          cursor_->first, cursor_->second, viewport);
+        if (const auto hit = voxel::raycast(chunks(), eye_in_terrain(), direction, 1000.0f)) {
             edit({.mode = *brush_,
                   .center = hit->position,
-                  .radius = 2.5f,
+                  .radius = 4.0f,
                   .material = 2,
                   .strength = 0.6f});
         }
     }
 
-    // Automatische Änderung für Tests und die CI: Abtragen auf einem Kreis um die Kuppe, jeder
-    // fünfte Schritt trägt wieder auf, jeder siebte glättet.
+    // Automatische Änderung für Tests und die CI: Abtragen auf einem Kreis um die Mitte (dort
+    // treffen sich vier Chunks), jeder fünfte Schritt trägt wieder auf, jeder siebte glättet.
     void scripted_edit(u64 step) {
         const f32 angle = static_cast<f32>(step) * 0.7f;
-        const f32 radius = 3.0f + static_cast<f32>(step % 5);
-        const Vec3 above{center_.x + std::cos(angle) * radius, 100.0f,
-                         center_.z + std::sin(angle) * radius};
-        const auto hit = voxel::raycast(grid_, above, {0.0f, -1.0f, 0.0f}, 200.0f);
+        const f32 radius = 3.0f + static_cast<f32>(step % 5) * 2.0f;
+        const auto meters = static_cast<f32>(voxel::voxel_size);
+        const Vec3 above{center_.x / meters + std::cos(angle) * radius, 400.0f,
+                         center_.z / meters + std::sin(angle) * radius};
+        const auto hit = voxel::raycast(chunks(), above, {0.0f, -1.0f, 0.0f}, 800.0f);
         if (!hit) {
             return;
         }
@@ -188,171 +149,122 @@ public:
         }
         edit({.mode = mode,
               .center = hit->position,
-              .radius = 2.5f,
+              .radius = 4.0f,
               .material = 2,
               .strength = 0.8f});
     }
 
     void edit(const voxel::Brush& brush) {
-        voxel::apply(grid_, brush);
+        static_cast<void>(voxel::apply(chunks(), brush));
         ++edits_;
     }
 
-    // Baut das Netz neu, wenn sich das Gitter geändert hat. Liefert die Zeit in Millisekunden.
+    // Meshed geänderte Chunks neu (im Job-System). Liefert die Zeit in Millisekunden, wenn es
+    // etwas zu tun gab.
     std::optional<f64> remesh_if_needed() {
-        if (meshed_version_ == grid_.version()) {
-            return std::nullopt;
+        if (!chunks_ready() || chunks().has_changes()) {
+            return remesh();
         }
-        return remesh();
+        return std::nullopt;
     }
 
     f64 remesh() {
         NGINE_PROFILE_ZONE("VoxelScene::remesh");
         const auto start = std::chrono::steady_clock::now();
-        mesher_.build(grid_, mesh_);
-        const f64 ms =
-            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
-                .count();
-        meshed_version_ = grid_.version();
-        ++mesh_count_;
-        total_ms_ += ms;
-        max_ms_ = std::max(max_ms_, ms);
+        const usize meshed = world::update_terrains(world_, jobs_);
+        const f64 ms = elapsed_ms(start);
+        if (meshed > 0) {
+            ++mesh_count_;
+            total_ms_ += ms;
+            max_ms_ = std::max(max_ms_, ms);
+            meshed_chunks_ += meshed;
+        }
         return ms;
     }
 
-    [[nodiscard]] const voxel::Mesh& mesh() const {
-        return mesh_;
+    [[nodiscard]] const world::TerrainData& data() const {
+        return *terrain_.get<world::TerrainState>()->data;
     }
     [[nodiscard]] std::string stats() const {
-        return std::format("{} Dreiecke, {} Eckpunkte, {} Änderungen; Meshing im Mittel {:.2f} ms, "
-                           "höchstens {:.2f} ms ({} Läufe)",
-                           mesh_.triangle_count(), mesh_.vertices.size(), edits_,
-                           total_ms_ / static_cast<f64>(std::max<u64>(mesh_count_, 1)), max_ms_,
-                           mesh_count_);
+        const world::TerrainStats& s = data().stats;
+        std::string text = std::format(
+            "{} Chunks ({} einheitlich, {} KiB Samples), {} Netze mit {} Dreiecken, {} "
+            "Änderungen; Meshing im Mittel {:.2f} ms, höchstens {:.2f} ms ({} Läufe, {} Chunks)",
+            s.chunks, s.uniform_chunks, s.sample_bytes / 1024, s.meshes, s.triangles, edits_,
+            total_ms_ / static_cast<f64>(std::max<u64>(mesh_count_, 1)), max_ms_, mesh_count_,
+            meshed_chunks_);
+        if (renderer_) {
+            const render::RenderStats& r = renderer_->stats();
+            text += std::format("; {} Draws ({} Chunks), {} Schatten-Draws", r.draws,
+                                r.terrain_chunks, r.shadow_draws);
+        }
+        return text;
     }
 
     // --- GPU ----------------------------------------------------------------------------------
 
     rhi::Result<void> create_gpu(rhi::Device& device, rhi::Format color_format) {
-        auto vertex = device.create_shader(shaders::voxel_vertex());
-        auto fragment = device.create_shader(shaders::voxel_fragment());
-        if (!vertex || !fragment) {
-            return std::unexpected(!vertex ? vertex.error() : fragment.error());
+        auto renderer = render::Renderer::create(device, color_format);
+        if (!renderer) {
+            return std::unexpected(renderer.error());
         }
-        auto pipeline = device.create_pipeline({
-            .vertex = vertex->get(),
-            .fragment = fragment->get(),
-            .color_format = color_format,
-            .depth_format = rhi::Format::D32Float,
-            .depth_compare = rhi::CompareOp::Greater,
-            .cull_mode = rhi::CullMode::Back,
-        });
-        if (!pipeline) {
-            return std::unexpected(pipeline.error());
-        }
-        vertex_shader_ = *std::move(vertex);
-        fragment_shader_ = *std::move(fragment);
-        pipeline_ = *std::move(pipeline);
+        renderer_ = *std::move(renderer);
+        // Schatten über das ganze Terrain.
+        renderer_->shadows.distance = 120.0f;
         return {};
     }
 
     void release_gpu() {
-        gpu_mesh_ = {};
-        pipeline_.reset();
-        fragment_shader_.reset();
-        vertex_shader_.reset();
+        renderer_.reset();
     }
 
-    // Lädt ein geändertes Netz hoch und fügt dem Graph den Pass hinzu, der die Szene in target
-    // zeichnet; der Tiefenpuffer ist eine transiente Textur des Graphs.
-    void add_passes(rhi::Device& device, render::RenderGraph& graph, render::TextureHandle target) {
+    // Fügt dem Graph die Pässe des Renderers hinzu, die die Welt in target zeichnen.
+    void add_passes(rhi::Device& /*device*/, render::RenderGraph& graph,
+                    render::TextureHandle target) {
         NGINE_PROFILE_ZONE("VoxelScene::add_passes");
-        if (gpu_mesh_.version != meshed_version_) {
-            upload(device, gpu_mesh_);
-        }
-
-        const rhi::Extent2D extent = graph.texture_desc(target).extent;
-        const auto depth = graph.create_texture(
-            "Voxel-Tiefe", {.extent = extent, .format = rhi::Format::D32Float});
-        const f32 aspect =
-            static_cast<f32>(extent.width) / static_cast<f32>(std::max(extent.height, 1u));
-        // Gitter in kamerarelative Koordinaten: Die Differenz zur Kamera entsteht in 64 Bit.
-        const Mat4 model = math::Affine{.translation = origin_}.relative_to(camera_.view.position);
-        const Mat4 view_projection = render::view_projection(camera_.view, aspect) * model;
-        const PushConstants push{
-            .view_projection_rows = math::transpose(view_projection),
-            .light = {0.48f, 0.78f, 0.40f, 0.35f},
-            .camera = math::extend(eye_in_grid(), 0.003f),
-            .vertices = gpu_mesh_.vertices ? gpu_mesh_.vertices->device_address() : 0,
-        };
-
-        graph.add_pass(
-            "Voxel",
-            [&](render::PassBuilder& pass) {
-                pass.write(target, rhi::ResourceState::ColorTarget);
-                pass.write(depth, rhi::ResourceState::DepthTarget);
-            },
-            [this, target, depth, push](render::PassContext& context) {
-                rhi::CommandList& commands = context.commands;
-                commands.begin_rendering({.color = &context.texture(target),
-                                          .clear_color = rhi::Color{0.45f, 0.60f, 0.80f, 1.0f},
-                                          .depth = &context.texture(depth),
-                                          // Umgekehrte Tiefe: 0 ist unendlich fern.
-                                          .clear_depth = 0.0f});
-                if (gpu_mesh_.index_count > 0) {
-                    commands.bind_pipeline(*pipeline_);
-                    commands.push_constants(std::as_bytes(std::span{&push, 1}));
-                    commands.bind_index_buffer(*gpu_mesh_.indices);
-                    commands.draw_indexed(gpu_mesh_.index_count);
-                }
-                commands.end_rendering();
-            });
+        static_cast<void>(world::update_transforms(world_));
+        renderer_->add_passes(graph, world_, target);
     }
 
 private:
-    [[nodiscard]] Camera make_camera() const {
-        const f32 pitch = 0.55f;
+    [[nodiscard]] bool chunks_ready() const {
+        const auto* state = terrain_.get<world::TerrainState>();
+        return state != nullptr && state->data;
+    }
+    [[nodiscard]] voxel::ChunkStore& chunks() {
+        return terrain_.get_mut<world::TerrainState>()->data->chunks;
+    }
+
+    void update_camera() {
+        const f32 pitch = 0.5f;
         const Vec3 offset{std::cos(yaw_) * std::cos(pitch), std::sin(pitch),
                           std::sin(yaw_) * std::cos(pitch)};
-        const DVec3 center = origin_ + math::to_f64(center_);
-        return look_at(center + math::to_f64(offset * distance_), center);
+        const DVec3 target = origin_ + math::to_f64(center_);
+        eye_ = target + math::to_f64(offset * distance_);
+        rotation_ = math::look_rotation(math::to_f32(target - eye_), Vec3{0, 1, 0});
+        camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
     }
 
-    // Kameraposition in Gitterkoordinaten, für Strahltest und Beleuchtung.
-    [[nodiscard]] Vec3 eye_in_grid() const {
-        return math::to_f32(camera_.view.position - origin_);
+    // Kamera in Voxeln relativ zum Ursprung des Terrains, für den Strahltest.
+    [[nodiscard]] Vec3 eye_in_terrain() const {
+        return math::to_f32((eye_ - origin_) * (1.0 / voxel::voxel_size));
     }
 
-    void upload(rhi::Device& device, GpuMesh& gpu) {
-        NGINE_PROFILE_ZONE("VoxelScene::upload");
-        gpu.index_count = 0;
-        gpu.version = meshed_version_;
-        if (mesh_.indices.empty()) {
-            return;
-        }
-        const auto vertices = std::as_bytes(std::span{mesh_.vertices});
-        const auto indices = std::as_bytes(std::span{mesh_.indices});
-        if (!ensure_capacity(device, gpu.vertices, vertices.size(), rhi::BufferUsage::Storage) ||
-            !ensure_capacity(device, gpu.indices, indices.size(),
-                             rhi::BufferUsage::Storage | rhi::BufferUsage::Index)) {
-            return;
-        }
-        device.upload(*gpu.vertices, 0, vertices);
-        device.upload(*gpu.indices, 0, indices);
-        gpu.index_count = static_cast<u32>(mesh_.indices.size());
-    }
-
-    voxel::Grid grid_;
-    voxel::Mesher mesher_;
-    voxel::Mesh mesh_;
-    u64 meshed_version_ = ~u64{0};
+    reflect::TypeRegistry types_;
+    world::World world_;
+    jobs::JobSystem jobs_;
+    std::unique_ptr<render::Renderer> renderer_;
+    world::Entity terrain_;
+    world::Entity camera_;
 
     DVec3 origin_;
+    // Mitte der Oberfläche in Metern relativ zu origin_.
     Vec3 center_;
-    f32 distance_ = 48.0f;
+    f32 distance_ = 64.0f;
     f32 yaw_ = 0.6f;
     bool rotating_ = true;
-    Camera camera_;
+    DVec3 eye_;
+    Quat rotation_ = math::quat_identity();
 
     std::optional<std::pair<f32, f32>> cursor_;
     std::optional<voxel::BrushMode> brush_;
@@ -360,42 +272,51 @@ private:
 
     u64 edits_ = 0;
     u64 mesh_count_ = 0;
+    u64 meshed_chunks_ = 0;
     f64 total_ms_ = 0.0;
     f64 max_ms_ = 0.0;
-
-    std::unique_ptr<rhi::Shader> vertex_shader_;
-    std::unique_ptr<rhi::Shader> fragment_shader_;
-    std::unique_ptr<rhi::Pipeline> pipeline_;
-    GpuMesh gpu_mesh_;
 };
 
 namespace {
 
-// Misst, wie lange Surface Nets für verschieden große Gitter brauchen.
-void benchmark_meshing() {
-    for (const u32 voxels : {32u, 64u, 128u}) {
-        voxel::Grid grid{{voxels + 1, voxels + 1, voxels + 1}};
-        voxel::fill_hill(grid, {.ground = static_cast<f32>(voxels) * 0.2f,
-                                .height = static_cast<f32>(voxels) * 0.45f,
-                                .radius = static_cast<f32>(voxels) * 0.28f});
-        voxel::Mesher mesher;
-        voxel::Mesh mesh;
-        mesher.build(grid, mesh); // Aufwärmen: Speicher anfordern
-        constexpr int runs = 5;
-        const auto start = std::chrono::steady_clock::now();
-        for (int i = 0; i < runs; ++i) {
-            mesher.build(grid, mesh);
+// Misst Füllen und Meshing vieler Chunks auf einem Thread und parallel im Job-System.
+void benchmark_chunks() {
+    const world::Terrain terrain{
+        .size_x = 8, .size_y = 4, .size_z = 8, .ground = 24.0f, .height = 10.0f};
+    for (const bool parallel : {false, true}) {
+        // 0 Worker: Alles läuft im aufrufenden Thread.
+        jobs::JobSystem jobs{parallel ? jobs::JobSystemDesc{}
+                                      : jobs::JobSystemDesc{.worker_count = 0}};
+        voxel::ChunkStore chunks;
+        auto start = std::chrono::steady_clock::now();
+        world::generate_terrain(terrain, chunks, jobs);
+        const f64 fill_ms = elapsed_ms(start);
+        const std::vector<voxel::ChunkCoord> coords = chunks.take_changes();
+        std::vector<voxel::Mesh> meshes(coords.size());
+        // Bestes von drei Läufen.
+        f64 mesh_ms = 1e30;
+        for (int run = 0; run < 3; ++run) {
+            start = std::chrono::steady_clock::now();
+            voxel::mesh_chunks(jobs, chunks, coords, meshes);
+            mesh_ms = std::min(mesh_ms, elapsed_ms(start));
         }
-        const f64 ms =
-            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
-                .count() /
-            runs;
-        log::info(
-            "Surface Nets {}³ Voxel: {:.2f} ms, {} Dreiecke, {} KiB Netz, {} KiB Dichtefeld",
-            voxels, ms, mesh.triangle_count(),
-            (mesh.vertices.size() * sizeof(voxel::Vertex) + mesh.indices.size() * sizeof(u32)) /
-                1024,
-            grid.samples().size_bytes() / 1024);
+        usize triangles = 0;
+        usize with_mesh = 0;
+        usize bytes = 0;
+        for (const voxel::Mesh& mesh : meshes) {
+            triangles += mesh.triangle_count();
+            with_mesh += mesh.indices.empty() ? 0 : 1;
+            bytes +=
+                mesh.vertices.size() * sizeof(voxel::Vertex) + mesh.indices.size() * sizeof(u32);
+        }
+        log::info("Chunks {} ({} Threads): {} Chunks gefüllt in {:.1f} ms; {} Netze gemeshed in "
+                  "{:.1f} ms ({:.3f} ms pro Netz), {} Dreiecke, {} KiB Netze, {} KiB Samples "
+                  "({} von {} Chunks einheitlich)",
+                  parallel ? "parallel" : "seriell", jobs.worker_count() + 1, chunks.size(),
+                  fill_ms, coords.size(), mesh_ms,
+                  mesh_ms / static_cast<f64>(std::max<usize>(with_mesh, 1)), triangles,
+                  bytes / 1024, chunks.memory_bytes() / 1024, chunks.uniform_count(),
+                  chunks.size());
     }
 }
 
@@ -418,25 +339,25 @@ rhi::Result<void> write_ppm(const std::string& path, std::span<const u8> rgba,
 
 } // namespace
 
-// Lage des Gitters in der Welt: im Ursprung oder, mit --far, 10 000 km entfernt. Dort hätte eine
+// Lage des Terrains in der Welt: im Ursprung oder, mit --far, 10 000 km entfernt. Dort hätte eine
 // 32-Bit-Position nur noch eine Auflösung von rund einem Meter.
 export DVec3 voxel_origin(bool far) {
     return far ? DVec3{1.0e7, 0.0, -1.0e7} : DVec3{0, 0, 0};
 }
 
-// Ohne GPU: Hügel erzeugen, frames Änderungen anwenden und jeweils neu meshen, Zeiten messen.
+// Ohne GPU: Terrain erzeugen, frames Änderungen anwenden und jeweils neu meshen, Zeiten messen.
 export int run_voxel_demo_headless(u64 frames) {
     log::info("Voxel-Demo ohne GPU: {} Änderungen", frames);
-    benchmark_meshing();
+    benchmark_chunks();
     VoxelScene scene;
     for (u64 i = 0; i < frames; ++i) {
         scene.scripted_edit(i);
         scene.remesh_if_needed();
         profile::frame_mark();
     }
-    log::info("Voxel-Netz: {}", scene.stats());
-    if (scene.mesh().indices.empty()) {
-        log::error("Das Voxel-Netz ist leer");
+    log::info("Voxel-Terrain: {}", scene.stats());
+    if (scene.data().meshes.empty()) {
+        log::error("Das Terrain hat kein Netz");
         return 1;
     }
     return 0;
@@ -468,7 +389,7 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             log::fatal("{}", target.error());
             return 1;
         }
-        VoxelScene scene{32, voxel_origin(far)};
+        VoxelScene scene{voxel_origin(far)};
         if (auto result = scene.create_gpu(**device, rhi::Format::RGBA8Srgb); !result) {
             log::fatal("{}", result.error());
             return 1;
@@ -488,7 +409,7 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             (*device)->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
             pool.end_frame();
         }
-        log::info("Voxel-Netz: {}", scene.stats());
+        log::info("Voxel-Terrain: {}", scene.stats());
         const auto pixels = (*device)->read_texture(**target, rhi::ResourceState::TransferSrc);
         if (auto written = write_ppm(image_path, pixels, extent); !written) {
             log::error("Bild lässt sich nicht schreiben: {}", written.error());

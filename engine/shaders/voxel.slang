@@ -1,5 +1,7 @@
-// Voxel-Terrain für den Durchstich D1. Die Geometrie kommt über Vertex Pulling: Der Shader liest
-// die Eckpunkte selbst über die Adresse des Puffers (ADR 0022), es gibt keine Vertex-Attribute.
+// Voxel-Terrain für den Durchstich D1; seit R3.1 zeichnet der Renderer das Terrain
+// (terrain.slang), diese Shader dienen nur noch den Tests der RHI. Die Geometrie kommt über Vertex
+// Pulling: Der Shader liest die Eckpunkte selbst über die Adresse des Puffers (ADR 0022), es gibt
+// keine Vertex-Attribute.
 
 struct Vertex
 {

@@ -18,6 +18,7 @@ import ngine.asset;
 import ngine.world;
 import :components;
 import :debug_draw;
+import :geometry;
 import :graph;
 import :lights;
 import :materials;
@@ -66,6 +67,18 @@ struct DrawPush {
 };
 static_assert(sizeof(DrawPush) <= rhi::max_push_constant_size);
 
+// Push Constants eines Chunks des Terrains, wie terrain.slang sie liest (R3.1).
+struct TerrainPush {
+    math::Vec4 model[3];
+    u64 vertices = 0;
+    u64 frame = 0;
+    // Nur für Schatten: die Kaskade, in die gezeichnet wird.
+    u32 cascade = 0;
+    // Nur für den ID-Puffer: Kennung der Entity.
+    u32 id = 0;
+};
+static_assert(sizeof(TerrainPush) <= rhi::max_push_constant_size);
+
 // Kamera, wie sie der Renderer in einem Frame benutzt.
 struct CameraView {
     math::DVec3 position;
@@ -98,6 +111,10 @@ struct RenderStats {
     u32 debug_lines = 0;
     // MeshRenderer, deren Modell noch lädt (oder nicht geladen werden konnte).
     u32 waiting = 0;
+    // Gezeichnete Chunks aller Terrains (in draws und triangles mitgezählt) und Chunks, deren Netz
+    // in diesem Frame hochgeladen wurde.
+    u32 terrain_chunks = 0;
+    u32 terrain_uploads = 0;
 };
 
 // Liefert SPIR-V für einen Einstiegspunkt einer Shader-Datei (z. B. „pbr.slang“), für Hot Reload
@@ -109,7 +126,8 @@ using ShaderSource = std::function<rhi::Result<std::vector<u32>>(
 class GpuModel;
 
 // Zeichnet die Welt (REND-07, REND-08, REND-09, REND-11, REND-15): von der ersten aktiven Kamera
-// aus alle MeshRenderer, vorwärts mit PBR in ein HDR-Ziel, danach Tone Mapping in das Ziel.
+// aus alle MeshRenderer und Terrains (seit R3.1, world::TerrainState), vorwärts mit PBR in ein
+// HDR-Ziel, danach Tone Mapping in das Ziel.
 // Vorher zeichnen vier Pässe die Schattenkarten der Sonne. Undurchsichtige Materialien kommen vor
 // durchsichtigen; durchsichtige werden nicht sortiert (TD-20) und werfen keine Schatten.
 class Renderer {
@@ -122,6 +140,8 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     [[nodiscard]] MeshStore& meshes() noexcept;
+    // Gemeinsame Puffer für die Geometrie aller Meshes und Terrains (TD-23).
+    [[nodiscard]] GeometryBuffer& geometry() noexcept;
     [[nodiscard]] MaterialStore& materials() noexcept;
     [[nodiscard]] rhi::Device& device() noexcept;
 

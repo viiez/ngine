@@ -571,7 +571,7 @@ TEST_CASE("Vulkan uploads in the background with precomputed mip levels", "[rhi]
                                          .usage = ngine::rhi::BufferUsage::Storage,
                                          .memory = ngine::rhi::MemoryUsage::Gpu});
     REQUIRE(buffer);
-    const auto buffer_ticket = device->upload_async(**buffer, std::as_bytes(std::span{numbers}));
+    const auto buffer_ticket = device->upload_async(**buffer, 0, std::as_bytes(std::span{numbers}));
     const auto both = ngine::rhi::later(ticket, buffer_ticket);
 
     // Eine leere Abgabe gibt die Kopien ab; execute() wartet auch auf die Transfer-Queue.

@@ -46,3 +46,4 @@ betroffene Code einreichen.
 | [0035](0035-transfer-queue-concurrent-sharing.md) | Uploads im Hintergrund über eine Transfer-Queue mit gemeinsam genutzten Ressourcen | angenommen |
 | [0036](0036-cooked-assets-ktx2-cache.md) | Gekochte Modelle mit KTX2 und Basis Universal in einem Cache neben den Quellen | angenommen |
 | [0037](0037-prefabs-field-overrides.md) | Prefabs als Dateien, Instanzen voll ausgebaut mit Überschreibungen auf Feldebene | angenommen |
+| [0038](0038-terrain-chunks-shared-geometry.md) | Terrain aus Chunks mit Randschicht, Terrain als Komponente, gemeinsame Geometriepuffer | angenommen |

@@ -23,7 +23,8 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R2.3](R2.3-gizmos-und-spielen.md) | Konstruktion | Gizmos und Spielen im Editor | abgeschlossen |
 | [R2.4](R2.4-asset-ids-ressourcen-hot-reload.md) | Konstruktion | Asset-IDs, Ressourcen und Hot Reload | abgeschlossen |
 | [R2.5](R2.5-kochen-ktx2-prefabs.md) | Konstruktion | Kochen, KTX2 und Prefabs | abgeschlossen |
-| [R3](R3-voxel-terrain.md) | Konstruktion | Reifegrad Voxel-Terrain (R3.1 bis R3.5) | geplant |
+| [R3](R3-voxel-terrain.md) | Konstruktion | Reifegrad Voxel-Terrain (R3.1 bis R3.5) | in Arbeit |
+| [R3.1](R3.1-chunks-und-meshing.md) | Konstruktion | Chunks und Meshing in Jobs | in Arbeit |
 
 ## Vorlage
 

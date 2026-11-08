@@ -203,6 +203,10 @@ World::World(const reflect::TypeRegistry& types) : impl_{std::make_unique<Impl>(
     impl_->tag = ecs_new(impl_->world);
     // Jede Entity mit Transform bekommt ihre Weltlage dazu (update_transforms()).
     require(component<Transform>(), component<WorldTransform>());
+    // Terrain liegt an der Position der Entity (R3.1).
+    if (types.find<Terrain>() != nullptr) {
+        require(component<Terrain>(), component<Transform>());
+    }
 }
 
 World::~World() {
@@ -652,6 +656,7 @@ void register_types(reflect::TypeRegistry& types) {
         types.add<WorldTransform>("WorldTransform").transient();
     }
     register_prefab_types(types);
+    register_terrain_types(types);
 }
 
 } // namespace ngine::world

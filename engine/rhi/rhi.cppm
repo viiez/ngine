@@ -521,10 +521,12 @@ public:
 
     // Upload im Hintergrund (R2.4, TD-17), z. B. für Assets, die der Ressourcen-Manager lädt: Wo
     // die GPU eine eigene Transfer-Queue hat, laufen die Kopien dort, ohne dass ein Frame darauf
-    // wartet. Nur für neue Ressourcen, die die GPU noch nie benutzt hat; benutzt werden dürfen sie
-    // erst, wenn upload_done() für das Ticket true liefert. Ohne Transfer-Queue läuft die Kopie
-    // wie upload() vor der nächsten Abgabe und das Ticket ist sofort erledigt.
-    [[nodiscard]] virtual UploadTicket upload_async(Buffer& buffer,
+    // wartet. Nur für neue Ressourcen, die die GPU noch nie benutzt hat, oder für Bereiche eines
+    // Puffers ab offset, die kein Frame im Flug mehr liest (R3.1, gemeinsame Geometriepuffer);
+    // benutzt werden dürfen sie erst, wenn upload_done() für das Ticket true liefert. Ohne
+    // Transfer-Queue läuft die Kopie wie upload() vor der nächsten Abgabe und das Ticket ist
+    // sofort erledigt.
+    [[nodiscard]] virtual UploadTicket upload_async(Buffer& buffer, u64 offset,
                                                     std::span<const std::byte> data) = 0;
     // Für Texturen mit TransferDst: data enthält alle Mip-Stufen (mip_chain_size()); die GPU
     // rechnet keine Stufen nach. Danach ist die Textur im Zustand ShaderRead. Der einzige Weg für

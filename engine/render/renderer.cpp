@@ -29,6 +29,7 @@ import ngine.reflect;
 import ngine.rhi;
 import ngine.asset;
 import ngine.world;
+import ngine.voxel;
 import ngine.shaders;
 
 namespace ngine::render {
@@ -81,6 +82,16 @@ struct PickRequest {
     u32 y = 0;
 };
 
+// Ein Chunk eines Terrains, wie ihn Vorwärts-Pass, Schatten und ID-Puffer zeichnen.
+struct TerrainDraw {
+    std::array<Vec4, 3> model;
+    u64 vertices = 0;
+    const rhi::Buffer* index_buffer = nullptr;
+    u32 first_index = 0;
+    u32 index_count = 0;
+    u32 id = 0;
+};
+
 } // namespace
 
 // --- Renderer -------------------------------------------------------------------------------
@@ -122,7 +133,9 @@ std::pair<Vec3, f32> bounding_sphere(const GpuMesh& mesh, const math::Affine& tr
 struct Renderer::Impl {
     rhi::Device* device = nullptr;
     rhi::Format target_format = rhi::Format::Unknown;
+    GeometryBuffer geometry;
     MeshStore meshes;
+    TerrainMeshes terrain_meshes;
     MaterialStore materials;
     DebugDraw debug;
     std::unique_ptr<rhi::Shader> pbr_vertex;
@@ -135,6 +148,15 @@ struct Renderer::Impl {
     std::unique_ptr<rhi::Shader> tonemap_fragment;
     std::unique_ptr<rhi::Shader> id_vertex;
     std::unique_ptr<rhi::Shader> id_fragment;
+    std::unique_ptr<rhi::Shader> terrain_vertex;
+    std::unique_ptr<rhi::Shader> terrain_fragment;
+    std::unique_ptr<rhi::Shader> terrain_shadow_vertex;
+    std::unique_ptr<rhi::Shader> terrain_id_vertex;
+    std::unique_ptr<rhi::Shader> terrain_id_fragment;
+    // Terrain: Vorwärts, Schatten (neu erzeugt mit dem Tiefenversatz), ID-Puffer.
+    std::unique_ptr<rhi::Pipeline> terrain;
+    std::unique_ptr<rhi::Pipeline> terrain_shadow;
+    std::unique_ptr<rhi::Pipeline> terrain_id;
     // ID-Puffer mit und ohne Aussortieren von Rückseiten (wie die PBR-Varianten).
     std::array<std::unique_ptr<rhi::Pipeline>, 2> id_pipelines;
     // Pro Frame im Flug: Puffer für das zurückgelesene Pixel und die Anfrage, die er beantwortet.
@@ -160,6 +182,9 @@ struct Renderer::Impl {
     usize next_frame = 0;
     std::vector<Draw> draws;
     std::array<std::vector<ShadowDraw>, cascade_count> shadow_draws;
+    std::vector<TerrainDraw> terrain_draws;
+    // Indizes in terrain_draws je Kaskade.
+    std::array<std::vector<u32>, cascade_count> terrain_shadow_draws;
     u32 line_count = 0;
     RenderStats stats;
     // Modelle, die MeshRenderer brauchen (R2.4). Ein Eintrag hält das Handle, solange ihn ein
@@ -172,7 +197,9 @@ struct Renderer::Impl {
     std::unordered_map<asset::AssetId, ModelUse> models;
     u64 frame_number = 0;
 
-    explicit Impl(rhi::Device& device_) : device{&device_}, meshes{device_}, materials{device_} {}
+    explicit Impl(rhi::Device& device_)
+        : device{&device_}, geometry{device_}, meshes{geometry}, terrain_meshes{geometry},
+          materials{device_} {}
 
     const GpuModel* model(asset::AssetId id) {
         if (id == 0 || resources == nullptr) {
@@ -228,6 +255,11 @@ struct Renderer::Impl {
         ShaderSpec{"tonemap.slang", shaders::tonemap_fragment, &Impl::tonemap_fragment},
         ShaderSpec{"id.slang", shaders::id_vertex, &Impl::id_vertex},
         ShaderSpec{"id.slang", shaders::id_fragment, &Impl::id_fragment},
+        ShaderSpec{"terrain.slang", shaders::terrain_vertex, &Impl::terrain_vertex},
+        ShaderSpec{"terrain.slang", shaders::terrain_fragment, &Impl::terrain_fragment},
+        ShaderSpec{"terrain.slang", shaders::terrain_shadow_vertex, &Impl::terrain_shadow_vertex},
+        ShaderSpec{"terrain.slang", shaders::terrain_id_vertex, &Impl::terrain_id_vertex},
+        ShaderSpec{"terrain.slang", shaders::terrain_id_fragment, &Impl::terrain_id_fragment},
     };
 
     // Alle Pipelines aus den aktuellen Shadern.
@@ -285,6 +317,28 @@ struct Renderer::Impl {
             }
             id_pipelines[i] = *std::move(pipeline);
         }
+        auto terrain_pipeline = device->create_pipeline({.vertex = terrain_vertex.get(),
+                                                         .fragment = terrain_fragment.get(),
+                                                         .color_format = hdr_format,
+                                                         .depth_format = depth_format,
+                                                         .depth_compare = rhi::CompareOp::Greater,
+                                                         .cull_mode = rhi::CullMode::Back});
+        if (!terrain_pipeline) {
+            return std::unexpected("Renderer, Terrain: " + terrain_pipeline.error());
+        }
+        terrain = *std::move(terrain_pipeline);
+        auto terrain_id_pipeline =
+            device->create_pipeline({.vertex = terrain_id_vertex.get(),
+                                     .fragment = terrain_id_fragment.get(),
+                                     .color_format = id_format,
+                                     .depth_format = depth_format,
+                                     .depth_compare = rhi::CompareOp::Greater,
+                                     .cull_mode = rhi::CullMode::Back});
+        if (!terrain_id_pipeline) {
+            return std::unexpected("Renderer, ID-Puffer des Terrains: " +
+                                   terrain_id_pipeline.error());
+        }
+        terrain_id = *std::move(terrain_id_pipeline);
         return {};
     }
 
@@ -305,6 +359,18 @@ struct Renderer::Impl {
             }
             (masked ? shadow_masked : shadow_opaque) = *std::move(pipeline);
         }
+        auto terrain_pipeline = device->create_pipeline({
+            .vertex = terrain_shadow_vertex.get(),
+            .depth_format = depth_format,
+            .depth_compare = rhi::CompareOp::LessOrEqual,
+            .depth_bias_constant = constant,
+            .depth_bias_slope = slope,
+            .cull_mode = rhi::CullMode::None,
+        });
+        if (!terrain_pipeline) {
+            return std::unexpected("Renderer, Schatten des Terrains: " + terrain_pipeline.error());
+        }
+        terrain_shadow = *std::move(terrain_pipeline);
         shadow_bias_constant = constant;
         shadow_bias_slope = slope;
         return {};
@@ -325,6 +391,79 @@ struct Renderer::Impl {
             buffer = *std::move(created);
         }
         return buffer.get();
+    }
+
+    // Zeichnet Chunks des Terrains mit der gebundenen Pipeline.
+    template <typename Draws>
+    static void draw_terrain(rhi::CommandList& commands, const Draws& draws, u64 frame_address,
+                             u32 cascade) {
+        const rhi::Buffer* indices = nullptr;
+        for (const TerrainDraw& draw : draws) {
+            if (indices != draw.index_buffer) {
+                indices = draw.index_buffer;
+                commands.bind_index_buffer(*indices);
+            }
+            const TerrainPush push{.model = {draw.model[0], draw.model[1], draw.model[2]},
+                                   .vertices = draw.vertices,
+                                   .frame = frame_address,
+                                   .cascade = cascade,
+                                   .id = draw.id};
+            commands.push_constants(std::as_bytes(std::span{&push, 1}));
+            commands.draw_indexed(draw.index_count, 1, draw.first_index);
+        }
+    }
+
+    // Lädt geänderte Netze aller Terrains hoch und sammelt ihre Chunks als Draws, dazu die Werfer
+    // jeder Kaskade.
+    void collect_terrain(world::World& world, math::DVec3 origin, bool shadows_on,
+                         const std::array<Cascade, cascade_count>& cascades) {
+        terrain_draws.clear();
+        for (auto& list : terrain_shadow_draws) {
+            list.clear();
+        }
+        world.each<const world::WorldTransform, const world::TerrainState>(
+            [&](world::Entity entity, const world::WorldTransform& transform,
+                const world::TerrainState& state) {
+                if (!state.data) {
+                    return;
+                }
+                const auto& chunks =
+                    terrain_meshes.sync(*state.data, frame_number, stats.terrain_uploads);
+                // Chunks liegen achsenparallel an der Position der Entity (ADR 0038).
+                const math::DVec3 base = transform.position();
+                const auto id = static_cast<u32>(entity.id());
+                for (const auto& [coord, chunk] : chunks) {
+                    if (!chunk.vertices.valid()) {
+                        continue;
+                    }
+                    const auto scale =
+                        static_cast<f32>(voxel::voxel_size * static_cast<f64>(1u << coord.level));
+                    const Vec3 corner = math::to_f32(base + voxel::chunk_position(coord) - origin);
+                    TerrainDraw draw{.model = {Vec4{scale, 0.0f, 0.0f, corner.x},
+                                               Vec4{0.0f, scale, 0.0f, corner.y},
+                                               Vec4{0.0f, 0.0f, scale, corner.z}},
+                                     .vertices = chunk.vertex_address,
+                                     .index_buffer = chunk.index_buffer,
+                                     .first_index = chunk.first_index,
+                                     .index_count = chunk.index_count,
+                                     .id = id};
+                    const auto index = static_cast<u32>(terrain_draws.size());
+                    terrain_draws.push_back(draw);
+                    if (shadows_on) {
+                        // Hüllkugel des Chunks samt Randzellen.
+                        const f32 half = static_cast<f32>(voxel::chunk_voxels) * 0.5f * scale;
+                        const Vec3 center = corner + Vec3{half, half, half};
+                        const f32 radius = (half + scale) * 1.7321f;
+                        for (u32 i = 0; i < cascade_count; ++i) {
+                            if (cascades[i].may_cast(center, radius)) {
+                                terrain_shadow_draws[i].push_back(index);
+                            }
+                        }
+                    }
+                }
+            });
+        terrain_meshes.collect(frame_number);
+        stats.terrain_chunks = static_cast<u32>(terrain_draws.size());
     }
 
     // ID-Puffer mit allen Draws dieses Frames und Kopie eines Pixels in pick_buffers[slot].
@@ -354,16 +493,20 @@ struct Renderer::Impl {
                         bound = pipeline;
                         context.commands.bind_pipeline(*bound);
                     }
-                    if (indices != draw.mesh->indices.get()) {
-                        indices = draw.mesh->indices.get();
+                    if (indices != draw.mesh->index_buffer) {
+                        indices = draw.mesh->index_buffer;
                         context.commands.bind_index_buffer(*indices);
                     }
                     const IdPush push{.model = {draw.model[0], draw.model[1], draw.model[2]},
-                                      .vertices = draw.mesh->vertices->device_address(),
+                                      .vertices = draw.mesh->vertex_address,
                                       .frame = frame_address,
                                       .id = draw.id};
                     context.commands.push_constants(std::as_bytes(std::span{&push, 1}));
                     context.commands.draw_indexed(draw.index_count, 1, draw.first_index);
+                }
+                if (!terrain_draws.empty()) {
+                    context.commands.bind_pipeline(*terrain_id);
+                    draw_terrain(context.commands, terrain_draws, frame_address, 0);
                 }
                 context.commands.end_rendering();
             });
@@ -454,6 +597,9 @@ Renderer::~Renderer() {
 
 MeshStore& Renderer::meshes() noexcept {
     return impl_->meshes;
+}
+GeometryBuffer& Renderer::geometry() noexcept {
+    return impl_->geometry;
 }
 MaterialStore& Renderer::materials() noexcept {
     return impl_->materials;
@@ -549,6 +695,7 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     r.stats = {};
     // Modelle, die zwei Frames lang niemand brauchte, loslassen.
     ++r.frame_number;
+    r.geometry.end_frame();
     std::erase_if(r.models,
                   [&](const auto& entry) { return entry.second.last_used + 2 < r.frame_number; });
 
@@ -641,7 +788,7 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                     ++r.stats.waiting;
                     return;
                 }
-                if (!mesh->indices) {
+                if (mesh->index_buffer == nullptr) {
                     return;
                 }
                 const std::optional<u32> override_material = r.material(renderer.material);
@@ -685,6 +832,12 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                 }
             });
         std::ranges::stable_partition(r.draws, [](const Draw& draw) { return draw.pipeline < 2; });
+        r.collect_terrain(world, origin, shadows_on, cascades);
+    } else {
+        r.terrain_draws.clear();
+        for (auto& list : r.terrain_shadow_draws) {
+            list.clear();
+        }
     }
 
     // Debug-Linien relativ zur Kamera; die Liste gilt nur für diesen Frame.
@@ -730,12 +883,12 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                             bound = pipeline;
                             context.commands.bind_pipeline(*bound);
                         }
-                        if (indices != draw.mesh->indices.get()) {
-                            indices = draw.mesh->indices.get();
+                        if (indices != draw.mesh->index_buffer) {
+                            indices = draw.mesh->index_buffer;
                             context.commands.bind_index_buffer(*indices);
                         }
                         const DrawPush push{.model = {draw.model[0], draw.model[1], draw.model[2]},
-                                            .vertices = draw.mesh->vertices->device_address(),
+                                            .vertices = draw.mesh->vertex_address,
                                             .frame = frame_address,
                                             .materials = r.materials.address(),
                                             .material = draw.material,
@@ -743,6 +896,16 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                         context.commands.push_constants(std::as_bytes(std::span{&push, 1}));
                         context.commands.draw_indexed(draw.index_count, 1, draw.first_index);
                         ++r.stats.shadow_draws;
+                    }
+                    if (!r.terrain_shadow_draws[i].empty()) {
+                        context.commands.bind_pipeline(*r.terrain_shadow);
+                        std::vector<TerrainDraw> casters;
+                        casters.reserve(r.terrain_shadow_draws[i].size());
+                        for (const u32 index : r.terrain_shadow_draws[i]) {
+                            casters.push_back(r.terrain_draws[index]);
+                        }
+                        Impl::draw_terrain(context.commands, casters, frame_address, i);
+                        r.stats.shadow_draws += static_cast<u32>(casters.size());
                     }
                     context.commands.end_rendering();
                 });
@@ -780,6 +943,15 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                                               .depth = &context.texture(depth),
                                               // Umgekehrte Tiefe: 0 ist unendlich fern.
                                               .clear_depth = 0.0f});
+            // Terrain zuerst: undurchsichtig, und Durchsichtiges muss danach kommen.
+            if (!r.terrain_draws.empty()) {
+                context.commands.bind_pipeline(*r.terrain);
+                Impl::draw_terrain(context.commands, r.terrain_draws, frame_address, 0);
+                for (const TerrainDraw& draw : r.terrain_draws) {
+                    ++r.stats.draws;
+                    r.stats.triangles += draw.index_count / 3;
+                }
+            }
             const rhi::Pipeline* bound = nullptr;
             const rhi::Buffer* indices = nullptr;
             for (const Draw& draw : r.draws) {
@@ -787,12 +959,12 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                     bound = r.pbr[draw.pipeline].get();
                     context.commands.bind_pipeline(*bound);
                 }
-                if (indices != draw.mesh->indices.get()) {
-                    indices = draw.mesh->indices.get();
+                if (indices != draw.mesh->index_buffer) {
+                    indices = draw.mesh->index_buffer;
                     context.commands.bind_index_buffer(*indices);
                 }
                 const DrawPush push{.model = {draw.model[0], draw.model[1], draw.model[2]},
-                                    .vertices = draw.mesh->vertices->device_address(),
+                                    .vertices = draw.mesh->vertex_address,
                                     .frame = frame_address,
                                     .materials = r.materials.address(),
                                     .material = draw.material};

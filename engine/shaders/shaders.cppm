@@ -66,6 +66,26 @@ constexpr u32 id_fragment[] = {
 #include "id_fragment.spv.inc"
 };
 
+constexpr u32 terrain_vertex[] = {
+#include "terrain_vertex.spv.inc"
+};
+
+constexpr u32 terrain_fragment[] = {
+#include "terrain_fragment.spv.inc"
+};
+
+constexpr u32 terrain_shadow_vertex[] = {
+#include "terrain_shadow_vertex.spv.inc"
+};
+
+constexpr u32 terrain_id_vertex[] = {
+#include "terrain_id_vertex.spv.inc"
+};
+
+constexpr u32 terrain_id_fragment[] = {
+#include "terrain_id_fragment.spv.inc"
+};
+
 constexpr u32 tonemap_fragment[] = {
 #include "tonemap_fragment.spv.inc"
 };
@@ -154,6 +174,29 @@ rhi::ShaderDesc id_vertex() {
 
 rhi::ShaderDesc id_fragment() {
     return {rhi::ShaderStage::Fragment, detail::id_fragment, "fragment_main"};
+}
+
+// Voxel-Terrain (terrain.slang, R3.1): Netze aus voxel::Vertex mit Beleuchtung wie pbr.slang,
+// dazu Schattenkarten und ID-Puffer. Push Constants wie render::TerrainPush: Modellmatrix in drei
+// Zeilen (48 Bytes), Adressen der Eckpunkte und des Frames (je 8), Kaskade und Kennung (je u32).
+rhi::ShaderDesc terrain_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::terrain_vertex, "vertex_main"};
+}
+
+rhi::ShaderDesc terrain_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::terrain_fragment, "fragment_main"};
+}
+
+rhi::ShaderDesc terrain_shadow_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::terrain_shadow_vertex, "shadow_vertex_main"};
+}
+
+rhi::ShaderDesc terrain_id_vertex() {
+    return {rhi::ShaderStage::Vertex, detail::terrain_id_vertex, "id_vertex_main"};
+}
+
+rhi::ShaderDesc terrain_id_fragment() {
+    return {rhi::ShaderStage::Fragment, detail::terrain_id_fragment, "id_fragment_main"};
 }
 
 // Tone Mapping (tonemap.slang) mit dem Vertex-Shader von fullscreen_vertex(). Push Constants:

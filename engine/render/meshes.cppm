@@ -10,6 +10,7 @@ import ngine.core;
 import ngine.math;
 import ngine.rhi;
 import ngine.asset;
+import :geometry;
 
 export namespace ngine::render {
 
@@ -22,17 +23,22 @@ struct SubmeshData {
 };
 
 struct Submesh {
+    // Erster Index im Indexpuffer des Blocks (schon um den Anfang des Bereichs verschoben).
     u32 first_index = 0;
     u32 index_count = 0;
     u32 material = 0;
 };
 
-// Mesh auf der GPU: alle Teilnetze in einem Eckpunkt- und einem Indexpuffer. Der Shader liest die
-// Eckpunkte über die Adresse (Vertex Pulling, ADR 0022); die Indizes sind schon um den Anfang des
-// Teilnetzes verschoben.
+// Mesh auf der GPU: alle Teilnetze als je ein Bereich für Eckpunkte und Indizes in den
+// gemeinsamen Geometriepuffern (TD-23). Der Shader liest die Eckpunkte über die Adresse
+// (Vertex Pulling, ADR 0022); die Indizes zählen ab dieser Adresse und sind schon um den Anfang
+// des Teilnetzes verschoben.
 struct GpuMesh {
-    std::unique_ptr<rhi::Buffer> vertices;
-    std::unique_ptr<rhi::Buffer> indices;
+    GeometryRange vertices;
+    GeometryRange indices;
+    // Adresse des ersten Eckpunkts und Puffer der Indizes; 0 bzw. nullptr ohne Dreiecke.
+    u64 vertex_address = 0;
+    const rhi::Buffer* index_buffer = nullptr;
     std::vector<Submesh> submeshes;
     // Achsenparallele Hülle in Objektkoordinaten.
     math::Vec3 bounds_min{0.0f, 0.0f, 0.0f};
@@ -42,7 +48,7 @@ struct GpuMesh {
 // Besitzt die Geometrie aller Meshes (REND-07). MeshRenderer verweisen über den Index darauf.
 class MeshStore {
 public:
-    explicit MeshStore(rhi::Device& device) : device_{&device} {}
+    explicit MeshStore(GeometryBuffer& geometry) : geometry_{&geometry} {}
 
     // Lädt ein Mesh hoch (über Device::upload(), also vor der nächsten Abgabe) und liefert seinen
     // Index. Ein Mesh ohne Dreiecke ist erlaubt und wird nie gezeichnet. Mit ticket laufen die
@@ -50,7 +56,8 @@ public:
     // wenn das Ticket erledigt ist.
     [[nodiscard]] rhi::Result<u32> add(std::span<const SubmeshData> submeshes,
                                        rhi::UploadTicket* ticket = nullptr);
-    // Gibt ein Mesh frei (Puffer über die Löschliste des Device); add() vergibt den Index neu.
+    // Gibt ein Mesh frei (seine Bereiche, sobald die Frames im Flug fertig sind); add() vergibt
+    // den Index neu.
     void remove(u32 index);
     [[nodiscard]] const GpuMesh* get(u32 index) const {
         return index < meshes_.size() ? &meshes_[index] : nullptr;
@@ -64,7 +71,7 @@ public:
     }
 
 private:
-    rhi::Device* device_;
+    GeometryBuffer* geometry_;
     std::vector<GpuMesh> meshes_;
     std::vector<u32> free_;
 };
