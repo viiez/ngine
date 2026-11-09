@@ -187,23 +187,28 @@ TEST_CASE("Endless terrains stream around observers in levels", "[world]") {
         CHECK(data.streamer->layout().contains(coord));
         CHECK_FALSE(mesh.mesh.indices.empty());
     }
+    // Stufe des Blatts an einer Stelle (Voxel relativ zum Terrain); -1 außerhalb der Sicht.
+    const auto level_at = [&](i64 x, i64 y, i64 z) {
+        const auto leaf = data.streamer->layout().leaf_of(x, y, z);
+        return leaf ? i32{leaf->level} : -1;
+    };
     // Der Chunk unter dem Beobachter ist fein (Stufe 0).
-    CHECK(data.streamer->layout().leaf_of(0, 60, 0)->level == 0);
+    CHECK(level_at(0, 60, 0) == 0);
 
-    // Beobachter 500 m weiter: Dort wird es fein, am alten Ort grob. Positionen relativ zum
+    // Beobachter 200 m weiter: Dort wird es fein, am alten Ort grob. Positionen relativ zum
     // Terrain (in Voxeln) folgen der Lage der Entity.
-    eye.set(world::Transform{.position = {500.0, 30.0, 0.0}});
+    eye.set(world::Transform{.position = {200.0, 30.0, 0.0}});
     static_cast<void>(world::update_transforms(world));
     CHECK(world::update_terrains(world, jobs, {.wait = true}) > 0);
-    CHECK(data.streamer->layout().leaf_of(1000, 60, 0)->level == 0);
-    CHECK(data.streamer->layout().leaf_of(0, 60, 0)->level > 0);
+    CHECK(level_at(400, 60, 0) == 0);
+    CHECK(level_at(0, 60, 0) > 0);
 
-    // Ein zweiter Beobachter ohne Entity (Kamera des Editors) und ein inaktiver.
+    // Ein Beobachter ohne Entity (Kamera des Editors); der inaktive zählt nicht mehr.
     eye.set(world::TerrainObserver{.active = false});
-    const math::DVec3 editor{-400.0, 30.0, 200.0};
+    const math::DVec3 editor{-100.0, 30.0, 50.0};
     world::update_terrains(world, jobs, {.observers = std::span{&editor, 1}, .wait = true});
-    CHECK(data.streamer->layout().leaf_of(-800, 60, 400)->level == 0);
-    CHECK(data.streamer->layout().leaf_of(1000, 60, 0)->level > 0);
+    CHECK(level_at(-200, 60, 100) == 0);
+    CHECK(level_at(400, 60, 0) != 0);
 }
 
 TEST_CASE("Endless terrains without observers load around their position", "[world]") {

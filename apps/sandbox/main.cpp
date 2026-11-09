@@ -82,6 +82,10 @@ struct Options {
     std::optional<std::string> scene_path;
     bool voxel_demo = false;
     ngine::u32 seed = 1;
+    // Sichtweite des endlosen Terrains der Voxel-Demo in Metern (R3.3).
+    float view = 2000.0f;
+    // Autopilot der Voxel-Demo: fliegt so viele Meter, misst und beendet dann die Sandbox.
+    std::optional<double> flight;
     bool script_demo = false;
     bool net_demo = false;
     bool server = false;
@@ -131,6 +135,24 @@ Options parse_options(std::span<char*> args) {
             if (std::from_chars(value.data(), value.data() + value.size(), seed).ec ==
                 std::errc{}) {
                 options.seed = seed;
+            }
+        } else if (arg == "--view" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            float view = 0.0f;
+            if (std::from_chars(value.data(), value.data() + value.size(), view).ec ==
+                std::errc{}) {
+                options.view = view;
+            }
+        } else if (arg == "--flight") {
+            options.flight = 4000.0;
+            if (i + 1 < args.size()) {
+                const std::string_view value{args[i + 1]};
+                double meters = 0.0;
+                if (std::from_chars(value.data(), value.data() + value.size(), meters).ec ==
+                    std::errc{}) {
+                    options.flight = meters;
+                    ++i;
+                }
             }
         } else if (arg == "--model" && i + 1 < args.size()) {
             options.model_path = std::string{args[++i]};
@@ -202,12 +224,17 @@ int run_windowed(const Options& options) {
         sandbox::SandboxAssets sandbox_assets{options.no_cache};
         std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
-            voxels.emplace(sandbox::voxel_origin(options.far), sandbox::demo_terrain(options.seed));
+            voxels.emplace(sandbox::voxel_origin(options.far),
+                           sandbox::demo_terrain(options.seed, options.view));
             if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format(),
                                                  sandbox_assets.database());
                 !result) {
                 ngine::log::fatal("Voxel-Demo: {}", result.error());
                 return 1;
+            }
+            // Autopilot mit 80 m/s (R3.3): Messung von Frame-Zeit und Speicher beim Flug.
+            if (options.flight) {
+                voxels->start_flight(*options.flight, 80.0f);
             }
         } else {
             auto created =
@@ -248,7 +275,11 @@ int run_windowed(const Options& options) {
                 if (options.frames && frame_count % 10 == 0) {
                     voxels->scripted_edit(frame_count / 10);
                 }
-                voxels->remesh_if_needed();
+                voxels->remesh();
+                // Mit --flight endet die Sandbox nach dem Flug.
+                if (options.flight && !voxels->flight_active()) {
+                    running = false;
+                }
             } else {
                 scene->update(dt, fly);
                 fly.look_x = 0.0f;
@@ -322,6 +353,8 @@ int run_windowed(const Options& options) {
                                 voxels->toggle_fly();
                             } else if (ev.key == Key::F1 && voxels) {
                                 voxels->toggle_chunk_bounds();
+                            } else if (ev.key == Key::G && voxels && !voxels->flight_active()) {
+                                voxels->start_flight(4000.0, 80.0f);
                             } else if (ev.key == Key::F1 && scene) {
                                 scene->toggle_debug_draw();
                             } else if (ev.key == Key::F2 && scene) {
@@ -380,6 +413,9 @@ int run_windowed(const Options& options) {
         (*device)->wait_idle();
         if (voxels) {
             ngine::log::info("Voxel-Terrain: {}", voxels->stats());
+            if (!voxels->flight_report().empty()) {
+                ngine::log::info("{}", voxels->flight_report());
+            }
             voxels->release_gpu();
         } else {
             ngine::log::info("Szene: {}", scene->stats());
@@ -424,12 +460,13 @@ int main(int argc, char** argv) {
     } else if (options.client_address) {
         exit_code = sandbox::run_client(*options.client_address, options.frames.value_or(300));
     } else if (options.voxel_demo && options.headless) {
-        exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120), options.seed);
+        exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120), options.seed,
+                                                     options.view);
     } else if (options.voxel_demo && options.image_path) {
         const sandbox::SandboxAssets sandbox_assets{options.no_cache};
         exit_code = sandbox::run_voxel_demo_offscreen(
             options.frames.value_or(60), *options.image_path, options.baseline, options.far,
-            options.seed, sandbox_assets.database());
+            options.seed, options.view, sandbox_assets.database());
     } else if (options.image_path && !options.voxel_demo) {
         exit_code = sandbox::run_model_offscreen(
             options.model_path, *options.image_path, options.baseline,
