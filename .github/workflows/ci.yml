@@ -142,7 +142,7 @@ jobs:
           # Ältere TSan-Laufzeiten scheitern an der hohen ASLR-Entropie aktueller Kernel.
           sudo sysctl -w vm.mmap_rnd_bits=28
           for run in 1 2 3 4 5; do
-            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world]"
+            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world],[voxel]"
           done
 
       # Asset-Pipeline (R2.5): ngine_cook kocht die Modelle des Asset-Ordners in den Cache
@@ -229,6 +229,14 @@ jobs:
           xvfb-run -a "$exe" --frames 60 --no-ini --scene "$RUNNER_TEMP/szene-g.nscene" \
             --save "$RUNNER_TEMP/szene-h.json"
           cmp "$RUNNER_TEMP/szene-f.json" "$RUNNER_TEMP/szene-h.json"
+          # Seit R3.1: ein eingefügtes Terrain wird gezeichnet und als Beschreibung gespeichert,
+          # ohne Chunks; Öffnen und Speichern bleibt textgleich.
+          xvfb-run -a "$exe" --frames 60 --no-ini --terrain --save "$RUNNER_TEMP/szene-i.json"
+          grep -q '"Terrain"' "$RUNNER_TEMP/szene-i.json"
+          ! grep -q 'TerrainState' "$RUNNER_TEMP/szene-i.json"
+          xvfb-run -a "$exe" --frames 60 --no-ini --scene "$RUNNER_TEMP/szene-i.json" \
+            --save "$RUNNER_TEMP/szene-j.json"
+          cmp "$RUNNER_TEMP/szene-i.json" "$RUNNER_TEMP/szene-j.json"
 
       # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
       # GPUs laufen, die nur die Mindestanforderung erfüllen.

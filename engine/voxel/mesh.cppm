@@ -38,10 +38,23 @@ struct Mesh {
 // nach Änderungen nicht neu anfordert. Ein Mesher gehört einem Thread.
 class Mesher {
 public:
-    // Ersetzt den Inhalt von out durch das Netz des ganzen Gitters.
+    // Ersetzt den Inhalt von out durch das Netz des ganzen Gitters. Am Rand bleibt das Netz
+    // offen.
     void build(const Grid& grid, Mesh& out);
 
+    // Netz eines Chunks aus seinen Samples samt Randschicht (gather(), padded_samples³). Der
+    // Chunk vermascht genau die Gitterkanten, die an seinen eigenen Samples beginnen; die
+    // Nachbarn vermaschen den Rest. So schließen Chunks nahtlos aneinander an (ADR 0038).
+    // Positionen in Voxeln relativ zur Ecke des Chunks.
+    void build_chunk(const Grid& padded, Mesh& out);
+
 private:
+    // Zellen [cell_min, cell_max) pro Achse bekommen Eckpunkte; Vierecke entstehen an Kanten,
+    // deren Anfang entlang der Kante mindestens edge_min ist. offset wird von den Positionen
+    // abgezogen.
+    void build_range(const Grid& grid, Mesh& out, u32 cell_min, u32 cell_max, u32 edge_min,
+                     f32 offset);
+
     std::vector<u32> cell_vertex_;
 };
 

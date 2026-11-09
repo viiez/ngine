@@ -87,6 +87,35 @@ export edit::EntitySnapshot model_snapshot(edit::SceneDocument& document,
     return snapshot;
 }
 
+// Lage eines neuen Terrains in der Standardszene: hinter den Säulen, Oberfläche etwa auf Höhe
+// des Bodens (R3.1).
+export constexpr math::DVec3 new_terrain_position{0.0, -10.0, -100.0};
+
+// Fügt eine Entity mit einem Voxel-Terrain aus Standardwerten ein (ein Undo-Schritt) und wählt
+// sie aus. Chunks und Netze entstehen beim nächsten world::update_terrains().
+export void insert_terrain(edit::SceneDocument& document, edit::Selection& selection,
+                           math::DVec3 position = new_terrain_position) {
+    if (document.read_only()) {
+        return;
+    }
+    const reflect::TypeRegistry& types = document.types();
+    edit::EntitySnapshot snapshot;
+    edit::EntitySnapshot::Node& node = snapshot.nodes.emplace_back();
+    node.id = document.reserve_id();
+    add_component(types, node, world::Name{"Terrain"});
+    add_component(types, node, world::Transform{.position = position});
+    add_component(types, node, world::Terrain{});
+    const edit::EntityId id = node.id;
+    if (auto result =
+            document.execute(edit::insert_entities(std::move(snapshot), "Terrain einfügen"));
+        !result) {
+        log::error("{}", result.error());
+        return;
+    }
+    document.history().seal();
+    selection.select(id);
+}
+
 // Ein Modell aus dem Asset-Browser wird eingefügt, sobald es geladen ist: bis dahin läuft das
 // Laden im Hintergrund, der Editor bleibt bedienbar.
 export class ModelDrop {

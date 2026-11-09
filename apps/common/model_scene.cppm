@@ -287,6 +287,8 @@ public:
         if (mode_ == SceneMode::Game) {
             (void)update_prefabs();
         }
+        // Terrains der Szene (R3.1): Chunks erzeugen, geänderte im Job-System neu meshen.
+        (void)world::update_terrains(world_, jobs_);
         (void)world::update_transforms(world_);
         if (debug_draw_) {
             draw_debug();

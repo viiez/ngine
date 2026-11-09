@@ -81,14 +81,14 @@ public:
         uploader_.upload(static_cast<const VulkanTexture&>(texture), data);
     }
 
-    [[nodiscard]] UploadTicket upload_async(Buffer& buffer,
+    [[nodiscard]] UploadTicket upload_async(Buffer& buffer, u64 offset,
                                             std::span<const std::byte> data) override {
         const auto& target = static_cast<const VulkanBuffer&>(buffer);
         if (transfer_queue_ == VK_NULL_HANDLE) {
-            uploader_.upload(target, 0, data);
+            uploader_.upload(target, offset, data);
             return {};
         }
-        transfer_uploader_.upload(target, 0, data);
+        transfer_uploader_.upload(target, offset, data);
         return open_transfer_batch();
     }
     [[nodiscard]] UploadTicket upload_async(Texture& texture,

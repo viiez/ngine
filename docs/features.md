@@ -86,9 +86,9 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| VOX-01 | Dichtefeld | Dichte (8 Bit, Abstand) und Material pro Sample ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Gitter, Chunks folgen in R3 | D1 / R3 | in Arbeit |
-| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk, nahtlose Chunk-Grenzen und Jobs in R3 | D1 / R3 | in Arbeit |
-| VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler; D1: Kugel-Pinsel und Strahltest, Neu-Meshing im selben Frame | D1 / R3 | in Arbeit |
+| VOX-01 | Dichtefeld | Dichte (8 Bit, Abstand) und Material pro Sample ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Gitter; R3.1: Chunks mit 32³ Samples zu 0,5 m, leere und volle Chunks als ein Wert ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)) | D1 / R3 | in Arbeit |
+| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk; R3.1: nahtlose Chunk-Grenzen über eine Randschicht der Nachbarn, Meshing im Job-System; LOD folgt in R3.3 | D1 / R3 | in Arbeit |
+| VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler; D1: Kugel-Pinsel und Strahltest, Neu-Meshing im selben Frame; R3.1: Pinsel und Strahltest über Chunk-Grenzen, nur betroffene Chunks neu gemesht | D1 / R3 | in Arbeit |
 | VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse | R3 | geplant |
 | VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln | R3 | geplant |
 | VOX-06 | Deltas | Nur Änderungen speichern und übertragen | R3 / R5 | geplant |
@@ -103,8 +103,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| NAT-01 | Vegetation | Viele Pflanzen per Instancing, auf dem Voxel-Terrain verteilt | R3 | geplant |
-| NAT-02 | Wind | Bewegung von Gras und Bäumen im Shader | R3 | Idee |
+| NAT-01 | Vegetation | Viele Pflanzen per Instancing, auf dem Voxel-Terrain verteilt | nach R3 | geplant |
+| NAT-02 | Wind | Bewegung von Gras und Bäumen im Shader | nach R3 | Idee |
 | NAT-03 | Tag-Nacht-Wechsel | Sonne, Mond, Himmel, Lichtstimmung über Zeit | R1 / R3 | geplant |
 | NAT-04 | Himmel und Atmosphäre | Physikalisch basierte Atmosphäre | R1 | geplant |
 | NAT-05 | Volumetrischer Nebel | Nebel mit Lichtstreuung, wichtig für Horror-Stimmung | R3 | Idee |

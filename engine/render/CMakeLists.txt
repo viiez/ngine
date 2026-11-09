@@ -14,13 +14,17 @@ target_sources(ngine_render
             shadows.cppm
             debug_draw.cppm
             materials.cppm
+            geometry.cppm
             meshes.cppm
+            terrain.cppm
             renderer.cppm
     PRIVATE
         pool.cpp
         profiler.cpp
         graph.cpp
         stores.cpp
+        geometry.cpp
+        terrain.cpp
         lights.cpp
         shadows.cpp
         debug_draw.cpp

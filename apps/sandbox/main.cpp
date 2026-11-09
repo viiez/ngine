@@ -19,10 +19,11 @@
 //   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
 //   --scene-demo    ECS, Systeme und Szenen vorführen: bewegen, speichern, laden, vergleichen
 //   --scene <pfad>  Szenendatei für --scene-demo (sonst im Benutzerordner)
-//   --voxel-demo    Voxel-Terrain vorführen: Hügel aus Surface Nets, mit der Maus veränderbar
-//                   (links abtragen, rechts auftragen, Mitte glätten, Rad zoomt, Leertaste hält
-//                   die Kamera an). Mit --frames ändert sich das Terrain automatisch; mit
-//                   --headless ohne GPU.
+//   --voxel-demo    Voxel-Terrain vorführen: Hügel aus 4 × 2 × 4 Chunks mit Licht und Schatten,
+//                   mit der Maus veränderbar, auch über Chunk-Grenzen (links abtragen, rechts
+//                   auftragen, Mitte glätten, Rad zoomt, Leertaste hält die Kamera an). Mit
+//                   --frames ändert sich das Terrain automatisch; mit --headless ohne GPU, dann
+//                   misst die Demo Meshing vieler Chunks seriell und parallel.
 //   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
 //                   64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
@@ -189,7 +190,7 @@ int run_windowed(const Options& options) {
         sandbox::SandboxAssets sandbox_assets{options.no_cache};
         std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
-            voxels.emplace(32u, sandbox::voxel_origin(options.far));
+            voxels.emplace(sandbox::voxel_origin(options.far));
             if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format());
                 !result) {
                 ngine::log::fatal("Voxel-Demo: {}", result.error());
@@ -239,7 +240,7 @@ int run_windowed(const Options& options) {
                 fly.look_y = 0.0f;
             }
             if (now - last_report > std::chrono::seconds{3}) {
-                ngine::log::info("{}", voxels ? "Voxel-Netz: " + voxels->stats()
+                ngine::log::info("{}", voxels ? "Voxel-Terrain: " + voxels->stats()
                                               : "Szene: " + scene->stats());
                 last_report = now;
             }
@@ -354,7 +355,7 @@ int run_windowed(const Options& options) {
         window->set_redraw_callback({});
         (*device)->wait_idle();
         if (voxels) {
-            ngine::log::info("Voxel-Netz: {}", voxels->stats());
+            ngine::log::info("Voxel-Terrain: {}", voxels->stats());
             voxels->release_gpu();
         } else {
             ngine::log::info("Szene: {}", scene->stats());

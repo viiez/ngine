@@ -1,7 +1,7 @@
 # R3: Voxel-Terrain
 
 - **Phase:** Konstruktion
-- **Status:** geplant
+- **Status:** in Arbeit (R3.1)
 - **Pull Requests:** siehe Review
 
 R3 ist der dritte Reifegrad der Konstruktion. Wie R1 und R2 ist er zu groß für eine Iteration; wir
@@ -20,7 +20,7 @@ Terrain und Modelle GPU-getrieben mit Culling auf der GPU, über Mesh Shader, wo
 **Features:** VOX-01, VOX-02, VOX-03, VOX-04, VOX-05, VOX-06 (Speichern; Übertragen in R5),
 VOX-07, VOX-09, WORLD-07, WORLD-08, EDIT-08, REND-10, REND-13. Dazu die Schulden mit Frist R3:
 TD-16, TD-20, TD-23 und TD-34; für TD-24, TD-25, TD-29 und TD-32 schlägt der Plan eine neue Frist
-vor (siehe [Zur Abstimmung](#zur-abstimmung)).
+vor (siehe [Zur Abstimmung](#zur-abstimmung), angenommen).
 
 ### Aufteilung
 
@@ -163,3 +163,10 @@ Hang mit Fels bemalen, einmal rückgängig machen und wiederholen, speichern, Ed
    Raytracing (REND-14) festlegt. TD-29 (Transforms parallel) und TD-32 (Prefabs entfernen und
    verschachteln) nach R4, weil erst Gameplay viele bewegte Entities und verschachtelte Prefabs
    bringt.
+
+**Ergebnis der Abstimmung** (viiez, mit dem Merge des Plans): Alle sechs Punkte passen wie
+vorgeschlagen. Reihenfolge R3.1 bis R3.5; 0,5 m pro Voxel und Chunks von 16 m; eigenes,
+deterministisches Rauschen statt FastNoise2; LOD mit Nahtstreifen, Schürzen als Rückfall;
+meshoptimizer als neue Bibliothek hinter `ngine.cook`; TD-24 und TD-25 zum Rendering-Ausbau nach
+R3, TD-29 und TD-32 nach R4, Vegetation (NAT-01, NAT-02) nach R3. Die neuen Fristen stehen im
+[Schuldenregister](../tech-debt.md) und im [Feature-Katalog](../features.md).

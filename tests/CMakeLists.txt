@@ -25,6 +25,7 @@ add_executable(ngine_tests
     render/render_gpu_tests.cpp
     render/renderer_tests.cpp
     render/lighting_tests.cpp
+    render/geometry_tests.cpp
     editor_ui/editor_ui_tests.cpp
     editor_ui/editor_ui_gpu_tests.cpp
     asset/gltf_tests.cpp
@@ -36,10 +37,12 @@ add_executable(ngine_tests
     world/scene_tests.cpp
     world/transform_tests.cpp
     world/prefab_tests.cpp
+    world/terrain_tests.cpp
     edit/edit_tests.cpp
     edit/gizmo_play_tests.cpp
     edit/prefab_edit_tests.cpp
     voxel/voxel_tests.cpp
+    voxel/chunk_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
     replication/replication_tests.cpp

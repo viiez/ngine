@@ -32,18 +32,18 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.filesystem` | `ngine::filesystem` | Dateien lesen und schreiben (atomar über temporäre Datei), Benutzerordner, Ordner der Programmdatei (`executable_dir()`), Ordner auflisten, Pfade normalisieren, `FileWatcher` über Polling (R2.4, [ADR 0034](adr/0034-hot-reload-polling-slang-runtime.md)); Pfade als UTF-8, Plattformcode in `platform_linux.cpp`/`platform_windows.cpp` | vorhanden |
 | `ngine.reflect` | `ngine::reflect` | Typinformationen (`TypeRegistry`, `TypeInfo` mit Index der Registrierung, Felder mit Bereich und Hinweis für den Editor, Enums mit Namen, `TypeOps`, Merkmal `transient` für berechnete Komponenten) über eine Builder-API ([ADR 0018](adr/0018-own-reflection.md)) | vorhanden |
 | `ngine.serialize` | `ngine::serialize` | JSON (`json::Value`, `parse`, `write`), Binärformat (`BinaryWriter`/`BinaryReader`) und beides für reflektierte Typen ([ADR 0020](adr/0020-scene-format-json.md)) | vorhanden |
-| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden (JSON oder binär `.nscene`, R2.5), Prefabs mit Instanzen und Überschreibungen (`:prefab`, [ADR 0037](adr/0037-prefabs-field-overrides.md)); `Transform`, `WorldTransform` und `update_transforms()` nur für geänderte Teilbäume ([ADR 0025](adr/0025-own-math-mixed-precision.md)), `world_affine()`; Speicher von flecs im Budget `Category::World` | vorhanden |
+| `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden (JSON oder binär `.nscene`, R2.5), Prefabs mit Instanzen und Überschreibungen (`:prefab`, [ADR 0037](adr/0037-prefabs-field-overrides.md)); `Transform`, `WorldTransform` und `update_transforms()` nur für geänderte Teilbäume ([ADR 0025](adr/0025-own-math-mixed-precision.md)), `world_affine()`; Terrain als Komponente (`:terrain`, R3.1: Beschreibung `Terrain` in der Szene, Laufzeitdaten in der transienten `TerrainState`, `update_terrains()` erzeugt und meshet in Jobs); Speicher von flecs im Budget `Category::World` | vorhanden |
 | `ngine.asset` | `ngine::asset` | Ressourcen-Schicht: `load_gltf()` liefert `Model` (Meshes mit festem Eckpunktformat, Materialien nach Metallic-Roughness, Texturen, Bilder, Knoten) in reinen CPU-Daten, `decode_image()` RGBA8, Normalen, Tangenten und Kugeln erzeugen, Mip-Ketten auf der CPU (`mip_chain()`); Adapter `gltf_fastgltf.cpp` und `image_stb.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)). Seit R2.4 `AssetId`, `AssetRef` und `AssetDatabase` mit `.meta`-Dateien (`:database`), `ResourceManager` mit `Handle<T>`, Laden im Hintergrund über `ngine.jobs` und Neuladen samt Abhängigkeiten (`:resources`, [ADR 0033](adr/0033-asset-ids-meta-resource-manager.md)). Seit R2.5 gekochte Modelle (`:cooked`: Binärformat, `AssetCache` mit Stempeln der Quellen, `decode_ktx2()` nach BC7 oder RGBA8, Adapter `ktx_libktx.cpp`), Lader mit Bereitschaft (`ready`, TD-30), Assets der Art `Prefab` ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | vorhanden (ab R1.3) |
 | `ngine.cook` | `ngine::cook` | Asset-Pipeline: glTF zu gekochten Modellen (`cook_model()`, `cook_all()`, `model_cooker()` für den Lader des Renderers), Tangenten nach MikkTSpace (`tangents_mikktspace.cpp`), Bilder zu KTX2 mit Basis Universal (`encode_ktx2()`, Adapter `ktx_encode.cpp`); nur Editor, Werkzeug `ngine_cook` und Tests linken es ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | vorhanden (ab R2.5) |
-| `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)) | vorhanden (Durchstich D1) |
+| `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); seit R3.1 Chunks (`:chunk`: `ChunkCoord`, `Chunk` mit einheitlichem Wert, `ChunkStore` mit Vormerkung geänderter Chunks, `gather()` mit Randschicht), nahtloses Meshing einzelner Chunks (`Mesher::build_chunk()`) und Meshing und Füllen über `ngine.jobs` (`:meshing`), Pinsel und Strahltest auf dem `ChunkStore` ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)) | vorhanden (ab D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten nach Scancode mit Loslassen, Texteingabe, Fokus, Maus mit relativem Modus und Zeigerform, Zwischenablage, Bildschirmskalierung, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Scissor, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `upload_async()` mit `UploadTicket` über eine eigene Transfer-Queue, wo es eine gibt (R2.4, [ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)), auch für blockkomprimierte Texturen (BC7, `Capabilities::bc_compression`, R2.5); Rücklesen über Puffer im Speicher `CpuRead` (`copy_texture_to_buffer()`, `Buffer::read()`); Zeitstempel der GPU ohne Warten (`calibrated_timestamp()`); `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
-| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer` (Verweise über `AssetRef`, R2.4), `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Tone Mapping, Debug-Linien, Auswahl per Klick über einen ID-Puffer, Kamera von außen über `camera_override`, Modelle über den Ressourcen-Manager, `reload_shaders()`), `GpuModel`, `upload_model()`, `register_loaders()` (seit R2.5 mit `ModelLoading`: erst aus dem Cache, dann kochen, dann aus den Quellen; BC7-Texturen, wo die GPU sie kann) und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
-| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Terrain, Vollbild-Kopie, Testmuster als Compute, PBR, Schatten, Debug-Linien, Tone Mapping, Editor-UI); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
+| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer` (Verweise über `AssetRef`, R2.4), `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, gemeinsame Geometriepuffer (`GeometryBuffer` mit `RangeAllocator`, R3.1, TD-23), `TerrainMeshes`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Terrain mit PBR, Schatten und Auswahl seit R3.1, Tone Mapping, Debug-Linien, Auswahl per Klick über einen ID-Puffer, Kamera von außen über `camera_override`, Modelle über den Ressourcen-Manager, `reload_shaders()`), `GpuModel`, `upload_model()`, `register_loaders()` (seit R2.5 mit `ModelLoading`: erst aus dem Cache, dann kochen, dann aus den Quellen; BC7-Texturen, wo die GPU sie kann) und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)) | vorhanden (ab R1.2) |
+| `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Test für die RHI, Terrain, Vollbild-Kopie, Testmuster als Compute, PBR mit gemeinsamer Beleuchtung `lighting.slang`, Schatten, Debug-Linien, Tone Mapping, Editor-UI); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
 | `ngine.shader_compiler` | `ngine::shader_compiler` | Slang-Shader zur Laufzeit nach SPIR-V übersetzen (`Compiler`, Hot Reload); Adapter für die Slang-Bibliothek in `compiler.cpp`; nur Editor und Tests linken es ([ADR 0034](adr/0034-hot-reload-polling-slang-runtime.md)) | vorhanden (ab R2.4) |
 | `ngine.editor_ui` | `ngine::editor_ui` | Editor-UI: Adapter für Dear ImGui mit Docking (`:context`, `:widgets`; nur `context.cpp` und `widgets.cpp` kennen ImGui), Zeichenliste in Engine-Typen (`:draw`), `UiRenderer` als Pass im Render-Graph über die RHI (`:pass`), Log-Konsole (`:console`) und Viewport-Größe (`:viewport`), Zeichnen von Linien, Formen und Text in die Zeichenliste eines Fensters (R2.3); ohne Fenster und GPU testbar ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | vorhanden (ab R2.1) |
 | `ngine.edit` | `ngine::edit` | Editor-Logik ohne UI und GPU: `SceneDocument` mit stabilen Entity-Kennungen, Verlauf (`CommandStack`) und Datei, Befehle mit reflektierten Werten (`:commands`), Auswahl, Modelle für Szenenbaum und Inspector; Ereignisse über `events::EventBus` ([ADR 0030](adr/0030-undo-commands-reflected-values.md)); Gizmos und `ViewCamera` (`:gizmo`, [ADR 0031](adr/0031-gizmos-own-math-ui-draw-list.md)), Spielen über eine Sicherung im Dokument ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)), Einfügen von Teilbäumen (`insert_entities()`, R2.4), Prefabs verknüpfen, aufbrechen und einfügen (`:prefabs`, R2.5) | vorhanden (ab R2.2) |
@@ -93,6 +93,8 @@ flowchart BT
     render --> shaders
     world --> math
     voxel --> math
+    voxel --> jobs
+    world --> voxel
     fs --> core
     reflect --> core
     serialize --> reflect
@@ -171,6 +173,14 @@ flowchart LR
     push --> vs["Vertex-Shader<br/>vertices[SV_VertexID]"]
     ib -->|"bind_index_buffer"| vs
 ```
+
+Seit R3.1 haben Netze keine eigenen Puffer mehr (TD-23, [ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)):
+Der `GeometryBuffer` des Renderers hält Blöcke zu 32 MiB (Storage und Index), ein `RangeAllocator`
+pro Block vergibt Bereiche nach first fit und verschmilzt freie Nachbarn. Modelle (`MeshStore`) und
+Terrain-Chunks (`TerrainMeshes`) bekommen je einen Bereich für Eckpunkte und einen für Indizes; ein
+Draw nutzt die Geräteadresse des Bereichs und `first_index` im Indexpuffer des Blocks. Freigegebene
+Bereiche werden erst `frames_in_flight + 2` Frames später wieder vergeben, damit weder ein Frame im
+Flug noch eine Kopie auf der Transfer-Queue sie noch liest (`upload_async()` mit Offset).
 
 Statische Geometrie liegt im GPU-Speicher (`MemoryUsage::Gpu`) und wird über `Device::upload()`
 gefüllt: Die Daten landen in einem Staging-Ring, die Kopien in einem eigenen Command Buffer, der vor
@@ -492,25 +502,39 @@ flowchart LR
 ## Voxel-Terrain
 
 `ngine.voxel` hält das Terrain als Dichtefeld und erzeugt daraus Netze
-([ADR 0005](adr/0005-smooth-voxel-terrain.md), [ADR 0021](adr/0021-surface-nets-8bit-density.md)).
-Es kennt weder GPU noch Welt, damit der Server Terrain halten und bearbeiten kann.
+([ADR 0005](adr/0005-smooth-voxel-terrain.md), [ADR 0021](adr/0021-surface-nets-8bit-density.md),
+[ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)). Es kennt weder GPU noch Welt, damit der
+Server Terrain halten und bearbeiten kann. `ngine.world` macht daraus eine Komponente,
+`ngine.render` zeichnet sie.
 
 ```mermaid
 flowchart LR
-    fill["fill() / fill_hill()<br/>Abstandsfunktion"] --> grid["Grid<br/>2 Bytes pro Sample"]
-    brush["apply(Brush)<br/>Abtragen, Auftragen, Glätten"] --> grid
-    grid --> mesher["Mesher<br/>Surface Nets"]
-    mesher --> mesh["Mesh<br/>Vertex (32 Bytes), Indizes"]
-    grid --> ray["raycast()<br/>Maus, Werkzeuge"]
-    mesh --> renderer["Renderer<br/>(bisher: Sandbox über den Render-Graph)"]
+    terrain["world::Terrain<br/>Beschreibung (Szene)"] --> update["update_terrains()"]
+    update -->|"fill_chunks()<br/>Jobs"| store["ChunkStore<br/>Chunks mit 32³ Samples"]
+    brush["apply(Brush)<br/>Abtragen, Auftragen, Glätten"] --> store
+    store -->|"take_changes()"| update
+    update -->|"mesh_chunks()<br/>Jobs: gather() + build_chunk()"| meshes["TerrainData::meshes<br/>Netz und Version pro Chunk"]
+    store --> ray["raycast()<br/>Maus, Werkzeuge"]
+    meshes --> gpu["render::TerrainMeshes<br/>Bereiche im GeometryBuffer"]
+    gpu --> pass["Terrain-Pass<br/>PBR, Schatten, ID-Puffer"]
 ```
 
 - Ein `Sample` speichert den Abstand zur Oberfläche in 8 Bit (positiv innen, 1/32 Voxel pro
-  Schritt) und ein Material (0 ist Luft). Koordinaten sind Sample-Indizes; ein Chunk mit 32 Voxeln
-  hat 33 Samples pro Achse.
-- `Grid::version()` steigt mit jeder Änderung; der Aufrufer meshet neu, wenn sie sich ändert.
-- Der `Mesher` behält seine Zwischenspeicher und gehört einem Thread. Am Rand des Gitters bleibt
-  das Netz offen; nahtlose Chunks, Meshing in Jobs und LOD kommen in R3.
+  Schritt) und ein Material (0 ist Luft). Ein Voxel misst 0,5 m.
+- Ein `Chunk` besitzt 32³ Samples (16 m); Chunk-Koordinaten sind `i32`, Sample-Koordinaten `i64`,
+  die Lage in Metern kommt als `DVec3` aus `chunk_position()`. Leere und volle Chunks halten nur
+  einen Wert (`compact()`), Samples außerhalb aller Chunks haben den Wert `outside` des Stores.
+- Nahtlos: `gather()` kopiert einen Chunk mit einer Randschicht von je 2 Samples aus den Nachbarn
+  in ein Gitter mit 36³ Samples. `Mesher::build_chunk()` legt Eckpunkte in allen Zellen ab, die
+  Vierecke berühren, erzeugt Vierecke aber nur für Kanten, die an eigenen Samples beginnen. So
+  entsteht jedes Viereck genau einmal, Eckpunkte an der Grenze liegen in beiden Chunks gleich.
+- Der Store merkt sich, welche Chunks ein geändertes Sample lesen, auch solche, die es noch nicht
+  gibt; am Rand des Terrains entstehen so die Netze, die das Terrain wie einen Block schließen.
+- `mesh_chunks()` meshet über `parallel_for`, je Job ein eigener `Mesher` mit eigenem Gitter. Das
+  Terrain nutzt nur die Position der Entity; Drehung und Skalierung wirken nicht.
+- Laufzeitdaten (Chunks, Netze) liegen in der transienten Komponente `TerrainState` und werden
+  nicht gespeichert; nach dem Laden entsteht das Terrain neu aus der Beschreibung. Änderungen als
+  Deltas folgen in R3.4.
 
 ## Scripting
 

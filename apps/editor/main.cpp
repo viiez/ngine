@@ -37,6 +37,7 @@
 //   --shaders <pfad> Quellordner der Shader für Hot Reload
 //   --insert <pfad> Modell oder Prefab aus dem Asset-Ordner beim Start einfügen wie per Ziehen
 //                   (für automatische Tests)
+//   --terrain       beim Start ein neues Terrain einfügen wie über „Bearbeiten → Neues Terrain“
 //   --no-cache      Modelle nicht kochen und nicht aus dem Cache laden, sondern aus den Quellen
 
 #include <algorithm>
@@ -96,6 +97,7 @@ struct Options {
     std::optional<std::string> assets_path;
     std::optional<std::string> shaders_path;
     std::optional<std::string> insert_path;
+    bool terrain = false;
     std::optional<u64> frames;
     std::optional<u64> play_frames;
     bool vsync = true;
@@ -118,6 +120,8 @@ Options parse_options(std::span<char*> args) {
             options.assets_path = std::string{args[++i]};
         } else if (arg == "--shaders" && i + 1 < args.size()) {
             options.shaders_path = std::string{args[++i]};
+        } else if (arg == "--terrain") {
+            options.terrain = true;
         } else if (arg == "--insert" && i + 1 < args.size()) {
             options.insert_path = std::string{args[++i]};
         } else if ((arg == "--frames" || arg == "--play") && i + 1 < args.size()) {
@@ -341,7 +345,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                             .gizmo = tools.gizmo,
                             .play = play,
                             .quit = [&] { running = false; },
-                            .extra_menus = {}};
+                            .extra_menus = {},
+                            .new_terrain = [&] { editor::insert_terrain(document, selection); }};
         targets.extra_menus = [&] {
             const edit::EntityId selected = selection.current();
             const u64 entity = document.entity_of(selected);
@@ -620,6 +625,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         if (options.play_frames) {
             play.start(document, tools.gizmo);
+        }
+        if (options.terrain) {
+            editor::insert_terrain(document, selection);
         }
         if (options.insert_path) {
             const asset::AssetInfo* info =

@@ -36,6 +36,8 @@ inline constexpr Material air = 0;
 struct Sample {
     i8 density = -127;
     Material material = air;
+
+    friend constexpr bool operator==(Sample, Sample) noexcept = default;
 };
 
 inline constexpr f32 density_scale = 32.0f;

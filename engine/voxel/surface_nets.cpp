@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <ngine/profile.hpp>
@@ -45,6 +46,23 @@ Vec3 corner_offset(u32 corner) {
 } // namespace
 
 void Mesher::build(const Grid& grid, Mesh& out) {
+    const Extent3 size = grid.size();
+    build_range(grid, out, 0, std::max({size.x, size.y, size.z}) - 1, 0, 0.0f);
+}
+
+void Mesher::build_chunk(const Grid& padded, Mesh& out) {
+    verify(padded.size() == Extent3{padded_samples, padded_samples, padded_samples},
+           "Mesher::build_chunk: Gitter muss padded_samples³ groß sein");
+    // Zellen ab einer vor dem Chunk (Eckpunkte für die Vierecke an seinen unteren Kanten), Kanten
+    // ab dem ersten eigenen Sample.
+    constexpr auto first_cell = static_cast<u32>(border_before - 1);
+    constexpr auto end_cell = static_cast<u32>(border_before + chunk_voxels);
+    constexpr auto first_edge = static_cast<u32>(border_before);
+    build_range(padded, out, first_cell, end_cell, first_edge, static_cast<f32>(border_before));
+}
+
+void Mesher::build_range(const Grid& grid, Mesh& out, u32 cell_min, u32 cell_max, u32 edge_min,
+                         f32 offset) {
     NGINE_PROFILE_ZONE("voxel::Mesher::build");
     out.clear();
 
@@ -77,11 +95,14 @@ void Mesher::build(const Grid& grid, Mesh& out) {
     // um die Kante. Die drei anderen liegen in Richtung kleinerer Koordinaten und haben ihren
     // Eckpunkt also schon. Kanten am Rand haben keine vier Voxel und bleiben offen (Chunk-Grenze,
     // ADR 0021).
-    for (u32 z = 0; z < cells.z; ++z) {
-        for (u32 y = 0; y < cells.y; ++y) {
-            usize base = z * stride_z + y * stride_y;
-            usize cell = z * cell_stride_z + y * cell_stride_y;
-            for (u32 x = 0; x < cells.x; ++x, ++base, ++cell) {
+    const u32 end_x = std::min(cell_max, cells.x);
+    const u32 end_y = std::min(cell_max, cells.y);
+    const u32 end_z = std::min(cell_max, cells.z);
+    for (u32 z = cell_min; z < end_z; ++z) {
+        for (u32 y = cell_min; y < end_y; ++y) {
+            usize base = z * stride_z + y * stride_y + cell_min;
+            usize cell = z * cell_stride_z + y * cell_stride_y + cell_min;
+            for (u32 x = cell_min; x < end_x; ++x, ++base, ++cell) {
                 // Schneller Test nur mit den Vorzeichen der 8-Bit-Werte.
                 u32 inside = 0;
                 for (u32 c = 0; c < 8; ++c) {
@@ -108,6 +129,7 @@ void Mesher::build(const Grid& grid, Mesh& out) {
                 const Vec3 position =
                     Vec3{static_cast<f32>(x), static_cast<f32>(y), static_cast<f32>(z)} +
                     sum * (1.0f / static_cast<f32>(crossings));
+                const Vec3 output = position - Vec3{offset, offset, offset};
 
                 // Material der festen Ecke, die der Oberfläche am nächsten liegt: Tiefere Ecken
                 // gehören oft schon zum Material darunter (Erde unter Gras).
@@ -123,22 +145,32 @@ void Mesher::build(const Grid& grid, Mesh& out) {
                 const Vec3 normal = normalize(grid.gradient_at(position) * -1.0f);
                 const auto vertex = static_cast<u32>(out.vertices.size());
                 cell_vertex_[cell] = vertex;
-                out.vertices.push_back({position.x, position.y, position.z, material, normal.x,
-                                        normal.y, normal.z, 0.0f});
+                out.vertices.push_back(
+                    {output.x, output.y, output.z, material, normal.x, normal.y, normal.z, 0.0f});
 
                 // Vierecke um die Kanten an Ecke 0. Reihenfolge der Voxel so, dass das Viereck
-                // gegen den Uhrzeigersinn liegt, wenn fester Stoff am Anfang der Kante liegt.
+                // gegen den Uhrzeigersinn liegt, wenn fester Stoff am Anfang der Kante liegt. Die
+                // drei Nachbarzellen müssen im Bereich liegen, der Anfang der Kante im eigenen.
                 const bool solid = (inside & 1u) != 0;
-                if (y > 0 && z > 0 && solid != ((inside & 2u) != 0)) { // Kante entlang x
+                const bool own_x = x >= edge_min;
+                const bool own_y = y >= edge_min;
+                const bool own_z = z >= edge_min;
+                const bool below_x = x > cell_min;
+                const bool below_y = y > cell_min;
+                const bool below_z = z > cell_min;
+                if (own_x && below_y && below_z &&
+                    solid != ((inside & 2u) != 0)) { // Kante entlang x
                     emit_quad(cell_vertex_[cell - cell_stride_y - cell_stride_z],
                               cell_vertex_[cell - cell_stride_z], vertex,
                               cell_vertex_[cell - cell_stride_y], !solid);
                 }
-                if (x > 0 && z > 0 && solid != ((inside & 4u) != 0)) { // Kante entlang y
+                if (own_y && below_x && below_z &&
+                    solid != ((inside & 4u) != 0)) { // Kante entlang y
                     emit_quad(cell_vertex_[cell - 1 - cell_stride_z], cell_vertex_[cell - 1],
                               vertex, cell_vertex_[cell - cell_stride_z], !solid);
                 }
-                if (x > 0 && y > 0 && solid != ((inside & 16u) != 0)) { // Kante entlang z
+                if (own_z && below_x && below_y &&
+                    solid != ((inside & 16u) != 0)) { // Kante entlang z
                     emit_quad(cell_vertex_[cell - 1 - cell_stride_y],
                               cell_vertex_[cell - cell_stride_y], vertex, cell_vertex_[cell - 1],
                               !solid);
