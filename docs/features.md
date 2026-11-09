@@ -77,8 +77,8 @@ eine Komponente.
 | WORLD-04 | Prefabs | Vorlagen als `.prefab`-Datei, Instanzen in der Welt voll ausgebaut, in Szenen als Kennung mit Überschreibungen auf Feldebene; geänderte Vorlagen ziehen alle Instanzen nach (Hot Reload), im Editor anlegen, übernehmen, aufbrechen und aus dem Asset-Browser ziehen ([ADR 0037](adr/0037-prefabs-field-overrides.md)) | R2.5 | fertig |
 | WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten (A4); binär als `.nscene` mit Typtabelle (R2.5) | A4 / R2.5 | fertig |
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern: Positionen in 64 Bit, gezeichnet relativ zur Kamera ([ADR 0012](adr/0012-64bit-world-coordinates.md)); `--far` zeigt es | R1.1 | fertig |
-| WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming | R3 | geplant |
-| WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen | R3 | geplant |
+| WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming; R3.3: Baum von Chunks in Stufen, ausgeglichen, um mehrere Beobachter ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | in Arbeit |
+| WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen; R3.3: Terrain lädt um `TerrainObserver` im Job-System mit Budget, Übernahme in einem Schritt, Speicher begrenzt; Budget für Uploads folgt (TD-39) | R3 | in Arbeit |
 | WORLD-09 | Befehlspuffer | Strukturänderungen aus Systemen heraus sammeln und nach dem Schedule ausführen | R4 | geplant |
 | WORLD-10 | Phasen für Systeme | Systeme in Phasen (Eingabe, Simulation, Rendering) und mit expliziter Reihenfolge | R4 | geplant |
 
@@ -87,10 +87,10 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | VOX-01 | Dichtefeld | Dichte (8 Bit, Abstand) und Material pro Sample ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Gitter; R3.1: Chunks mit 32³ Samples zu 0,5 m, leere und volle Chunks als ein Wert ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)) | D1 / R3 | in Arbeit |
-| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk; R3.1: nahtlose Chunk-Grenzen über eine Randschicht der Nachbarn, Meshing im Job-System; LOD folgt in R3.3 | D1 / R3 | in Arbeit |
+| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk; R3.1: nahtlose Chunk-Grenzen über eine Randschicht der Nachbarn, Meshing im Job-System; R3.3: `LodMesher` über Stufen des LOD-Baums | D1 / R3 | in Arbeit |
 | VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler; D1: Kugel-Pinsel und Strahltest, Neu-Meshing im selben Frame; R3.1: Pinsel und Strahltest über Chunk-Grenzen, nur betroffene Chunks neu gemesht | D1 / R3 | in Arbeit |
-| VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse | R3 | geplant |
-| VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln; R3.2: eigenes deterministisches Rauschen und Generator mit Hügeln, Felswänden und Schichten, bitgleich auf Linux und Windows ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md)); Streaming folgt in R3.3 | R3 | in Arbeit |
+| VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse; R3.3: Surface Nets über Stufengrenzen mit Nahtpolygonen, Test ohne offene Kanten ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | in Arbeit |
+| VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln; R3.2: eigenes deterministisches Rauschen und Generator mit Hügeln, Felswänden und Schichten, bitgleich auf Linux und Windows ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md)); R3.3: grobe Stufen und endloses Terrain mit Streaming | R3 | in Arbeit |
 | VOX-06 | Deltas | Nur Änderungen speichern und übertragen | R3 / R5 | geplant |
 | VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar); R3.2: Gewichte je Eckpunkt mit Palette pro Chunk, Tabelle mit Texturen, triplanar im Shader ([ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); Materialtabelle als Asset folgt (TD-37) | R3 | in Arbeit |
 | VOX-08 | Kollision | Physik-Formen aus den Voxeln | R4 | geplant |
