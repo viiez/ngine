@@ -47,3 +47,5 @@ betroffene Code einreichen.
 | [0036](0036-cooked-assets-ktx2-cache.md) | Gekochte Modelle mit KTX2 und Basis Universal in einem Cache neben den Quellen | angenommen |
 | [0037](0037-prefabs-field-overrides.md) | Prefabs als Dateien, Instanzen voll ausgebaut mit Überschreibungen auf Feldebene | angenommen |
 | [0038](0038-terrain-chunks-shared-geometry.md) | Terrain aus Chunks mit Randschicht, Terrain als Komponente, gemeinsame Geometriepuffer | angenommen |
+| [0039](0039-deterministic-noise-rule-generator.md) | Eigenes deterministisches Rauschen in `f64` ohne FMA und ein Generator aus Regeln, Prüfsumme in beiden CI-Läufen | angenommen |
+| [0040](0040-terrain-materials-weights-triplanar.md) | Terrain-Materialien als Gewichte je Eckpunkt mit Palette pro Chunk, triplanar im Shader | angenommen |

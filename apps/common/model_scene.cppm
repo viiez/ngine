@@ -3,6 +3,7 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -35,6 +36,9 @@ module;
 // mit Texturen und Normalenkarten), dazu vier Laternen als Instanzen von prefabs/laterne.prefab.
 // Modelle kommen gekocht aus dem Cache, wenn er aktuell ist (ASSET-03); ohne Asset-Ordner bleibt
 // alles erzeugt wie bisher.
+//
+// Seit R3.2 bekommt der Renderer die Materialtabelle des Terrains mit den Texturen aus
+// texturen/terrain/ (terrain_materials(), auch für die Voxel-Demo der Sandbox).
 export module app.model_scene;
 
 import ngine.core;
@@ -54,6 +58,33 @@ namespace app {
 using namespace ngine;
 using math::DVec3;
 using math::Vec3;
+
+// Materialtabelle des Terrains (R3.2): die Standardtabelle des Renderers, dazu Grundfarbe und
+// Normalen aus texturen/terrain/<name>_farbe.jpg und <name>_normal.jpg im Asset-Ordner. Fehlt ein
+// Bild (oder der Ordner), bleibt das Material bei seiner Farbe.
+export std::vector<render::TerrainMaterial>
+terrain_materials(const asset::AssetDatabase* database) {
+    std::vector<render::TerrainMaterial> table = render::default_terrain_materials();
+    if (database == nullptr) {
+        return table;
+    }
+    // Index wie voxel::grass, voxel::rock, voxel::earth, voxel::sand.
+    constexpr std::array<std::string_view, 5> files{"", "gras", "fels", "erde", "sand"};
+    for (usize i = 1; i < files.size() && i < table.size(); ++i) {
+        const auto find = [&](std::string_view kind) -> asset::AssetId {
+            const asset::AssetInfo* info =
+                database->find_path(std::format("texturen/terrain/{}_{}.jpg", files[i], kind));
+            return info != nullptr ? info->id : 0;
+        };
+        table[i].albedo = find("farbe");
+        table[i].normal = find("normal");
+        if (table[i].albedo != 0) {
+            // Die Textur bringt die Farbe mit.
+            table[i].color = {1.0f, 1.0f, 1.0f};
+        }
+    }
+    return table;
+}
 
 // Zustand der Eingabe für die freie Kamera, unabhängig von der Plattformschicht.
 export struct FlyInput {
@@ -388,6 +419,7 @@ private:
           database_{assets.database} {
         renderer_->set_resources(resources_.get());
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
+        renderer_->set_terrain_materials(terrain_materials(database_));
         schedule_.add<Orbit, world::Transform>("Kreisbahnen",
                                                [this](Orbit& orbit, world::Transform& transform) {
                                                    orbit.time += step_;

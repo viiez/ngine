@@ -88,8 +88,9 @@ export edit::EntitySnapshot model_snapshot(edit::SceneDocument& document,
 }
 
 // Lage eines neuen Terrains in der Standardszene: hinter den Säulen, Oberfläche etwa auf Höhe
-// des Bodens (R3.1).
-export constexpr math::DVec3 new_terrain_position{0.0, -10.0, -100.0};
+// des Bodens. Seit R3.2 ist das Standardterrain 128 m breit mit Oberfläche bei 20 m, daher tiefer
+// und weiter hinten.
+export constexpr math::DVec3 new_terrain_position{0.0, -20.0, -130.0};
 
 // Fügt eine Entity mit einem Voxel-Terrain aus Standardwerten ein (ein Undo-Schritt) und wählt
 // sie aus. Chunks und Netze entstehen beim nächsten world::update_terrains().

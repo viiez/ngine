@@ -96,7 +96,8 @@ TEST_CASE("Surface Nets erzeugen eine geschlossene Kugel", "[voxel]") {
         // Normalen sind normiert und zeigen nach außen.
         CHECK(length(normal(v)) == Catch::Approx(1.0f).margin(1e-3));
         CHECK(dot(normal(v), normalize(position(v) - center)) > 0.95f);
-        CHECK(v.material == 2);
+        CHECK(mesh.dominant(v) == 2);
+        CHECK(mesh.weight(v, 2) == 255);
     }
     INFO("Größter Abstand zur Kugel: " << max_error << " Voxel");
     CHECK(max_error < 0.15f);
@@ -157,12 +158,14 @@ TEST_CASE("Der Huegel hat Gras an der Oberflaeche und Erde darunter", "[voxel]")
     Mesh mesh;
     mesher.build(grid, mesh);
     REQUIRE_FALSE(mesh.vertices.empty());
-    CHECK(std::ranges::all_of(mesh.vertices, [](const Vertex& v) { return v.material == 1; }));
+    CHECK(
+        std::ranges::all_of(mesh.vertices, [&](const Vertex& v) { return mesh.dominant(v) == 1; }));
 
     // Nach dem Abtragen kommt Erde zum Vorschein.
     apply(grid, {.mode = BrushMode::Remove, .center = {16, 20, 16}, .radius = 6.0f});
     mesher.build(grid, mesh);
-    CHECK(std::ranges::any_of(mesh.vertices, [](const Vertex& v) { return v.material == 3; }));
+    CHECK(std::ranges::any_of(mesh.vertices,
+                              [&](const Vertex& v) { return mesh.weight(v, 3) > 128; }));
 }
 
 TEST_CASE("Pinsel tragen ab, tragen auf und glaetten", "[voxel]") {

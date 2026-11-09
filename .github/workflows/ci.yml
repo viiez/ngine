@@ -254,12 +254,21 @@ jobs:
           xvfb-run -a "$exe" --voxel-demo --frames 60 --baseline
           "$exe" --voxel-demo --frames 40 --image build/${{ matrix.preset }}/voxel-demo.ppm
           # Dasselbe 10 000 km vom Ursprung (R1.1): Kamerarelativ gezeichnet muss das Bild bis
-          # auf Rundung gleich bleiben. Höchstens 0,1 % der Bytes dürfen abweichen.
+          # auf Rundung gleich bleiben. Seit R3.2 werfen Felswände und Überhänge viele Schatten;
+          # wie bei der Standardszene rasten die Schattenkarten fern vom Ursprung auf ein anderes
+          # Texelgitter ein, daher dieselben Grenzen wie dort.
           "$exe" --voxel-demo --frames 40 --far --image build/${{ matrix.preset }}/voxel-demo-far.ppm
-          size=$(stat -c %s build/${{ matrix.preset }}/voxel-demo.ppm)
-          diff=$(cmp -l build/${{ matrix.preset }}/voxel-demo.ppm build/${{ matrix.preset }}/voxel-demo-far.ppm | wc -l || true)
-          echo "Abweichende Bytes mit --far: $diff von $size"
-          test "$diff" -le $((size / 1000))
+          python3 - build/${{ matrix.preset }}/voxel-demo.ppm build/${{ matrix.preset }}/voxel-demo-far.ppm <<'PY'
+          import sys
+          a = open(sys.argv[1], 'rb').read()
+          b = open(sys.argv[2], 'rb').read()
+          assert len(a) == len(b), 'Bilder unterschiedlich groß'
+          changed = sum(x != y for x, y in zip(a, b))
+          large = sum(abs(x - y) > 8 for x, y in zip(a, b))
+          print(f'Abweichende Bytes mit --far: {changed} von {len(a)}, davon {large} um mehr als 8')
+          assert changed <= len(a) * 0.03, 'zu viele abweichende Bytes'
+          assert large <= len(a) * 0.003, 'zu viele stark abweichende Bytes'
+          PY
 
       # Kugelraster (R1.3) offscreen: PBR-Materialien, Tone Mapping und Kamera als Komponente.
       # Wie bei der Voxel-Demo muss das Bild 10 000 km vom Ursprung bis auf Rundung gleich bleiben.

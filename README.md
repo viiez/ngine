@@ -60,8 +60,11 @@ Schatten und acht kreisenden Punktlichtern, mit `--model <pfad>` ein glTF-Modell
 Debug-Zeichnen um (von Anfang an mit `--debug-draw`), F2 färbt die Kaskaden der Schatten ein; mit
 `--image <pfad>` offscreen als Bild, mit `--far` 10 000 km vom Ursprung. Demos:
 `--jobs-demo`, `--scene-demo`, `--script-demo` (C#-Skripte), `--net-demo` (Server und Client in
-einem Prozess) und `--voxel-demo` (Voxel-Terrain, mit der Maus veränderbar; mit
-`--headless` ohne GPU, mit `--image <pfad>` offscreen als Bild). Netzwerk: `--server [--port n]`
+einem Prozess) und `--voxel-demo` (prozedurales Voxel-Terrain mit Materialien,
+`--seed <n>` wählt den Startwert; links trägt die Maus ab, rechts auf, die mittlere
+Taste glättet, das Mausrad zoomt; F schaltet den Flugmodus um, dort dreht die rechte Taste die Kamera, WASD, Q/E und Shift fliegen und die mittlere
+Taste trägt auf; F1 zeigt die Grenzen der Chunks; mit `--headless` ohne GPU samt Messung der Zeit
+pro Chunk, mit `--image <pfad>` offscreen als Bild). Netzwerk: `--server [--port n]`
 startet einen dedizierten Server ohne Fenster, `--client <adresse>` verbindet sich mit ihm. Mit `-DNGINE_WITH_WINDOW=OFF` entsteht ein Build ohne SDL3, mit `-DNGINE_WITH_DOTNET=OFF` einer ohne
 C#-Assemblies.
 

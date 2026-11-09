@@ -23,6 +23,7 @@ import ngine.profile;
 import ngine.rhi;
 import ngine.asset;
 import ngine.world;
+import :renderer_detail;
 
 namespace ngine::render {
 
@@ -346,6 +347,7 @@ void register_loaders(asset::ResourceManager& resources, Renderer& renderer, Mod
         [&renderer](const GpuModel& model) {
             return renderer.device().upload_done(model.ticket());
         });
+    detail::register_texture_loaders(resources, renderer);
 }
 
 ModelLoadCounts model_load_counts() noexcept {

@@ -5,6 +5,8 @@
 //   :mesh     Dreiecksnetz aus dem Dichtefeld (Surface Nets)
 //   :meshing  Füllen und Meshing vieler Chunks im Job-System (R3.1)
 //   :edit     Pinsel zum Abtragen, Auftragen und Glätten, Strahltest, über Chunk-Grenzen
+//   :noise    deterministisches Simplex-Rauschen, fBm, Gratrauschen (R3.2)
+//   :generator prozedurale Grundwelt aus Regeln: Hügel, Felswände, Höhlen, Überhänge (R3.2)
 export module ngine.voxel;
 
 // Positionen sind math::Vec3; wer das Voxel-Modul nutzt, rechnet mit den Funktionen von ngine.math.
@@ -15,3 +17,5 @@ export import :chunk;
 export import :mesh;
 export import :meshing;
 export import :edit;
+export import :noise;
+export import :generator;

@@ -94,7 +94,11 @@ TEST_CASE("Renderer draws terrain chunks from shared geometry buffers", "[render
     world::World world{types};
     jobs::JobSystem jobs{{.worker_count = 2}};
     world::Entity terrain = world.create("Terrain");
-    terrain.set(world::Terrain{.size_x = 2, .size_y = 1, .size_z = 2});
+    terrain.set(world::Terrain{.size_x = 2,
+                               .size_y = 1,
+                               .size_z = 2,
+                               .shape = world::TerrainShape::Hills,
+                               .ground = 8.0f});
     world.create("Kamera")
         .set(world::Transform{.position = {0.0, 30.0, 30.0},
                               .rotation = math::look_rotation(

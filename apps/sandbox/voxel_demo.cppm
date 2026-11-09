@@ -18,8 +18,12 @@ module;
 // Voxel-Terrain in der Sandbox. Seit R3.1 ein Terrain aus mehreren Chunks als Komponente der
 // Welt, gemeshed im Job-System und gezeichnet vom Renderer mit PBR und Schatten (vorher, im
 // Durchstich D1, ein Chunk mit eigenem Pass). Mit der Maus veränderbar, auch über Chunk-Grenzen.
+// Seit R3.2 entsteht es aus dem Generator mit Startwert (Hügel, Felswände, Höhlen, Überhänge) und
+// zeigt Materialien mit Texturen aus dem Asset-Ordner; ein Flugmodus führt in die Höhlen.
 export module sandbox.voxel_demo;
 
+import app.model_scene;
+import ngine.asset;
 import ngine.core;
 import ngine.filesystem;
 import ngine.jobs;
@@ -63,12 +67,17 @@ f64 elapsed_ms(std::chrono::steady_clock::time_point start) {
 
 } // namespace
 
+// Terrain der Demo: 12 × 4 × 12 Chunks (192 m × 64 m × 192 m) aus dem Generator.
+export world::Terrain demo_terrain(u32 seed = 1) {
+    return world::Terrain{.size_x = 12, .size_y = 4, .size_z = 12, .seed = seed};
+}
+
 // Zustand der Demo: Welt mit Terrain, Sonne und Kamera, Pinsel, Renderer.
 export class VoxelScene {
 public:
     // origin: Lage des Terrains in der Welt. Weit vom Ursprung zeigt die Demo, dass nichts
     // zittert, weil relativ zur Kamera gezeichnet wird (--far).
-    explicit VoxelScene(DVec3 origin = DVec3{0, 0, 0}, world::Terrain terrain = {})
+    explicit VoxelScene(DVec3 origin = DVec3{0, 0, 0}, world::Terrain terrain = demo_terrain())
         : types_{make_types()}, world_{types_}, origin_{origin} {
         terrain_ = world_.create("Terrain");
         terrain_.set(world::Transform{.position = origin}).set(terrain);
@@ -79,8 +88,9 @@ public:
         camera_ = world_.create("Kamera");
         camera_.set(world::Transform{}).set(render::Camera{.near_plane = 0.2f});
         // Mitte der Oberfläche: Hier treffen sich vier Chunks, Änderungen kreuzen ihre Grenzen.
-        center_ = {0.0f, terrain.ground, 0.0f};
-        distance_ = static_cast<f32>(std::max(terrain.size_x, terrain.size_z)) * 16.0f;
+        const voxel::Generator generator{world::generator_desc(terrain)};
+        center_ = {0.0f, static_cast<f32>(generator.height(0, 0) * voxel::voxel_size), 0.0f};
+        distance_ = static_cast<f32>(std::max(terrain.size_x, terrain.size_z)) * 8.0f;
         update_camera();
         remesh();
     }
@@ -101,15 +111,37 @@ public:
     void toggle_rotation() {
         rotating_ = !rotating_;
     }
+    // Flugmodus (R3.2): freie Kamera statt der Kreisbahn, beginnt an der Lage der Kreisbahn.
+    void toggle_fly() {
+        flying_ = !flying_;
+        if (flying_) {
+            const Vec3 forward = math::to_mat3(rotation_) * Vec3{0.0f, 0.0f, -1.0f};
+            fly_yaw_ = std::atan2(-forward.x, -forward.z);
+            fly_pitch_ = std::asin(std::clamp(forward.y, -1.0f, 1.0f));
+        }
+        log::info("Voxel-Demo: {}", flying_ ? "Flugmodus" : "Kreisbahn");
+    }
+    [[nodiscard]] bool flying() const noexcept {
+        return flying_;
+    }
+    // Zeigt die Grenzen der Chunks mit Netz (F1).
+    void toggle_chunk_bounds() {
+        chunk_bounds_ = !chunk_bounds_;
+    }
 
     // --- Ablauf -------------------------------------------------------------------------------
 
-    // Bewegt die Kamera und wendet den gehaltenen Pinsel an (30-mal pro Sekunde).
-    void update(f32 dt, rhi::Extent2D viewport) {
-        if (rotating_) {
-            yaw_ += dt * 0.15f;
+    // Bewegt die Kamera (Kreisbahn oder im Flugmodus nach input) und wendet den gehaltenen
+    // Pinsel an (30-mal pro Sekunde).
+    void update(f32 dt, rhi::Extent2D viewport, const app::FlyInput& input = {}) {
+        if (flying_) {
+            fly(dt, input);
+        } else {
+            if (rotating_) {
+                yaw_ += dt * 0.15f;
+            }
+            update_camera();
         }
-        update_camera();
         if (!brush_ || !cursor_) {
             return;
         }
@@ -188,9 +220,12 @@ public:
     [[nodiscard]] std::string stats() const {
         const world::TerrainStats& s = data().stats;
         std::string text = std::format(
-            "{} Chunks ({} einheitlich, {} KiB Samples), {} Netze mit {} Dreiecken, {} "
-            "Änderungen; Meshing im Mittel {:.2f} ms, höchstens {:.2f} ms ({} Läufe, {} Chunks)",
-            s.chunks, s.uniform_chunks, s.sample_bytes / 1024, s.meshes, s.triangles, edits_,
+            "{} Chunks ({} einheitlich, {} KiB Samples, erzeugt in {:.1f} ms, {:.3f} ms pro "
+            "Chunk), "
+            "{} Netze mit {} Dreiecken, {} Änderungen; Meshing im Mittel {:.2f} ms, höchstens "
+            "{:.2f} ms ({} Läufe, {} Chunks)",
+            s.chunks, s.uniform_chunks, s.sample_bytes / 1024, s.generate_ms, s.generate_chunk_ms,
+            s.meshes, s.triangles, edits_,
             total_ms_ / static_cast<f64>(std::max<u64>(mesh_count_, 1)), max_ms_, mesh_count_,
             meshed_chunks_);
         if (renderer_) {
@@ -203,19 +238,37 @@ public:
 
     // --- GPU ----------------------------------------------------------------------------------
 
-    rhi::Result<void> create_gpu(rhi::Device& device, rhi::Format color_format) {
+    // database: Asset-Ordner mit den Texturen der Materialien (nullptr: nur Farben).
+    rhi::Result<void> create_gpu(rhi::Device& device, rhi::Format color_format,
+                                 const asset::AssetDatabase* database = nullptr) {
         auto renderer = render::Renderer::create(device, color_format);
         if (!renderer) {
             return std::unexpected(renderer.error());
         }
         renderer_ = *std::move(renderer);
         // Schatten über das ganze Terrain.
-        renderer_->shadows.distance = 120.0f;
+        renderer_->shadows.distance = 160.0f;
+        resources_ = std::make_unique<asset::ResourceManager>(database, &jobs_);
+        render::register_loaders(*resources_, *renderer_);
+        renderer_->set_resources(resources_.get());
+        renderer_->set_terrain_materials(app::terrain_materials(database));
         return {};
     }
 
     void release_gpu() {
+        // Texturen geben ihren Platz im Renderer frei, also vor ihm.
+        if (renderer_) {
+            renderer_->set_resources(nullptr);
+        }
+        resources_.reset();
         renderer_.reset();
+    }
+
+    // Wartet, bis alle angefragten Texturen gelesen sind (Bilder offscreen).
+    void wait_for_assets() {
+        if (resources_) {
+            resources_->wait();
+        }
     }
 
     // Fügt dem Graph die Pässe des Renderers hinzu, die die Welt in target zeichnen.
@@ -223,6 +276,10 @@ public:
                     render::TextureHandle target) {
         NGINE_PROFILE_ZONE("VoxelScene::add_passes");
         static_cast<void>(world::update_transforms(world_));
+        resources_->update();
+        if (chunk_bounds_) {
+            draw_chunk_bounds();
+        }
         renderer_->add_passes(graph, world_, target);
     }
 
@@ -245,6 +302,31 @@ private:
         camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
     }
 
+    void fly(f32 dt, const app::FlyInput& input) {
+        fly_yaw_ -= input.look_x * 0.0025f;
+        fly_pitch_ = std::clamp(fly_pitch_ - input.look_y * 0.0025f, -1.5f, 1.5f);
+        rotation_ = math::angle_axis(fly_yaw_, {0.0f, 1.0f, 0.0f}) *
+                    math::angle_axis(fly_pitch_, {1.0f, 0.0f, 0.0f});
+        const Vec3 forward = rotation_ * Vec3{0.0f, 0.0f, -1.0f};
+        const Vec3 right = rotation_ * Vec3{1.0f, 0.0f, 0.0f};
+        Vec3 move = forward * (static_cast<f32>(input.forward) - static_cast<f32>(input.back)) +
+                    right * (static_cast<f32>(input.right) - static_cast<f32>(input.left));
+        move.y += static_cast<f32>(input.up) - static_cast<f32>(input.down);
+        const f32 speed = input.fast ? 40.0f : 10.0f;
+        eye_ = eye_ + math::to_f64(math::normalize(move) * (speed * dt));
+        camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
+    }
+
+    void draw_chunk_bounds() {
+        render::DebugDraw& debug = renderer_->debug();
+        const DVec3 base = terrain_.get<world::WorldTransform>()->position();
+        for (const auto& [coord, mesh] : data().meshes) {
+            const DVec3 corner = base + voxel::chunk_position(coord);
+            const f64 size = voxel::chunk_size * static_cast<f64>(1u << coord.level);
+            debug.aabb(corner, corner + DVec3{size, size, size}, {0.9f, 0.7f, 0.2f});
+        }
+    }
+
     // Kamera in Voxeln relativ zum Ursprung des Terrains, für den Strahltest.
     [[nodiscard]] Vec3 eye_in_terrain() const {
         return math::to_f32((eye_ - origin_) * (1.0 / voxel::voxel_size));
@@ -254,6 +336,8 @@ private:
     world::World world_;
     jobs::JobSystem jobs_;
     std::unique_ptr<render::Renderer> renderer_;
+    // Nach dem Renderer, damit er zuerst stirbt: Texturen geben ihren Platz im Renderer frei.
+    std::unique_ptr<asset::ResourceManager> resources_;
     world::Entity terrain_;
     world::Entity camera_;
 
@@ -263,6 +347,10 @@ private:
     f32 distance_ = 64.0f;
     f32 yaw_ = 0.6f;
     bool rotating_ = true;
+    bool flying_ = false;
+    f32 fly_yaw_ = 0.0f;
+    f32 fly_pitch_ = 0.0f;
+    bool chunk_bounds_ = false;
     DVec3 eye_;
     Quat rotation_ = math::quat_identity();
 
@@ -279,10 +367,10 @@ private:
 
 namespace {
 
-// Misst Füllen und Meshing vieler Chunks auf einem Thread und parallel im Job-System.
-void benchmark_chunks() {
-    const world::Terrain terrain{
-        .size_x = 8, .size_y = 4, .size_z = 8, .ground = 24.0f, .height = 10.0f};
+// Misst Erzeugen (Generator, R3.2) und Meshing vieler Chunks auf einem Thread und parallel im
+// Job-System.
+void benchmark_chunks(u32 seed) {
+    const world::Terrain terrain{.size_x = 8, .size_y = 4, .size_z = 8, .seed = seed};
     for (const bool parallel : {false, true}) {
         // 0 Worker: Alles läuft im aufrufenden Thread.
         jobs::JobSystem jobs{parallel ? jobs::JobSystemDesc{}
@@ -309,11 +397,12 @@ void benchmark_chunks() {
             bytes +=
                 mesh.vertices.size() * sizeof(voxel::Vertex) + mesh.indices.size() * sizeof(u32);
         }
-        log::info("Chunks {} ({} Threads): {} Chunks gefüllt in {:.1f} ms; {} Netze gemeshed in "
-                  "{:.1f} ms ({:.3f} ms pro Netz), {} Dreiecke, {} KiB Netze, {} KiB Samples "
-                  "({} von {} Chunks einheitlich)",
+        log::info("Chunks {} ({} Threads): {} Chunks erzeugt in {:.1f} ms ({:.3f} ms pro Chunk, "
+                  "Prüfsumme {:016x}); {} Netze gemeshed in {:.1f} ms ({:.3f} ms pro Netz), {} "
+                  "Dreiecke, {} KiB Netze, {} KiB Samples ({} von {} Chunks einheitlich)",
                   parallel ? "parallel" : "seriell", jobs.worker_count() + 1, chunks.size(),
-                  fill_ms, coords.size(), mesh_ms,
+                  fill_ms, fill_ms / static_cast<f64>(std::max<usize>(chunks.size(), 1)),
+                  voxel::checksum(chunks), coords.size(), mesh_ms,
                   mesh_ms / static_cast<f64>(std::max<usize>(with_mesh, 1)), triangles,
                   bytes / 1024, chunks.memory_bytes() / 1024, chunks.uniform_count(),
                   chunks.size());
@@ -346,10 +435,10 @@ export DVec3 voxel_origin(bool far) {
 }
 
 // Ohne GPU: Terrain erzeugen, frames Änderungen anwenden und jeweils neu meshen, Zeiten messen.
-export int run_voxel_demo_headless(u64 frames) {
-    log::info("Voxel-Demo ohne GPU: {} Änderungen", frames);
-    benchmark_chunks();
-    VoxelScene scene;
+export int run_voxel_demo_headless(u64 frames, u32 seed) {
+    log::info("Voxel-Demo ohne GPU: {} Änderungen, Startwert {}", frames, seed);
+    benchmark_chunks(seed);
+    VoxelScene scene{voxel_origin(false), demo_terrain(seed)};
     for (u64 i = 0; i < frames; ++i) {
         scene.scripted_edit(i);
         scene.remesh_if_needed();
@@ -365,7 +454,7 @@ export int run_voxel_demo_headless(u64 frames) {
 
 // Offscreen auf der GPU zeichnen, ohne Fenster: Szene ändern, zeichnen und als Bild speichern.
 export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, bool baseline,
-                                    bool far) {
+                                    bool far, u32 seed, const asset::AssetDatabase* database) {
     auto device = rhi::vulkan::create_device({
         .application_name = "NGine Voxel-Demo",
 #ifdef NDEBUG
@@ -389,8 +478,8 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             log::fatal("{}", target.error());
             return 1;
         }
-        VoxelScene scene{voxel_origin(far)};
-        if (auto result = scene.create_gpu(**device, rhi::Format::RGBA8Srgb); !result) {
+        VoxelScene scene{voxel_origin(far), demo_terrain(seed)};
+        if (auto result = scene.create_gpu(**device, rhi::Format::RGBA8Srgb, database); !result) {
             log::fatal("{}", result.error());
             return 1;
         }
@@ -408,6 +497,10 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             scene.add_passes(**device, graph, output);
             (*device)->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
             pool.end_frame();
+            // Der erste Frame fragt die Texturen an; danach mit ihnen weiter.
+            if (i == 0) {
+                scene.wait_for_assets();
+            }
         }
         log::info("Voxel-Terrain: {}", scene.stats());
         const auto pixels = (*device)->read_texture(**target, rhi::ResourceState::TransferSrc);

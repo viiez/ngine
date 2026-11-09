@@ -9,7 +9,8 @@ import ngine.reflect;
 import ngine.voxel;
 import ngine.world;
 
-// Terrain als Komponente der Welt (R3.1): Zustand, Erzeugen, Meshing, Szenen.
+// Terrain als Komponente der Welt (R3.1): Zustand, Erzeugen, Meshing, Szenen. Seit R3.2 aus dem
+// Generator mit Startwert.
 
 using namespace ngine;
 
@@ -28,7 +29,11 @@ TEST_CASE("update_terrains creates chunks and meshes them in jobs", "[world]") {
     world::World world{types};
     jobs::JobSystem jobs{{.worker_count = 2}};
     world::Entity terrain = world.create("Terrain");
-    terrain.set(world::Terrain{.size_x = 2, .size_y = 2, .size_z = 3});
+    terrain.set(world::Terrain{.size_x = 2,
+                               .size_y = 2,
+                               .size_z = 3,
+                               .shape = world::TerrainShape::Hills,
+                               .ground = 10.0f});
     // Terrain bringt Transform mit, Transform die Weltlage.
     CHECK(terrain.has<world::Transform>());
     CHECK(terrain.has<world::WorldTransform>());
@@ -115,4 +120,40 @@ TEST_CASE("Scenes store the terrain description but not its chunks", "[world]") 
     });
     CHECK(count == 1);
     CHECK(world::save_scene(loaded) == text);
+}
+
+TEST_CASE("Procedural terrains come from the generator with their seed", "[world]") {
+    const auto types = make_types();
+    world::World world{types};
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    const world::Terrain description{.size_x = 2, .size_y = 2, .size_z = 2, .seed = 99};
+    CHECK(description.shape == world::TerrainShape::Procedural);
+    world::Entity terrain = world.create("Terrain").set(description);
+    world::update_terrains(world, jobs);
+    const world::TerrainData& data = *terrain.get<world::TerrainState>()->data;
+    CHECK(data.stats.generate_ms > 0.0);
+    CHECK(data.stats.generate_chunk_ms > 0.0);
+
+    // Dieselben Chunks wie direkt aus dem Generator.
+    voxel::ChunkStore direct;
+    world::generate_terrain(description, direct, jobs);
+    CHECK(voxel::checksum(direct) == voxel::checksum(data.chunks));
+    const voxel::GeneratorDesc desc = world::generator_desc(description);
+    CHECK(desc.seed == 99);
+    CHECK(desc.caves > 0.0f);
+
+    // Anderer Startwert, andere Welt.
+    world::Terrain other = description;
+    other.seed = 100;
+    voxel::ChunkStore different;
+    world::generate_terrain(other, different, jobs);
+    CHECK(voxel::checksum(different) != voxel::checksum(data.chunks));
+
+    // Flach und Hügel schalten Felsen, Überhänge und Höhlen ab.
+    other.shape = world::TerrainShape::Hills;
+    CHECK(world::generator_desc(other).caves == 0.0f);
+    CHECK(world::generator_desc(other).mountains == 0.0f);
+    CHECK(world::generator_desc(other).hills == other.height);
+    other.shape = world::TerrainShape::Flat;
+    CHECK(world::generator_desc(other).hills == 0.0f);
 }

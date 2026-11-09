@@ -18,6 +18,7 @@ target_sources(ngine_render
             meshes.cppm
             terrain.cppm
             renderer.cppm
+            renderer_detail.cppm
     PRIVATE
         pool.cpp
         profiler.cpp
@@ -29,6 +30,10 @@ target_sources(ngine_render
         shadows.cpp
         debug_draw.cpp
         renderer.cpp
+        pipelines.cpp
+        passes.cpp
+        terrain_pass.cpp
+        textures.cpp
         scene.cpp
         models.cpp)
 

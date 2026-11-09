@@ -43,6 +43,7 @@ add_executable(ngine_tests
     edit/prefab_edit_tests.cpp
     voxel/voxel_tests.cpp
     voxel/chunk_tests.cpp
+    voxel/generator_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
     replication/replication_tests.cpp
