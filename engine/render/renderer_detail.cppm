@@ -10,9 +10,11 @@ module;
 
 // Innenleben des Renderers (TD-36, R3.2): Renderer::Impl und die Daten der Draws, geteilt von
 // renderer.cpp (Ablauf eines Frames), pipelines.cpp (Shader und Pipelines), passes.cpp (Schatten,
-// Vorwärts, Tone Mapping, Auswahl) und terrain_pass.cpp (Terrain und seine Materialien). Nichts
-// hier ist exportiert; wer ngine.render importiert, sieht es nicht.
-export module ngine.render:renderer_detail;
+// Vorwärts, Tone Mapping, Auswahl) und terrain_pass.cpp (Terrain und seine Materialien). Eine
+// interne Partition (wie :console in ngine.core): Nur die Implementierungen importieren sie, wer
+// ngine.render importiert, sieht nichts davon. Als Schnittstellen-Partition brach MSVC beim Lesen
+// des Moduls mit einem internen Fehler ab (C1001).
+module ngine.render:renderer_detail;
 
 import ngine.core;
 import ngine.math;
