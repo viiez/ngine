@@ -8,12 +8,12 @@ module;
 #include <unordered_map>
 #include <vector>
 
-// Innenleben des Renderers (TD-36, R3.2): Renderer::Impl und die Daten der Draws, geteilt von
-// renderer.cpp (Ablauf eines Frames), pipelines.cpp (Shader und Pipelines), passes.cpp (Schatten,
-// Vorwärts, Tone Mapping, Auswahl) und terrain_pass.cpp (Terrain und seine Materialien). Eine
-// interne Partition (wie :console in ngine.core): Nur die Implementierungen importieren sie, wer
-// ngine.render importiert, sieht nichts davon. Als Schnittstellen-Partition brach MSVC beim Lesen
-// des Moduls mit einem internen Fehler ab (C1001).
+// Innenleben des Renderers (TD-36, R3.2): RendererCore (Zustand hinter Renderer::Impl) und die
+// Daten der Draws, geteilt von renderer.cpp (Ablauf eines Frames), pipelines.cpp (Shader und
+// Pipelines), passes.cpp (Schatten, Vorwärts, Tone Mapping, Auswahl) und terrain_pass.cpp (Terrain
+// und seine Materialien). Eine interne Partition (wie :console in ngine.core): Nur die
+// Implementierungen importieren sie, wer ngine.render importiert, sieht nichts davon.
+// Renderer::Impl selbst wird erst in renderer.cpp vervollständigt (MSVC, siehe dort).
 module ngine.render:renderer_detail;
 
 import ngine.core;
@@ -121,7 +121,7 @@ void register_texture_loaders(asset::ResourceManager& resources, Renderer& rende
 
 namespace ngine::render {
 
-struct Renderer::Impl {
+struct RendererCore {
     rhi::Device* device = nullptr;
     rhi::Format target_format = rhi::Format::Unknown;
     GeometryBuffer geometry;
@@ -197,7 +197,7 @@ struct Renderer::Impl {
     std::unordered_map<asset::AssetId, asset::Handle<DataTexture>> data_textures;
     u32 terrain_sampler = rhi::invalid_index;
 
-    explicit Impl(rhi::Device& device_)
+    explicit RendererCore(rhi::Device& device_)
         : device{&device_}, geometry{device_}, meshes{geometry}, terrain_meshes{geometry},
           materials{device_} {}
 
@@ -213,7 +213,7 @@ struct Renderer::Impl {
     struct ShaderSpec {
         std::string_view file;
         rhi::ShaderDesc (*embedded)();
-        std::unique_ptr<rhi::Shader> Impl::*slot;
+        std::unique_ptr<rhi::Shader> RendererCore::*slot;
     };
     static std::span<const ShaderSpec> shader_specs();
     // Shader aus dem eingebetteten SPIR-V.

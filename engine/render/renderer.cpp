@@ -56,7 +56,14 @@ std::pair<Vec3, f32> bounding_sphere(const GpuMesh& mesh, const math::Affine& tr
 
 // --- Renderer::Impl -------------------------------------------------------------------------
 
-const GpuModel* Renderer::Impl::model(asset::AssetId id) {
+// Der Zustand steht in RendererCore (Partition :renderer_detail), damit die Dateien des Renderers
+// ihn teilen. Die verschachtelte Klasse selbst wird nur hier vervollständigt: Als Definition in
+// einer Partition brach MSVC beim Lesen des Moduls mit einem internen Fehler ab (C1001).
+struct Renderer::Impl : RendererCore {
+    using RendererCore::RendererCore;
+};
+
+const GpuModel* RendererCore::model(asset::AssetId id) {
     if (id == 0 || resources == nullptr) {
         return nullptr;
     }
@@ -73,7 +80,7 @@ const GpuModel* Renderer::Impl::model(asset::AssetId id) {
     return found;
 }
 
-const GpuMesh* Renderer::Impl::mesh(const asset::AssetRef& ref) {
+const GpuMesh* RendererCore::mesh(const asset::AssetRef& ref) {
     const GpuModel* found = model(ref.asset);
     if (found == nullptr || ref.index >= found->instance().meshes.size()) {
         return nullptr;
@@ -81,7 +88,7 @@ const GpuMesh* Renderer::Impl::mesh(const asset::AssetRef& ref) {
     return meshes.get(found->instance().meshes[ref.index]);
 }
 
-std::optional<u32> Renderer::Impl::material(const asset::AssetRef& ref) {
+std::optional<u32> RendererCore::material(const asset::AssetRef& ref) {
     if (!ref.valid()) {
         return std::nullopt;
     }
@@ -92,7 +99,7 @@ std::optional<u32> Renderer::Impl::material(const asset::AssetRef& ref) {
     return found->instance().materials[ref.index];
 }
 
-rhi::Result<rhi::Buffer*> Renderer::Impl::line_buffer(usize slot, usize count) {
+rhi::Result<rhi::Buffer*> RendererCore::line_buffer(usize slot, usize count) {
     std::unique_ptr<rhi::Buffer>& buffer = lines[slot];
     const u64 needed = std::max<u64>(count, 1024) * sizeof(GpuDebugLine);
     if (!buffer || buffer->size() < needed) {
@@ -108,8 +115,8 @@ rhi::Result<rhi::Buffer*> Renderer::Impl::line_buffer(usize slot, usize count) {
     return buffer.get();
 }
 
-void Renderer::Impl::collect_meshes(world::World& world, math::DVec3 origin, bool shadows_on,
-                                    const std::array<Cascade, cascade_count>& cascades) {
+void RendererCore::collect_meshes(world::World& world, math::DVec3 origin, bool shadows_on,
+                                  const std::array<Cascade, cascade_count>& cascades) {
     world.each<const world::WorldTransform, const MeshRenderer>(
         [&](world::Entity entity, const world::WorldTransform& transform,
             const MeshRenderer& renderer) {

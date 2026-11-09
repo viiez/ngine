@@ -29,7 +29,7 @@ Bekannte Abkürzungen und Probleme mit Grund und Plan. Regeln und Ablauf stehen 
 
 | ID | Was | Wann |
 | --- | --- | --- |
-| TD-36 | `renderer.cpp` hatte rund 1 000 Zeilen: Aufgeteilt in `renderer.cpp` (Erzeugen, Sammeln, Ablauf), `pipelines.cpp`, `passes.cpp`, `terrain_pass.cpp` und `textures.cpp`; `Renderer::Impl` und die Typen der Draws stehen in der internen Partition `:renderer_detail` | 2026-11-09, R3.2 |
+| TD-36 | `renderer.cpp` hatte rund 1 000 Zeilen: Aufgeteilt in `renderer.cpp` (Erzeugen, Sammeln, Ablauf), `pipelines.cpp`, `passes.cpp`, `terrain_pass.cpp` und `textures.cpp`; der Zustand (`RendererCore` hinter `Renderer::Impl`) und die Typen der Draws stehen in der internen Partition `:renderer_detail` | 2026-11-09, R3.2 |
 | TD-23 | Jedes Mesh hatte eigene Eckpunkt- und Indexpuffer: Modelle und Terrain liegen in gemeinsamen Geometriepuffern aus Blöcken zu 32 MiB, freie Bereiche verwaltet ein `RangeAllocator` (first fit, Verschmelzen), Freigaben warten, bis kein Frame und keine Kopie den Bereich mehr liest ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)) | 2026-11-08, R3.1 |
 | TD-30 | Neu geladene Modelle flackerten kurz: Lader melden über `ready` neben `finish()`, wann ein Wert benutzbar ist; der Ressourcen-Manager hält den alten Stand, bis die Uploads des neuen fertig sind ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | 2026-11-08, R2.5 |
 | TD-21 | Tangenten pro Dreieck gemittelt: Beim Kochen erzeugt MikkTSpace die Tangenten für Teilnetze ohne Tangenten in der Datei und teilt Eckpunkte an Nähten ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)); Laden aus den Quellen behält die einfachen Tangenten | 2026-11-08, R2.5 |

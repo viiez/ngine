@@ -33,8 +33,8 @@ std::vector<TerrainMaterial> default_terrain_materials() {
     };
 }
 
-void Renderer::Impl::collect_terrain(world::World& world, math::DVec3 origin, bool shadows_on,
-                                     const std::array<Cascade, cascade_count>& cascades) {
+void RendererCore::collect_terrain(world::World& world, math::DVec3 origin, bool shadows_on,
+                                   const std::array<Cascade, cascade_count>& cascades) {
     world.each<const world::WorldTransform, const world::TerrainState>(
         [&](world::Entity entity, const world::WorldTransform& transform,
             const world::TerrainState& state) {
@@ -83,7 +83,7 @@ void Renderer::Impl::collect_terrain(world::World& world, math::DVec3 origin, bo
     stats.terrain_chunks = static_cast<u32>(terrain_draws.size());
 }
 
-u64 Renderer::Impl::write_terrain_materials(usize slot) {
+u64 RendererCore::write_terrain_materials(usize slot) {
     rhi::Buffer& buffer = *terrain_material_buffers[slot];
     if (terrain_draws.empty()) {
         return buffer.device_address();
@@ -119,9 +119,9 @@ u64 Renderer::Impl::write_terrain_materials(usize slot) {
     return buffer.device_address();
 }
 
-void Renderer::Impl::draw_terrain(rhi::CommandList& commands,
-                                  std::span<const detail::TerrainDraw> draws, u64 frame_address,
-                                  u64 materials_address, u32 cascade) {
+void RendererCore::draw_terrain(rhi::CommandList& commands,
+                                std::span<const detail::TerrainDraw> draws, u64 frame_address,
+                                u64 materials_address, u32 cascade) {
     const rhi::Buffer* indices = nullptr;
     for (const detail::TerrainDraw& draw : draws) {
         if (indices != draw.index_buffer) {

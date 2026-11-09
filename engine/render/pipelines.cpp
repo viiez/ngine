@@ -27,28 +27,31 @@ using detail::depth_format;
 using detail::hdr_format;
 using detail::id_format;
 
-std::span<const Renderer::Impl::ShaderSpec> Renderer::Impl::shader_specs() {
+std::span<const RendererCore::ShaderSpec> RendererCore::shader_specs() {
     static constexpr std::array specs{
-        ShaderSpec{"pbr.slang", shaders::pbr_vertex, &Impl::pbr_vertex},
-        ShaderSpec{"pbr.slang", shaders::pbr_fragment, &Impl::pbr_fragment},
-        ShaderSpec{"shadow.slang", shaders::shadow_vertex, &Impl::shadow_vertex},
-        ShaderSpec{"shadow.slang", shaders::shadow_fragment, &Impl::shadow_fragment},
-        ShaderSpec{"debug.slang", shaders::debug_vertex, &Impl::debug_vertex},
-        ShaderSpec{"debug.slang", shaders::debug_fragment, &Impl::debug_fragment},
-        ShaderSpec{"fullscreen.slang", shaders::fullscreen_vertex, &Impl::fullscreen_vertex},
-        ShaderSpec{"tonemap.slang", shaders::tonemap_fragment, &Impl::tonemap_fragment},
-        ShaderSpec{"id.slang", shaders::id_vertex, &Impl::id_vertex},
-        ShaderSpec{"id.slang", shaders::id_fragment, &Impl::id_fragment},
-        ShaderSpec{"terrain.slang", shaders::terrain_vertex, &Impl::terrain_vertex},
-        ShaderSpec{"terrain.slang", shaders::terrain_fragment, &Impl::terrain_fragment},
-        ShaderSpec{"terrain.slang", shaders::terrain_shadow_vertex, &Impl::terrain_shadow_vertex},
-        ShaderSpec{"terrain.slang", shaders::terrain_id_vertex, &Impl::terrain_id_vertex},
-        ShaderSpec{"terrain.slang", shaders::terrain_id_fragment, &Impl::terrain_id_fragment},
+        ShaderSpec{"pbr.slang", shaders::pbr_vertex, &RendererCore::pbr_vertex},
+        ShaderSpec{"pbr.slang", shaders::pbr_fragment, &RendererCore::pbr_fragment},
+        ShaderSpec{"shadow.slang", shaders::shadow_vertex, &RendererCore::shadow_vertex},
+        ShaderSpec{"shadow.slang", shaders::shadow_fragment, &RendererCore::shadow_fragment},
+        ShaderSpec{"debug.slang", shaders::debug_vertex, &RendererCore::debug_vertex},
+        ShaderSpec{"debug.slang", shaders::debug_fragment, &RendererCore::debug_fragment},
+        ShaderSpec{"fullscreen.slang", shaders::fullscreen_vertex,
+                   &RendererCore::fullscreen_vertex},
+        ShaderSpec{"tonemap.slang", shaders::tonemap_fragment, &RendererCore::tonemap_fragment},
+        ShaderSpec{"id.slang", shaders::id_vertex, &RendererCore::id_vertex},
+        ShaderSpec{"id.slang", shaders::id_fragment, &RendererCore::id_fragment},
+        ShaderSpec{"terrain.slang", shaders::terrain_vertex, &RendererCore::terrain_vertex},
+        ShaderSpec{"terrain.slang", shaders::terrain_fragment, &RendererCore::terrain_fragment},
+        ShaderSpec{"terrain.slang", shaders::terrain_shadow_vertex,
+                   &RendererCore::terrain_shadow_vertex},
+        ShaderSpec{"terrain.slang", shaders::terrain_id_vertex, &RendererCore::terrain_id_vertex},
+        ShaderSpec{"terrain.slang", shaders::terrain_id_fragment,
+                   &RendererCore::terrain_id_fragment},
     };
     return specs;
 }
 
-rhi::Result<void> Renderer::Impl::create_shaders() {
+rhi::Result<void> RendererCore::create_shaders() {
     for (const ShaderSpec& spec : shader_specs()) {
         auto created = device->create_shader(spec.embedded());
         if (!created) {
@@ -59,7 +62,7 @@ rhi::Result<void> Renderer::Impl::create_shaders() {
     return {};
 }
 
-rhi::Result<void> Renderer::Impl::reload_shaders(const ShaderSource& source) {
+rhi::Result<void> RendererCore::reload_shaders(const ShaderSource& source) {
     NGINE_PROFILE_ZONE("Renderer::reload_shaders");
     const std::span<const ShaderSpec> specs = shader_specs();
     // Erst alles übersetzen; ein Fehler lässt die laufenden Shader stehen.
@@ -94,7 +97,7 @@ rhi::Result<void> Renderer::Impl::reload_shaders(const ShaderSource& source) {
     return {};
 }
 
-rhi::Result<void> Renderer::Impl::create_pipelines() {
+rhi::Result<void> RendererCore::create_pipelines() {
     for (usize i = 0; i < pbr.size(); ++i) {
         const bool blend = i >= 2;
         auto pipeline = device->create_pipeline({
@@ -169,7 +172,7 @@ rhi::Result<void> Renderer::Impl::create_pipelines() {
     return {};
 }
 
-rhi::Result<void> Renderer::Impl::create_shadow_pipelines(f32 constant, f32 slope) {
+rhi::Result<void> RendererCore::create_shadow_pipelines(f32 constant, f32 slope) {
     for (const bool masked : {false, true}) {
         auto pipeline = device->create_pipeline({
             .vertex = shadow_vertex.get(),

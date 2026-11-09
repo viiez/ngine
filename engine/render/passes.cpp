@@ -24,8 +24,8 @@ using detail::id_format;
 using rhi::ResourceState;
 
 std::array<TextureHandle, cascade_count>
-Renderer::Impl::add_shadow_passes(RenderGraph& graph, const FrameInfo& frame,
-                                  u64 terrain_material_address) {
+RendererCore::add_shadow_passes(RenderGraph& graph, const FrameInfo& frame,
+                                u64 terrain_material_address) {
     std::array<TextureHandle, cascade_count> shadow_maps{};
     if (!frame.shadows_on) {
         return shadow_maps;
@@ -82,9 +82,9 @@ Renderer::Impl::add_shadow_passes(RenderGraph& graph, const FrameInfo& frame,
 }
 
 TextureHandle
-Renderer::Impl::add_forward_pass(RenderGraph& graph, const FrameInfo& frame,
-                                 const std::array<TextureHandle, cascade_count>& shadow_maps,
-                                 u64 terrain_material_address) {
+RendererCore::add_forward_pass(RenderGraph& graph, const FrameInfo& frame,
+                               const std::array<TextureHandle, cascade_count>& shadow_maps,
+                               u64 terrain_material_address) {
     const TextureHandle hdr =
         graph.create_texture("HDR", {.extent = frame.extent, .format = hdr_format});
     const TextureHandle depth =
@@ -161,8 +161,8 @@ Renderer::Impl::add_forward_pass(RenderGraph& graph, const FrameInfo& frame,
     return hdr;
 }
 
-void Renderer::Impl::add_tonemap_pass(RenderGraph& graph, const FrameInfo& frame, TextureHandle hdr,
-                                      TextureHandle target) {
+void RendererCore::add_tonemap_pass(RenderGraph& graph, const FrameInfo& frame, TextureHandle hdr,
+                                    TextureHandle target) {
     const f32 exposure = frame.exposure;
     graph.add_pass(
         "Tone Mapping",
@@ -182,8 +182,8 @@ void Renderer::Impl::add_tonemap_pass(RenderGraph& graph, const FrameInfo& frame
         });
 }
 
-void Renderer::Impl::add_pick_passes(RenderGraph& graph, usize slot, detail::PickRequest request,
-                                     const FrameInfo& frame, u64 terrain_material_address) {
+void RendererCore::add_pick_passes(RenderGraph& graph, usize slot, detail::PickRequest request,
+                                   const FrameInfo& frame, u64 terrain_material_address) {
     const TextureHandle ids =
         graph.create_texture("IDs", {.extent = frame.extent, .format = id_format});
     const TextureHandle depth =
