@@ -27,10 +27,11 @@ target_sources(ngine_voxel
 target_link_libraries(ngine_voxel PUBLIC ngine::core ngine::math ngine::jobs PRIVATE ngine::profile)
 ngine_set_compiler_options(ngine_voxel)
 # Der Generator muss auf allen Plattformen bitgleich rechnen (R3.2, ADR 0039): keine
-# zusammengezogenen Multiplikationen und Additionen (FMA). MSVC erzeugt sie unter /fp:precise seit
-# Visual Studio 2022 ohne /fp:contract nicht mehr; die Option steht trotzdem ausdrücklich da.
-if(MSVC)
-    target_compile_options(ngine_voxel PRIVATE /fp:precise)
-else()
-    target_compile_options(ngine_voxel PRIVATE -ffp-contract=off)
+# zusammengezogenen Multiplikationen und Additionen (FMA). MSVC zieht unter seiner Vorgabe
+# /fp:precise nichts zusammen; Clang und GCC bekommen -ffp-contract=off. Die Option gilt nur für die
+# Implementierungen, nicht für das ganze Ziel: Mit anderen Optionen als ngine.math müsste CMake die
+# importierten Module für ngine_voxel ein zweites Mal übersetzen, und wer beide importiert, fände
+# zwei Fassungen von ngine.math.
+if(NOT MSVC)
+    set_source_files_properties(noise.cpp generator.cpp PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
 endif()

@@ -21,8 +21,10 @@ zusammenziehen, was das Ergebnis im letzten Bit ändert.
   Domain Warping.
 - **Nur exakt festgelegte Rechnungen:** `f64`, nur `+ − × ÷` und `sqrt` (IEEE 754 schreibt sie
   korrekt gerundet vor). Eigenes `floor_to_int()` und `smoothstep()`, keine Funktionen aus
-  `<cmath>` außer `sqrt`. Das Ziel `ngine_voxel` baut mit `-ffp-contract=off` (Clang, GCC) bzw.
-  `/fp:precise` (MSVC), damit keine FMA entsteht.
+  `<cmath>` außer `sqrt`. `noise.cpp` und `generator.cpp` bauen mit `-ffp-contract=off` (Clang,
+  GCC); MSVC zieht unter seiner Vorgabe `/fp:precise` ohnehin nichts zusammen. Die Option gilt
+  nur für diese Dateien: Andere Optionen für das ganze Ziel ließen CMake die importierten Module
+  ein zweites Mal übersetzen, was unter MSVC zu zwei Fassungen von `ngine.math` führte.
 - **Generator aus Regeln** in `ngine.voxel:generator`: Höhe aus verzerrten Hügeln und Felsrücken
   (Ridged-Rauschen unter einer Maske, Terrassen für Felswände), Überhänge aus 3D-Rauschen je nach
   Steilheit, Höhlen als Tunnel (Nullstellen zweier Rauschfelder) und Kavernen mit Schutz unter der
