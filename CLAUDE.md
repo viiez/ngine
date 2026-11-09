@@ -82,5 +82,8 @@ werden übersprungen (in der CI mit `NGINE_REQUIRE_DOTNET` nicht). Shader sind S
 - Keine Warnungen: CI baut mit `NGINE_WARNINGS_AS_ERRORS=ON`.
 - Formatierung mit `.clang-format`.
 - Testnamen (`TEST_CASE`) nur mit ASCII-Zeichen: ctest gibt sie unter Windows sonst falsch kodiert weiter.
+- Rauschen und Generator in `ngine.voxel` sind bitgleich auf allen Plattformen (ADR 0039): nur
+  `f64` mit `+ − × ÷` und `sqrt`, keine anderen Funktionen aus `<cmath>`, keine FMA. Ändert sich
+  das Ergebnis absichtlich, ändert sich die Prüfsumme in `tests/voxel/generator_tests.cpp` mit.
 - Jede Änderung mit Tests, soweit ohne GPU testbar. Die Engine muss ohne Fenster und GPU starten
   können (`--headless`), weil der dedizierte Server so läuft.

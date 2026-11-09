@@ -76,6 +76,10 @@ public:
                 .loading = {.cache = cache_ ? &*cache_ : nullptr, .cook = {}}};
     }
 
+    [[nodiscard]] const asset::AssetDatabase* database() const {
+        return database_ ? &*database_ : nullptr;
+    }
+
 private:
     std::optional<asset::AssetDatabase> database_;
     std::optional<asset::AssetCache> cache_;

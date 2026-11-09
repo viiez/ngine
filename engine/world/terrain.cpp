@@ -25,8 +25,6 @@ namespace ngine::world {
 
 namespace {
 
-using math::Vec3;
-
 // Größte Ausdehnung eines Terrains in Chunks pro Achse; schützt vor Tippfehlern im Inspector.
 constexpr i32 max_size = 64;
 
@@ -39,33 +37,6 @@ f64 elapsed_ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
-// Höhe der Hügel in Voxeln über der Unterkante und ihr Gradient (in Voxeln pro Voxel). Einige
-// Sinuswellen verschiedener Richtung und Länge; bis R3.2 der Generator aus Rauschen kommt.
-f32 hills(const Terrain& terrain, f32 x, f32 z, f32& gx, f32& gz) {
-    const auto meters = static_cast<f32>(voxel::voxel_size);
-    const f32 ground = terrain.ground / meters;
-    if (terrain.shape == TerrainShape::Flat) {
-        gx = 0.0f;
-        gz = 0.0f;
-        return ground;
-    }
-    const f32 amplitude = terrain.height / meters;
-    // Wellenlängen in Voxeln: rund 40 m, 26 m und 15 m.
-    constexpr f32 k1 = 0.078f;
-    constexpr f32 k2 = 0.12f;
-    constexpr f32 k3 = 0.21f;
-    const f32 a = std::sin(x * k1) * std::cos(z * k1 * 0.8f);
-    const f32 b = std::sin((x + z) * k2 * 0.7f + 1.3f);
-    const f32 c = std::cos(x * k3 * 0.6f - z * k3 * 0.9f + 0.4f);
-    gx = amplitude * (0.55f * k1 * std::cos(x * k1) * std::cos(z * k1 * 0.8f) +
-                      0.3f * k2 * 0.7f * std::cos((x + z) * k2 * 0.7f + 1.3f) -
-                      0.15f * k3 * 0.6f * std::sin(x * k3 * 0.6f - z * k3 * 0.9f + 0.4f));
-    gz = amplitude * (-0.55f * k1 * 0.8f * std::sin(x * k1) * std::sin(z * k1 * 0.8f) +
-                      0.3f * k2 * 0.7f * std::cos((x + z) * k2 * 0.7f + 1.3f) +
-                      0.15f * k3 * 0.9f * std::sin(x * k3 * 0.6f - z * k3 * 0.9f + 0.4f));
-    return ground + amplitude * (0.55f * a + 0.3f * b + 0.15f * c);
-}
-
 Terrain clamped(Terrain terrain) {
     terrain.size_x = std::clamp(terrain.size_x, 1, max_size);
     terrain.size_y = std::clamp(terrain.size_y, 1, max_size);
@@ -74,6 +45,29 @@ Terrain clamped(Terrain terrain) {
 }
 
 } // namespace
+
+voxel::GeneratorDesc generator_desc(const Terrain& terrain) noexcept {
+    voxel::GeneratorDesc desc{.seed = terrain.seed,
+                              .ground = terrain.ground,
+                              .hills = terrain.height,
+                              .mountains = terrain.mountains,
+                              .overhangs = terrain.overhangs,
+                              .caves = std::clamp(terrain.caves, 0.0f, 1.0f),
+                              .sand_level = terrain.sand_level};
+    switch (terrain.shape) {
+    case TerrainShape::Flat:
+        desc.hills = 0.0f;
+        desc.warp = 0.0f;
+        [[fallthrough]];
+    case TerrainShape::Hills:
+        desc.mountains = 0.0f;
+        desc.overhangs = 0.0f;
+        desc.caves = 0.0f;
+        break;
+    case TerrainShape::Procedural: break;
+    }
+    return desc;
+}
 
 voxel::ChunkCoord terrain_first_chunk(const Terrain& terrain) noexcept {
     const Terrain t = clamped(terrain);
@@ -95,23 +89,7 @@ void generate_terrain(const Terrain& terrain, voxel::ChunkStore& chunks, jobs::J
             }
         }
     }
-    // Abstand näherungsweise als Höhe über dem Punkt, geteilt durch die Länge des Gradienten der
-    // Höhe; so bleibt er auch an Hängen nah am echten Abstand.
-    const auto distance = [t](Vec3 p) {
-        f32 gx = 0.0f;
-        f32 gz = 0.0f;
-        const f32 h = hills(t, p.x, p.z, gx, gz);
-        return (h - p.y) / std::sqrt(1.0f + gx * gx + gz * gz);
-    };
-    // Gras an der Oberfläche, darunter Erde, tief unten Fels.
-    const auto material = [distance](Vec3 p) -> voxel::Material {
-        const f32 depth = distance(p);
-        if (depth < 2.5f) {
-            return 1;
-        }
-        return depth < 10.0f ? voxel::Material{3} : voxel::Material{2};
-    };
-    voxel::fill_chunks(jobs, chunks, coords, distance, material);
+    voxel::generate_chunks(jobs, chunks, coords, voxel::Generator{generator_desc(t)});
 }
 
 usize update_terrains(World& world, jobs::JobSystem& jobs) {
@@ -143,6 +121,8 @@ usize update_terrains(World& world, jobs::JobSystem& jobs) {
                 entry.second.mesh.clear();
             }
             data.stats.generate_ms = elapsed_ms(start);
+            data.stats.generate_chunk_ms =
+                data.stats.generate_ms / static_cast<f64>(std::max<usize>(data.chunks.size(), 1));
         }
         if (!data.chunks.has_changes()) {
             data.stats.meshed = 0;
@@ -179,7 +159,8 @@ void register_terrain_types(reflect::TypeRegistry& types) {
     if (types.find<TerrainShape>() == nullptr) {
         types.add<TerrainShape>("TerrainShape")
             .value("Flat", TerrainShape::Flat)
-            .value("Hills", TerrainShape::Hills);
+            .value("Hills", TerrainShape::Hills)
+            .value("Procedural", TerrainShape::Procedural);
     }
     if (types.find<Terrain>() == nullptr) {
         types.add<Terrain>("Terrain")
@@ -190,10 +171,19 @@ void register_terrain_types(reflect::TypeRegistry& types) {
             .field("size_z", &Terrain::size_z)
             .range(1.0, max_size, 1.0)
             .field("shape", &Terrain::shape)
+            .field("seed", &Terrain::seed)
             .field("ground", &Terrain::ground)
             .range(0.0, 1024.0, 0.1)
             .field("height", &Terrain::height)
-            .range(0.0, 512.0, 0.1);
+            .range(0.0, 512.0, 0.1)
+            .field("mountains", &Terrain::mountains)
+            .range(0.0, 512.0, 0.1)
+            .field("overhangs", &Terrain::overhangs)
+            .range(0.0, 16.0, 0.05)
+            .field("caves", &Terrain::caves)
+            .range(0.0, 1.0, 0.01)
+            .field("sand_level", &Terrain::sand_level)
+            .range(-1024.0, 1024.0, 0.1);
     }
     if (types.find<TerrainState>() == nullptr) {
         // Ohne Felder: entsteht zur Laufzeit aus Terrain.

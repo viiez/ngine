@@ -24,6 +24,7 @@ import :lights;
 import :materials;
 import :meshes;
 import :shadows;
+import :terrain;
 
 export namespace ngine::render {
 
@@ -67,16 +68,25 @@ struct DrawPush {
 };
 static_assert(sizeof(DrawPush) <= rhi::max_push_constant_size);
 
-// Push Constants eines Chunks des Terrains, wie terrain.slang sie liest (R3.1).
+// Push Constants eines Chunks des Terrains, wie terrain.slang sie liest (R3.1, seit R3.2 mit
+// Materialien).
 struct TerrainPush {
     math::Vec4 model[3];
+    // Ecke des Chunks relativ zum Terrain in Metern (xyz) und Meter pro Voxel (w): Lage für die
+    // triplanaren Texturen, die so am Terrain haften und nicht an der Kamera.
+    math::Vec4 offset;
     u64 vertices = 0;
     u64 frame = 0;
+    // Materialtabelle (GpuTerrainMaterial).
+    u64 materials = 0;
     // Nur für Schatten: die Kaskade, in die gezeichnet wird.
     u32 cascade = 0;
     // Nur für den ID-Puffer: Kennung der Entity.
     u32 id = 0;
+    // Materialpalette des Chunks: Materialnummern der acht Plätze, vier je Wort.
+    u32 palette[2] = {};
 };
+static_assert(sizeof(TerrainPush) == 104);
 static_assert(sizeof(TerrainPush) <= rhi::max_push_constant_size);
 
 // Kamera, wie sie der Renderer in einem Frame benutzt.
@@ -154,6 +164,12 @@ public:
     // Modell zu einer Kennung, wenn geladen; beginnt sonst das Laden.
     [[nodiscard]] const GpuModel* find_model(asset::AssetId id);
 
+    // Materialtabelle des Terrains (R3.2), Index = Materialnummer der Voxel. Anfangs
+    // default_terrain_materials() ohne Texturen; Texturen lädt der Renderer über den
+    // Ressourcen-Manager, sobald ein Terrain gezeichnet wird.
+    void set_terrain_materials(std::vector<TerrainMaterial> materials);
+    [[nodiscard]] const std::vector<TerrainMaterial>& terrain_materials() const noexcept;
+
     // Übersetzt die Shader des Renderers neu aus ihren Quellen und baut die Pipelines neu (Hot
     // Reload). Scheitert ein Shader, bleibt alles beim Alten.
     rhi::Result<void> reload_shaders(const ShaderSource& source);
@@ -188,6 +204,46 @@ private:
     struct Impl;
     explicit Renderer(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;
+};
+
+// Eine Textur im MaterialStore des Renderers, geladen aus einer Bilddatei über den
+// Ressourcen-Manager (R3.2). Gibt sie beim Zerstören frei; der Renderer muss sie überleben.
+class GpuTexture {
+public:
+    GpuTexture(Renderer& renderer, u32 texture, rhi::UploadTicket ticket = {});
+    ~GpuTexture();
+    GpuTexture(GpuTexture&& other) noexcept;
+    GpuTexture& operator=(GpuTexture&& other) noexcept;
+    GpuTexture(const GpuTexture&) = delete;
+    GpuTexture& operator=(const GpuTexture&) = delete;
+
+    // Bindloser Index der Textur.
+    [[nodiscard]] u32 index() const noexcept {
+        return texture_;
+    }
+    // Uploads im Hintergrund; benutzt werden darf die Textur erst, wenn das Ticket erledigt ist.
+    [[nodiscard]] rhi::UploadTicket ticket() const noexcept {
+        return ticket_;
+    }
+
+private:
+    void release() noexcept;
+
+    Renderer* renderer_ = nullptr;
+    u32 texture_ = rhi::invalid_index;
+    rhi::UploadTicket ticket_;
+};
+
+// Bild als Textur im sRGB-Format (Grundfarben).
+class ColorTexture : public GpuTexture {
+public:
+    using GpuTexture::GpuTexture;
+};
+
+// Bild als lineare Textur (Normalen, Masken).
+class DataTexture : public GpuTexture {
+public:
+    using GpuTexture::GpuTexture;
 };
 
 // Meshes, Materialien und Texturen eines Modells im Renderer: Index im MeshStore pro asset::Mesh,
@@ -266,8 +322,9 @@ struct ModelLoading {
 
 // Meldet beim Ressourcen-Manager, wie GpuModel aus glTF-Dateien entstehen: lesen (aus dem Cache,
 // gekocht oder aus der Quelle) im Hintergrund, hochladen in update(). Ein neu geladenes Modell
-// ersetzt das alte erst, wenn seine Uploads fertig sind (TD-30). renderer und loading.cache müssen
-// den Manager überleben.
+// ersetzt das alte erst, wenn seine Uploads fertig sind (TD-30). Seit R3.2 auch ColorTexture und
+// DataTexture aus Bilddateien (Mip-Stufen im Hintergrund, Upload in update()). renderer und
+// loading.cache müssen den Manager überleben.
 void register_loaders(asset::ResourceManager& resources, Renderer& renderer,
                       ModelLoading loading = {});
 

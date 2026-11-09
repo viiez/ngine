@@ -90,11 +90,11 @@ eine Komponente.
 | VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk; R3.1: nahtlose Chunk-Grenzen über eine Randschicht der Nachbarn, Meshing im Job-System; LOD folgt in R3.3 | D1 / R3 | in Arbeit |
 | VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler; D1: Kugel-Pinsel und Strahltest, Neu-Meshing im selben Frame; R3.1: Pinsel und Strahltest über Chunk-Grenzen, nur betroffene Chunks neu gemesht | D1 / R3 | in Arbeit |
 | VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse | R3 | geplant |
-| VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln | R3 | geplant |
+| VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln | R3 | in Arbeit (R3.2) |
 | VOX-06 | Deltas | Nur Änderungen speichern und übertragen | R3 / R5 | geplant |
-| VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar) | R3 | geplant |
+| VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar) | R3 | in Arbeit (R3.2) |
 | VOX-08 | Kollision | Physik-Formen aus den Voxeln | R4 | geplant |
-| VOX-09 | Höhlen und Überhänge | Echte 3D-Strukturen statt Höhenkarte | R3 | geplant |
+| VOX-09 | Höhlen und Überhänge | Echte 3D-Strukturen statt Höhenkarte | R3 | in Arbeit (R3.2) |
 | VOX-10 | Statik | Einstürzende Strukturen ohne Halt | später | Idee |
 
 ## Natur und Atmosphäre

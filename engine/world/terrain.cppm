@@ -14,30 +14,47 @@ import :ecs;
 
 export namespace ngine::world {
 
-// Form des Terrains, bis R3.2 den Generator aus Rauschen bringt.
+// Welche Regeln des Generators gelten (voxel::GeneratorDesc, R3.2).
 enum class TerrainShape : u8 {
     // Ebene in Höhe ground.
     Flat,
-    // Sanfte Hügel um ground mit Ausschlag height.
+    // Sanfte Hügel um ground mit Ausschlag height, ohne Felsen und Höhlen.
     Hills,
+    // Alle Regeln: Hügel, Felsrücken mit Felswänden, Überhänge, Höhlen (VOX-05, VOX-09).
+    Procedural,
 };
 
 // Voxel-Terrain als Komponente (VOX-01, R3.1, ADR 0038). Die Szene speichert nur, wie das Terrain
 // entsteht; Chunks und Netze hält TerrainState zur Laufzeit. Das Terrain beginnt an der Position
 // der Entity (Drehung und Skalierung zählen nicht, Chunks liegen achsenparallel) und reicht über
-// size_x × size_y × size_z Chunks zu je 16 m, in x und z um die Position zentriert.
+// size_x × size_y × size_z Chunks zu je 16 m, in x und z um die Position zentriert. Seit R3.2
+// entstehen die Chunks aus dem Generator mit Startwert (ADR 0039); Höhen in Metern über der
+// Unterkante.
 struct Terrain {
-    i32 size_x = 4;
-    i32 size_y = 2;
-    i32 size_z = 4;
-    TerrainShape shape = TerrainShape::Hills;
-    // Höhe der Oberfläche über der Unterkante in Metern.
-    f32 ground = 10.0f;
-    // Ausschlag der Hügel in Metern.
+    i32 size_x = 8;
+    i32 size_y = 4;
+    i32 size_z = 8;
+    TerrainShape shape = TerrainShape::Procedural;
+    // Startwert: Gleicher Wert, gleiche Welt auf jedem Rechner.
+    u32 seed = 1;
+    // Mittlere Höhe der Oberfläche.
+    f32 ground = 20.0f;
+    // Ausschlag der Hügel.
     f32 height = 6.0f;
+    // Höhe der Felsrücken (nur Procedural).
+    f32 mountains = 24.0f;
+    // Ausschlag der Überhänge an steilen Stellen (nur Procedural).
+    f32 overhangs = 2.5f;
+    // Menge der Höhlen von 0 bis 1 (nur Procedural).
+    f32 caves = 0.5f;
+    // Unterhalb dieser Höhe liegt Sand an der Oberfläche.
+    f32 sand_level = 14.0f;
 
     friend bool operator==(const Terrain&, const Terrain&) noexcept = default;
 };
+
+// Regeln des Generators für ein Terrain.
+[[nodiscard]] voxel::GeneratorDesc generator_desc(const Terrain& terrain) noexcept;
 
 // Netz eines Chunks auf der CPU; version wächst mit jeder neuen Fassung.
 struct ChunkMesh {
@@ -56,8 +73,9 @@ struct TerrainStats {
     // Im letzten Durchlauf neu gemeshte Chunks und die Zeit dafür.
     u32 meshed = 0;
     f64 mesh_ms = 0.0;
-    // Zeit für das letzte Erzeugen aller Chunks.
+    // Zeit für das letzte Erzeugen aller Chunks, insgesamt und pro Chunk.
     f64 generate_ms = 0.0;
+    f64 generate_chunk_ms = 0.0;
     // Speicher der Samples.
     usize sample_bytes = 0;
 };
@@ -86,7 +104,7 @@ struct TerrainState {
 // kleinsten Koordinate liegt bei chunk_origin(first)).
 [[nodiscard]] voxel::ChunkCoord terrain_first_chunk(const Terrain& terrain) noexcept;
 
-// Erzeugt alle Chunks des Terrains neu, parallel im Job-System.
+// Erzeugt alle Chunks des Terrains neu aus dem Generator, parallel im Job-System.
 void generate_terrain(const Terrain& terrain, voxel::ChunkStore& chunks, jobs::JobSystem& jobs);
 
 // Hält alle Terrains der Welt aktuell: legt TerrainState an, erzeugt die Chunks neu, wenn sich

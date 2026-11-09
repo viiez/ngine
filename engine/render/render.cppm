@@ -10,9 +10,11 @@
 //   :materials   Materialien, Texturen und Sampler (MaterialStore)
 //   :geometry    gemeinsame Geometriepuffer mit Verwaltung freier Bereiche (TD-23)
 //   :meshes      Geometrie auf der GPU (MeshStore)
-//   :terrain     Netze der Chunks aller Terrains auf der GPU (R3.1)
+//   :terrain     Netze der Chunks aller Terrains auf der GPU (R3.1), Materialtabelle (R3.2)
 //   :renderer    zeichnet die Welt: Schatten, PBR vorwärts in ein HDR-Ziel, Tone Mapping; seit R3.1
-//                auch Terrain aus Chunks
+//                auch Terrain aus Chunks, seit R3.2 mit Materialien und Texturen
+//   :renderer_detail  Innenleben des Renderers (nicht exportiert), aufgeteilt auf renderer.cpp,
+//                pipelines.cpp, passes.cpp, terrain_pass.cpp und textures.cpp (TD-36)
 export module ngine.render;
 
 export import :pool;
@@ -27,3 +29,4 @@ export import :geometry;
 export import :meshes;
 export import :terrain;
 export import :renderer;
+export import :renderer_detail;

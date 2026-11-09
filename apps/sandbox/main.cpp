@@ -19,11 +19,15 @@
 //   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
 //   --scene-demo    ECS, Systeme und Szenen vorführen: bewegen, speichern, laden, vergleichen
 //   --scene <pfad>  Szenendatei für --scene-demo (sonst im Benutzerordner)
-//   --voxel-demo    Voxel-Terrain vorführen: Hügel aus 4 × 2 × 4 Chunks mit Licht und Schatten,
-//                   mit der Maus veränderbar, auch über Chunk-Grenzen (links abtragen, rechts
-//                   auftragen, Mitte glätten, Rad zoomt, Leertaste hält die Kamera an). Mit
-//                   --frames ändert sich das Terrain automatisch; mit --headless ohne GPU, dann
-//                   misst die Demo Meshing vieler Chunks seriell und parallel.
+//   --voxel-demo    Voxel-Terrain vorführen: prozedurale Welt aus 12 × 4 × 12 Chunks (Hügel,
+//                   Felswände, Höhlen, Überhänge) mit Materialien, Licht und Schatten, mit der
+//                   Maus veränderbar, auch über Chunk-Grenzen (links abtragen, rechts auftragen,
+//                   Mitte glätten, Rad zoomt, Leertaste hält die Kamera an). F schaltet den
+//                   Flugmodus um (rechte Maustaste dreht, W/A/S/D, E/Q, Shift; links abtragen,
+//                   Mitte auftragen), F1 zeigt die Chunks. Mit --frames ändert sich das Terrain
+//                   automatisch; mit --headless ohne GPU, dann misst die Demo Erzeugen und
+//                   Meshing vieler Chunks seriell und parallel.
+//   --seed <n>      Startwert der Welt für --voxel-demo (Standard 1)
 //   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
 //                   64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
@@ -77,6 +81,7 @@ struct Options {
     bool scene_demo = false;
     std::optional<std::string> scene_path;
     bool voxel_demo = false;
+    ngine::u32 seed = 1;
     bool script_demo = false;
     bool net_demo = false;
     bool server = false;
@@ -120,6 +125,13 @@ Options parse_options(std::span<char*> args) {
             }
         } else if (arg == "--voxel-demo") {
             options.voxel_demo = true;
+        } else if (arg == "--seed" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 seed = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), seed).ec ==
+                std::errc{}) {
+                options.seed = seed;
+            }
         } else if (arg == "--model" && i + 1 < args.size()) {
             options.model_path = std::string{args[++i]};
         } else if (arg == "--image" && i + 1 < args.size()) {
@@ -190,8 +202,9 @@ int run_windowed(const Options& options) {
         sandbox::SandboxAssets sandbox_assets{options.no_cache};
         std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
-            voxels.emplace(sandbox::voxel_origin(options.far));
-            if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format());
+            voxels.emplace(sandbox::voxel_origin(options.far), sandbox::demo_terrain(options.seed));
+            if (auto result = voxels->create_gpu(**device, (*device)->swapchain_format(),
+                                                 sandbox_assets.database());
                 !result) {
                 ngine::log::fatal("Voxel-Demo: {}", result.error());
                 return 1;
@@ -228,7 +241,9 @@ int run_windowed(const Options& options) {
             last_time = now;
             if (voxels) {
                 const auto extent = window->framebuffer_size();
-                voxels->update(dt, {extent.width, extent.height});
+                voxels->update(dt, {extent.width, extent.height}, fly);
+                fly.look_x = 0.0f;
+                fly.look_y = 0.0f;
                 // Automatische Änderungen, wenn die Laufzeit begrenzt ist (CI).
                 if (options.frames && frame_count % 10 == 0) {
                     voxels->scripted_edit(frame_count / 10);
@@ -303,6 +318,10 @@ int run_windowed(const Options& options) {
                                 running = false;
                             } else if (ev.key == Key::Space && voxels) {
                                 voxels->toggle_rotation();
+                            } else if (ev.key == Key::F && voxels) {
+                                voxels->toggle_fly();
+                            } else if (ev.key == Key::F1 && voxels) {
+                                voxels->toggle_chunk_bounds();
                             } else if (ev.key == Key::F1 && scene) {
                                 scene->toggle_debug_draw();
                             } else if (ev.key == Key::F2 && scene) {
@@ -314,24 +333,29 @@ int run_windowed(const Options& options) {
                         } else if constexpr (std::is_same_v<T, event::MouseMoved>) {
                             if (voxels) {
                                 voxels->set_cursor(ev.x, ev.y);
-                            } else if (looking) {
+                            }
+                            if (looking) {
                                 fly.look_x += ev.dx;
                                 fly.look_y += ev.dy;
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
-                            if (voxels) {
+                            const bool look_button =
+                                ev.button == MouseButton::Right && (!voxels || voxels->flying());
+                            if (voxels && !look_button) {
                                 using ngine::voxel::BrushMode;
                                 voxels->set_cursor(ev.x, ev.y);
+                                // Im Flugmodus dreht die rechte Taste; die mittlere trägt auf.
+                                const BrushMode middle =
+                                    voxels->flying() ? BrushMode::Add : BrushMode::Smooth;
                                 voxels->set_brush(ev.button == MouseButton::Left ? BrushMode::Remove
-                                                  : ev.button == MouseButton::Right
-                                                      ? BrushMode::Add
-                                                      : BrushMode::Smooth);
-                            } else if (ev.button == MouseButton::Right) {
+                                                  : ev.button == MouseButton::Right ? BrushMode::Add
+                                                                                    : middle);
+                            } else if (look_button) {
                                 looking = true;
                                 window->set_relative_mouse(true);
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonReleased>) {
-                            if (voxels) {
+                            if (voxels && (ev.button != MouseButton::Right || !looking)) {
                                 voxels->set_brush(std::nullopt);
                             } else if (ev.button == MouseButton::Right) {
                                 looking = false;
@@ -400,10 +424,12 @@ int main(int argc, char** argv) {
     } else if (options.client_address) {
         exit_code = sandbox::run_client(*options.client_address, options.frames.value_or(300));
     } else if (options.voxel_demo && options.headless) {
-        exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120));
+        exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120), options.seed);
     } else if (options.voxel_demo && options.image_path) {
+        const sandbox::SandboxAssets sandbox_assets{options.no_cache};
         exit_code = sandbox::run_voxel_demo_offscreen(
-            options.frames.value_or(60), *options.image_path, options.baseline, options.far);
+            options.frames.value_or(60), *options.image_path, options.baseline, options.far,
+            options.seed, sandbox_assets.database());
     } else if (options.image_path && !options.voxel_demo) {
         exit_code = sandbox::run_model_offscreen(
             options.model_path, *options.image_path, options.baseline,

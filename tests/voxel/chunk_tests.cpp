@@ -399,7 +399,8 @@ TEST_CASE("Meshing in jobs gives the same meshes as on one thread", "[voxel][job
         REQUIRE(a[i].vertices.size() == b[i].vertices.size());
         for (usize v = 0; v < a[i].vertices.size(); ++v) {
             REQUIRE(a[i].vertices[v].px == b[i].vertices[v].px);
-            REQUIRE(a[i].vertices[v].material == b[i].vertices[v].material);
+            REQUIRE(a[i].vertices[v].weights_low == b[i].vertices[v].weights_low);
+            REQUIRE(a[i].vertices[v].weights_high == b[i].vertices[v].weights_high);
         }
         triangles += a[i].triangle_count();
     }

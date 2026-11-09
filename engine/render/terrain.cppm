@@ -1,17 +1,56 @@
 module;
 
+#include <array>
 #include <map>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 export module ngine.render:terrain;
 
 import ngine.core;
+import ngine.math;
 import ngine.rhi;
+import ngine.asset;
 import ngine.world;
 import ngine.voxel;
 import :geometry;
 
 export namespace ngine::render {
+
+// Ein Material des Terrains (VOX-07, R3.2, ADR 0040). Der Index in der Tabelle ist die
+// Materialnummer der Voxel (voxel::Material, 0 ist Luft). Texturen kommen über ihre Asset-Kennung
+// aus dem Ressourcen-Manager des Renderers und werden triplanar aufgetragen; ohne Textur (oder
+// solange sie lädt) zeigt das Terrain nur die Farbe.
+struct TerrainMaterial {
+    std::string name;
+    // Grundfarbe (linear); mit Textur ein Faktor darauf.
+    math::Vec3 color{1.0f, 1.0f, 1.0f};
+    f32 roughness = 0.9f;
+    // Meter pro Wiederholung der Texturen.
+    f32 scale = 4.0f;
+    f32 normal_scale = 1.0f;
+    // Grundfarbe (sRGB) und Normalen im Tangentenraum (linear); 0 heißt keine.
+    asset::AssetId albedo = 0;
+    asset::AssetId normal = 0;
+};
+
+// Größte Zahl von Materialien in der Tabelle (Material ist 8 Bit).
+inline constexpr u32 max_terrain_materials = 256;
+
+// Material des Terrains im GPU-Puffer, wie terrain.slang es liest.
+struct GpuTerrainMaterial {
+    // xyz Farbe, w Roughness.
+    math::Vec4 color;
+    // x Meter pro Wiederholung, y Stärke der Normalen.
+    math::Vec4 params;
+    // Grundfarbe, Normalen, Sampler (bindlose Indizes), frei.
+    u32 textures[4] = {};
+};
+static_assert(sizeof(GpuTerrainMaterial) == 48);
+
+// Standardtabelle ohne Texturen: 1 Gras, 2 Fels, 3 Erde, 4 Sand (wie voxel::grass usw.).
+[[nodiscard]] std::vector<TerrainMaterial> default_terrain_materials();
 
 // Netz eines Chunks auf der GPU: Bereiche in den gemeinsamen Geometriepuffern.
 struct TerrainChunkGpu {
@@ -23,6 +62,8 @@ struct TerrainChunkGpu {
     const rhi::Buffer* index_buffer = nullptr;
     u32 first_index = 0;
     u32 index_count = 0;
+    // Materialpalette des Netzes (voxel::Mesh::palette), vier Materialnummern je Wort.
+    std::array<u32, 2> palette{};
 };
 
 // Hält die Netze der Chunks aller Terrains in den Geometriepuffern des Renderers (R3.1): lädt neue

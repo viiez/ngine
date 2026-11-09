@@ -5,6 +5,7 @@ module;
 #include <limits>
 #include <ngine/profile.hpp>
 #include <span>
+#include <utility>
 
 module ngine.voxel;
 
@@ -41,6 +42,49 @@ constexpr std::array<std::array<u32, 2>, 12> cube_edges{{
 Vec3 corner_offset(u32 corner) {
     return {static_cast<f32>(corner & 1u), static_cast<f32>((corner >> 1) & 1u),
             static_cast<f32>((corner >> 2) & 1u)};
+}
+
+// Platz eines Materials in der Palette des Netzes; neue Materialien bekommen den nächsten freien
+// Platz. Ist die Palette voll, zählt das Material zu Platz 0 (ADR 0040).
+u32 palette_slot(Mesh& mesh, Material material) {
+    for (u32 slot = 0; slot < mesh.palette_count; ++slot) {
+        if (mesh.palette[slot] == material) {
+            return slot;
+        }
+    }
+    if (mesh.palette_count == palette_size) {
+        return 0;
+    }
+    mesh.palette[mesh.palette_count] = material;
+    return mesh.palette_count++;
+}
+
+// Gewichte auf 8 Bit pro Platz mit der Summe 255; der Rest der Rundung geht an den größten Platz.
+std::pair<u32, u32> pack_weights(const std::array<f32, palette_size>& weights) {
+    f32 total = 0.0f;
+    u32 largest = 0;
+    for (u32 slot = 0; slot < palette_size; ++slot) {
+        total += weights[slot];
+        if (weights[slot] > weights[largest]) {
+            largest = slot;
+        }
+    }
+    std::array<u32, palette_size> bytes{};
+    u32 sum = 0;
+    for (u32 slot = 0; slot < palette_size; ++slot) {
+        bytes[slot] = static_cast<u32>(weights[slot] / total * 255.0f + 0.5f);
+        sum += bytes[slot];
+    }
+    // Der größte Platz hat mindestens ein Achtel von 255, der Ausgleich (wenige Einheiten) passt.
+    bytes[largest] =
+        static_cast<u32>(static_cast<i32>(bytes[largest]) + 255 - static_cast<i32>(sum));
+    u32 low = 0;
+    u32 high = 0;
+    for (u32 slot = 0; slot < 4; ++slot) {
+        low |= bytes[slot] << (slot * 8);
+        high |= bytes[slot + 4] << (slot * 8);
+    }
+    return {low, high};
 }
 
 } // namespace
@@ -131,22 +175,27 @@ void Mesher::build_range(const Grid& grid, Mesh& out, u32 cell_min, u32 cell_max
                     sum * (1.0f / static_cast<f32>(crossings));
                 const Vec3 output = position - Vec3{offset, offset, offset};
 
-                // Material der festen Ecke, die der Oberfläche am nächsten liegt: Tiefere Ecken
-                // gehören oft schon zum Material darunter (Erde unter Gras).
-                u32 solid_corner = 8;
+                // Gewichte der Materialien aus den festen Ecken: je näher an der Oberfläche,
+                // desto mehr. Tiefere Ecken gehören oft schon zum Material darunter (Erde unter
+                // Gras) und zählen kaum. Benachbarte Zellen teilen sich Ecken, also verlaufen die
+                // Gewichte stetig (ADR 0040).
+                std::array<f32, palette_size> weights{};
                 for (u32 c = 0; c < 8; ++c) {
-                    if (d[c] > 0.0f && (solid_corner == 8 || d[c] < d[solid_corner])) {
-                        solid_corner = c;
+                    if (d[c] <= 0.0f) {
+                        continue;
                     }
+                    const f32 near = d[c] + 0.25f;
+                    weights[palette_slot(out, data[base + corner_offsets[c]].material)] +=
+                        1.0f / (near * near);
                 }
-                const Material material = data[base + corner_offsets[solid_corner]].material;
+                const auto [weights_low, weights_high] = pack_weights(weights);
 
                 // Die Dichte steigt nach innen; die Normale zeigt nach außen.
                 const Vec3 normal = normalize(grid.gradient_at(position) * -1.0f);
                 const auto vertex = static_cast<u32>(out.vertices.size());
                 cell_vertex_[cell] = vertex;
-                out.vertices.push_back(
-                    {output.x, output.y, output.z, material, normal.x, normal.y, normal.z, 0.0f});
+                out.vertices.push_back({output.x, output.y, output.z, weights_low, normal.x,
+                                        normal.y, normal.z, weights_high});
 
                 // Vierecke um die Kanten an Ecke 0. Reihenfolge der Voxel so, dass das Viereck
                 // gegen den Uhrzeigersinn liegt, wenn fester Stoff am Anfang der Kante liegt. Die

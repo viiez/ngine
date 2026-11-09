@@ -1,5 +1,6 @@
 module;
 
+#include <array>
 #include <cstddef>
 #include <map>
 #include <span>
@@ -74,6 +75,10 @@ TerrainMeshes::sync(const world::TerrainData& data, u64 frame, u32& uploads) {
         chunk.index_buffer = &geometry_->buffer(*index_range);
         chunk.first_index = static_cast<u32>(index_range->offset / sizeof(u32));
         chunk.index_count = static_cast<u32>(mesh.mesh.indices.size());
+        chunk.palette = {};
+        for (u32 slot = 0; slot < mesh.mesh.palette_count; ++slot) {
+            chunk.palette[slot / 4] |= u32{mesh.mesh.palette[slot]} << ((slot % 4) * 8);
+        }
         ++uploads;
     }
     return entry.chunks;
