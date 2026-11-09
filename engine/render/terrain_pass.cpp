@@ -1,6 +1,7 @@
 module;
 
 #include <array>
+#include <memory>
 #include <span>
 #include <unordered_map>
 #include <vector>
