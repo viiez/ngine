@@ -246,17 +246,18 @@ struct Renderer::Impl {
     // --- passes.cpp ------------------------------------------------------------------------
 
     // Eine Schattenkarte pro Kaskade; liefert ihre Texturen.
-    std::array<TextureHandle, cascade_count>
-    add_shadow_passes(RenderGraph& graph, const detail::FrameInfo& frame, u64 terrain_materials);
+    std::array<TextureHandle, cascade_count> add_shadow_passes(RenderGraph& graph,
+                                                               const detail::FrameInfo& frame,
+                                                               u64 terrain_material_address);
     // Vorwärts in ein HDR-Ziel: Terrain, Meshes, Debug-Linien. Liefert das HDR-Ziel.
     TextureHandle add_forward_pass(RenderGraph& graph, const detail::FrameInfo& frame,
                                    const std::array<TextureHandle, cascade_count>& shadow_maps,
-                                   u64 terrain_materials);
+                                   u64 terrain_material_address);
     void add_tonemap_pass(RenderGraph& graph, const detail::FrameInfo& frame, TextureHandle hdr,
                           TextureHandle target);
     // ID-Puffer mit allen Draws dieses Frames und Kopie eines Pixels in pick_buffers[slot].
     void add_pick_passes(RenderGraph& graph, usize slot, detail::PickRequest request,
-                         const detail::FrameInfo& frame, u64 terrain_materials);
+                         const detail::FrameInfo& frame, u64 terrain_material_address);
 };
 
 } // namespace ngine::render

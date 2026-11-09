@@ -23,9 +23,9 @@ using detail::hdr_format;
 using detail::id_format;
 using rhi::ResourceState;
 
-std::array<TextureHandle, cascade_count> Renderer::Impl::add_shadow_passes(RenderGraph& graph,
-                                                                           const FrameInfo& frame,
-                                                                           u64 terrain_materials) {
+std::array<TextureHandle, cascade_count>
+Renderer::Impl::add_shadow_passes(RenderGraph& graph, const FrameInfo& frame,
+                                  u64 terrain_material_address) {
     std::array<TextureHandle, cascade_count> shadow_maps{};
     if (!frame.shadows_on) {
         return shadow_maps;
@@ -38,7 +38,7 @@ std::array<TextureHandle, cascade_count> Renderer::Impl::add_shadow_passes(Rende
         const TextureHandle map = shadow_maps[i];
         graph.add_pass(
             "Schatten", [&](PassBuilder& pass) { pass.write(map, ResourceState::DepthTarget); },
-            [this, map, i, frame_address, terrain_materials](PassContext& context) {
+            [this, map, i, frame_address, terrain_material_address](PassContext& context) {
                 context.commands.begin_rendering(
                     {.depth = &context.texture(map), .clear_depth = 1.0f});
                 const rhi::Pipeline* bound = nullptr;
@@ -71,7 +71,8 @@ std::array<TextureHandle, cascade_count> Renderer::Impl::add_shadow_passes(Rende
                     for (const u32 index : terrain_shadow_draws[i]) {
                         casters.push_back(terrain_draws[index]);
                     }
-                    draw_terrain(context.commands, casters, frame_address, terrain_materials, i);
+                    draw_terrain(context.commands, casters, frame_address, terrain_material_address,
+                                 i);
                     stats.shadow_draws += static_cast<u32>(casters.size());
                 }
                 context.commands.end_rendering();
@@ -83,7 +84,7 @@ std::array<TextureHandle, cascade_count> Renderer::Impl::add_shadow_passes(Rende
 TextureHandle
 Renderer::Impl::add_forward_pass(RenderGraph& graph, const FrameInfo& frame,
                                  const std::array<TextureHandle, cascade_count>& shadow_maps,
-                                 u64 terrain_materials) {
+                                 u64 terrain_material_address) {
     const TextureHandle hdr =
         graph.create_texture("HDR", {.extent = frame.extent, .format = hdr_format});
     const TextureHandle depth =
@@ -99,7 +100,7 @@ Renderer::Impl::add_forward_pass(RenderGraph& graph, const FrameInfo& frame,
                 }
             }
         },
-        [this, hdr, depth, frame, shadow_maps, terrain_materials](PassContext& context) {
+        [this, hdr, depth, frame, shadow_maps, terrain_material_address](PassContext& context) {
             if (frame.shadows_on) {
                 std::array<u32, cascade_count> indices{};
                 for (u32 i = 0; i < cascade_count; ++i) {
@@ -118,7 +119,7 @@ Renderer::Impl::add_forward_pass(RenderGraph& graph, const FrameInfo& frame,
             if (!terrain_draws.empty()) {
                 context.commands.bind_pipeline(*terrain);
                 draw_terrain(context.commands, terrain_draws, frame.frame_address,
-                             terrain_materials, 0);
+                             terrain_material_address, 0);
                 for (const detail::TerrainDraw& draw : terrain_draws) {
                     ++stats.draws;
                     stats.triangles += draw.index_count / 3;
@@ -182,7 +183,7 @@ void Renderer::Impl::add_tonemap_pass(RenderGraph& graph, const FrameInfo& frame
 }
 
 void Renderer::Impl::add_pick_passes(RenderGraph& graph, usize slot, detail::PickRequest request,
-                                     const FrameInfo& frame, u64 terrain_materials) {
+                                     const FrameInfo& frame, u64 terrain_material_address) {
     const TextureHandle ids =
         graph.create_texture("IDs", {.extent = frame.extent, .format = id_format});
     const TextureHandle depth =
@@ -194,7 +195,7 @@ void Renderer::Impl::add_pick_passes(RenderGraph& graph, usize slot, detail::Pic
             pass.write(ids, ResourceState::ColorTarget);
             pass.write(depth, ResourceState::DepthTarget);
         },
-        [this, ids, depth, frame_address, terrain_materials](PassContext& context) {
+        [this, ids, depth, frame_address, terrain_material_address](PassContext& context) {
             // 0.0f hat dieselben Bits wie die Ganzzahl 0: „nichts getroffen“.
             context.commands.begin_rendering({.color = &context.texture(ids),
                                               .clear_color = rhi::Color{0.0f, 0.0f, 0.0f, 0.0f},
@@ -221,7 +222,8 @@ void Renderer::Impl::add_pick_passes(RenderGraph& graph, usize slot, detail::Pic
             }
             if (!terrain_draws.empty()) {
                 context.commands.bind_pipeline(*terrain_id);
-                draw_terrain(context.commands, terrain_draws, frame_address, terrain_materials, 0);
+                draw_terrain(context.commands, terrain_draws, frame_address,
+                             terrain_material_address, 0);
             }
             context.commands.end_rendering();
         });
