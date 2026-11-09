@@ -9,6 +9,7 @@ module;
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
