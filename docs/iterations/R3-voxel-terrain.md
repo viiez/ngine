@@ -1,7 +1,7 @@
 # R3: Voxel-Terrain
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (R3.2)
+- **Status:** in Arbeit (R3.3)
 - **Pull Requests:** siehe Review
 
 R3 ist der dritte Reifegrad der Konstruktion. Wie R1 und R2 ist er zu groß für eine Iteration; wir
