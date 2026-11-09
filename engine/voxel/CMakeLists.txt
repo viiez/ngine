@@ -13,6 +13,8 @@ target_sources(ngine_voxel
             edit.cppm
             noise.cppm
             generator.cppm
+            lod.cppm
+            streaming.cppm
     PRIVATE
         grid.cpp
         chunk.cpp
@@ -20,7 +22,9 @@ target_sources(ngine_voxel
         meshing.cpp
         edit.cpp
         noise.cpp
-        generator.cpp)
+        generator.cpp
+        lod.cpp
+        streaming.cpp)
 
 # Läuft ohne GPU: Der Server braucht Dichtefeld und Bearbeitung, nur das Zeichnen nicht. Seit
 # R3.1 laufen Füllen und Meshing vieler Chunks im Job-System.

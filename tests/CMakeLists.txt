@@ -44,6 +44,7 @@ add_executable(ngine_tests
     voxel/voxel_tests.cpp
     voxel/chunk_tests.cpp
     voxel/generator_tests.cpp
+    voxel/lod_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
     replication/replication_tests.cpp

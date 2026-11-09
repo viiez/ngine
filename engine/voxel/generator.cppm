@@ -62,10 +62,15 @@ public:
         return desc_;
     }
 
-    // Füllt einen Chunk der Stufe 0 und schrumpft ihn, wenn er einheitlich ist.
+    // Füllt einen Chunk und schrumpft ihn, wenn er einheitlich ist. Ein Chunk der Stufe n hat
+    // Samples im Abstand 2ⁿ Voxel (R3.3); seine Dichte zählt in diesem Abstand, sein Gefälle
+    // misst er über einen Abstand, und die 3D-Regeln wertet er auf einem Gitter mit Abstand
+    // lattice·2ⁿ aus. So kostet ein grober Chunk so viel wie einer der Stufe 0, und feine
+    // Strukturen verschwinden in der Ferne, statt zu flimmern. Stufe 0 bleibt bitgleich.
     void fill(ChunkCoord coord, Chunk& out) const;
-    // Ein einzelnes Sample in Koordinaten des Terrains; gleich dem, was fill() dort schreibt.
-    [[nodiscard]] Sample sample(i64 x, i64 y, i64 z) const;
+    // Ein einzelnes Sample in Koordinaten des Terrains (Stufe 0); auf Stufe level muss die
+    // Position auf dem Raster 2^level liegen. Gleich dem, was fill() dort schreibt.
+    [[nodiscard]] Sample sample(i64 x, i64 y, i64 z, u8 level = 0) const;
     // Höhe der Oberfläche aus den 2D-Regeln in Voxeln (ohne Überhänge und Höhlen).
     [[nodiscard]] f64 height(i64 x, i64 z) const noexcept;
 
@@ -76,9 +81,11 @@ public:
 private:
     struct Column;
     struct Lattice;
-    [[nodiscard]] Column column(f64 h, f64 h_x0, f64 h_x1, f64 h_z0, f64 h_z1) const noexcept;
-    [[nodiscard]] Lattice lattice_point(i64 lx, i64 ly, i64 lz) const noexcept;
-    [[nodiscard]] Sample evaluate(const Column& column, const Lattice& field, i64 y) const noexcept;
+    [[nodiscard]] Column column(f64 h, f64 h_x0, f64 h_x1, f64 h_z0, f64 h_z1,
+                                f64 step) const noexcept;
+    [[nodiscard]] Lattice lattice_point(i64 lx, i64 ly, i64 lz, i64 step) const noexcept;
+    [[nodiscard]] Sample evaluate(const Column& column, const Lattice& field, i64 y,
+                                  f64 step) const noexcept;
     [[nodiscard]] bool needs_lattice() const noexcept;
 
     GeneratorDesc desc_;
@@ -90,8 +97,8 @@ private:
     Noise overhang_noise_, tunnel_a_, tunnel_b_, cavern_noise_;
 };
 
-// Füllt die Chunks coords (legt sie bei Bedarf an) aus dem Generator, parallel im Job-System;
-// jeder Job schreibt nur in seinen Chunk. Alle betroffenen Netze sind danach vorgemerkt.
+// Füllt die Chunks coords (legt sie bei Bedarf an, jede Stufe) aus dem Generator, parallel im
+// Job-System; jeder Job schreibt nur in seinen Chunk. Alle betroffenen Netze sind danach vorgemerkt.
 void generate_chunks(jobs::JobSystem& jobs, ChunkStore& store, std::span<const ChunkCoord> coords,
                      const Generator& generator);
 
