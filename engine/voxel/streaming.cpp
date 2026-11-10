@@ -27,6 +27,12 @@ f64 elapsed_ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
+f64 now_ms() {
+    return std::chrono::duration<f64, std::milli>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 } // namespace
 
 // Ein Chunk, den ein Job erzeugt; liegt auf dem Heap, damit seine Adresse fest bleibt.
@@ -49,7 +55,7 @@ Streamer::~Streamer() {
 }
 
 bool Streamer::idle() const noexcept {
-    return !batch_;
+    return phase_ == Phase::idle;
 }
 
 StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
@@ -57,32 +63,61 @@ StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
     NGINE_PROFILE_ZONE("voxel::Streamer::update");
     jobs_ = &jobs;
     StreamChanges changes;
+    // Jeder Schritt wartet auf Jobs nur mit wait; sonst geht es im nächsten Aufruf weiter.
+    const auto jobs_done = [&] {
+        if (wait) {
+            jobs.wait(counter_);
+        }
+        return counter_.done();
+    };
     for (int round = 0; round < 64; ++round) {
-        if (!batch_) {
+        if (phase_ == Phase::idle) {
             bool moved = selected_for_.size() != observers.size();
             for (usize i = 0; !moved && i < observers.size(); ++i) {
                 moved = math::length(observers[i] - selected_for_[i]) > desc_.reselect_distance;
             }
-            if (moved) {
-                selected_for_.assign(observers.begin(), observers.end());
-                LodLayout target = select_lod(observers, desc_.lod);
-                if (!(target == layout_)) {
-                    target_ = std::move(target);
-                    start_batch(store, observers);
-                }
+            if (!moved) {
+                break;
             }
+            // Die Auswahl rechnet ein Job; selected_for_ bleibt bis zur nächsten unverändert.
+            selected_for_.assign(observers.begin(), observers.end());
+            phase_ = Phase::selecting;
+            jobs.run([this] { planned_ = select_lod(selected_for_, desc_.lod); }, &counter_);
         }
-        if (!batch_) {
-            break;
+        if (phase_ == Phase::selecting) {
+            if (!jobs_done()) {
+                break;
+            }
+            if (planned_ == layout_) {
+                planned_ = {};
+                phase_ = Phase::idle;
+                continue;
+            }
+            target_ = std::move(planned_);
+            planned_ = {};
+            start_batch(store);
         }
-        collect();
-        launch(jobs);
-        while (wait && !in_flight_.empty()) {
-            jobs.wait(counter_);
+        if (phase_ == Phase::generating) {
             collect();
             launch(jobs);
+            while (wait && !in_flight_.empty()) {
+                jobs.wait(counter_);
+                collect();
+                launch(jobs);
+            }
+            if (next_ < queue_.size() || !in_flight_.empty()) {
+                break;
+            }
+            phase_ = Phase::preparing;
+            jobs.run([this] { prepare(); }, &counter_);
         }
-        if (next_ < queue_.size() || !in_flight_.empty()) {
+        if (phase_ == Phase::preparing) {
+            if (!jobs_done()) {
+                break;
+            }
+            start_meshing(jobs, store);
+        }
+        if (!jobs_done()) {
             break;
         }
         StreamChanges committed = commit(jobs, store);
@@ -113,8 +148,8 @@ StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
     return changes;
 }
 
-void Streamer::start_batch(const ChunkStore& store, std::span<const math::DVec3> observers) {
-    batch_ = true;
+void Streamer::start_batch(const ChunkStore& store) {
+    phase_ = Phase::generating;
     queue_.clear();
     next_ = 0;
     ready_.clear();
@@ -127,7 +162,7 @@ void Streamer::start_batch(const ChunkStore& store, std::span<const math::DVec3>
     std::vector<std::pair<f64, ChunkCoord>> order;
     order.reserve(queue_.size());
     for (const ChunkCoord c : queue_) {
-        order.emplace_back(observer_distance(observers, c), c);
+        order.emplace_back(observer_distance(selected_for_, c), c);
     }
     std::sort(order.begin(), order.end());
     for (usize i = 0; i < order.size(); ++i) {
@@ -181,26 +216,97 @@ void Streamer::mesh_into(jobs::JobSystem& jobs, const ChunkStore& store,
     }
 }
 
+// Läuft in einem Job: liest layout_, target_ und neighbourhoods_, die der Hauptthread bis zur
+// Übernahme nur liest.
+void Streamer::prepare() {
+    NGINE_PROFILE_ZONE("voxel::Streamer::prepare");
+    // Neu zu meshen: neue Blätter und Blätter, deren Nachbarschaft sich ändert. Das können nur
+    // Nachbarn neuer oder verschwindender Blätter sein.
+    std::unordered_set<ChunkCoord, ChunkCoordHash> candidates;
+    added_ = 0;
+    for (const ChunkCoord c : target_.leaves()) {
+        if (!layout_.contains(c)) {
+            ++added_;
+            for (const ChunkCoord n : target_.neighbourhood(c)) {
+                candidates.insert(n);
+            }
+        }
+    }
+    removed_.clear();
+    for (const ChunkCoord c : layout_.leaves()) {
+        if (!target_.contains(c)) {
+            removed_.push_back(c);
+            for (const ChunkCoord n : layout_.neighbourhood(c)) {
+                if (target_.contains(n)) {
+                    candidates.insert(n);
+                }
+            }
+        }
+    }
+    remesh_.clear();
+    remesh_neighbourhoods_.clear();
+    std::unordered_set<ChunkCoord, ChunkCoordHash> needed;
+    for (const ChunkCoord c : candidates) {
+        std::vector<ChunkCoord> around = target_.neighbourhood(c);
+        const auto it = neighbourhoods_.find(c);
+        if (it == neighbourhoods_.end() || it->second != around) {
+            needed.insert(around.begin(), around.end());
+            remesh_.push_back(c);
+            remesh_neighbourhoods_.push_back(std::move(around));
+        }
+    }
+    needed_.assign(needed.begin(), needed.end());
+}
+
+void Streamer::start_meshing(jobs::JobSystem& jobs, const ChunkStore& store) {
+    NGINE_PROFILE_ZONE("voxel::Streamer::start_meshing");
+    phase_ = Phase::meshing;
+    mesh_start_ms_ = now_ms();
+    // Was die Jobs lesen: neue Chunks aus ready_, grobe Chunks direkt aus dem Store (Pinsel ändern
+    // nur Stufe 0), Chunks der Stufe 0 als Kopie, weil Pinsel sie im Hauptthread weiter ändern.
+    // ready_ und target_ bleiben bis zur Übernahme unverändert.
+    copies_.clear();
+    source_.clear();
+    source_.set_outside(store.outside());
+    for (const ChunkCoord n : needed_) {
+        if (const auto it = ready_.find(n); it != ready_.end()) {
+            source_.add(n, &it->second);
+        } else if (const Chunk* chunk = store.find(n)) {
+            source_.add(n, n.level == 0 ? &copies_.try_emplace(n, *chunk).first->second : chunk);
+        }
+    }
+
+    meshes_.clear();
+    meshes_.resize(remesh_.size());
+    // Wenige Blätter pro Job: Ein LodMesher hat einige hundert KiB Zwischenspeicher.
+    const usize threads = usize{jobs.worker_count()} + 1;
+    const usize per_job = std::max<usize>(1, remesh_.size() / (threads * 4));
+    for (usize begin = 0; begin < remesh_.size(); begin += per_job) {
+        const usize end = std::min(remesh_.size(), begin + per_job);
+        jobs.run(
+            [this, begin, end] {
+                LodMesher mesher;
+                for (usize i = begin; i < end; ++i) {
+                    mesher.build(target_, source_, remesh_[i], meshes_[i]);
+                }
+            },
+            &counter_);
+    }
+}
+
 StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
     NGINE_PROFILE_ZONE("voxel::Streamer::commit");
     const auto start = std::chrono::steady_clock::now();
     StreamChanges changes;
-    LodLayout old = std::move(layout_);
     layout_ = std::move(target_);
     target_ = {};
-    batch_ = false;
+    phase_ = Phase::idle;
 
-    std::vector<ChunkCoord> added;
-    for (const ChunkCoord c : layout_.leaves()) {
-        if (!old.contains(c)) {
-            added.push_back(c);
-        }
-    }
-    for (const ChunkCoord c : old.leaves()) {
-        if (!layout_.contains(c)) {
-            changes.removed.push_back(c);
-            neighbourhoods_.erase(c);
-        }
+    changes.removed = std::move(removed_);
+    removed_.clear();
+    for (const ChunkCoord c : changes.removed) {
+        neighbourhoods_.erase(c);
+        store.remove(c);
     }
     for (auto& [coord, chunk] : ready_) {
         store.get_or_create(coord) = std::move(chunk);
@@ -208,59 +314,50 @@ StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
     ready_.clear();
     queue_.clear();
     next_ = 0;
-    // Nur Blätter der Auswahl bleiben im Speicher (auch keine, die Pinsel außerhalb angelegt
-    // haben).
-    for (const ChunkCoord c : store.coords()) {
-        if (!layout_.contains(c)) {
-            store.remove(c);
-        }
-    }
+    source_.clear();
+    copies_.clear();
+    needed_.clear();
+    // Im Store liegen damit nur Blätter der Auswahl: Chunks, die Pinsel außerhalb anlegen, entfernt
+    // edit_targets() schon im selben Aufruf.
 
-    // Neu zu meshen: neue Blätter und Blätter, deren Nachbarschaft sich geändert hat. Das können
-    // nur Nachbarn neuer oder verschwundener Blätter sein.
-    std::unordered_set<ChunkCoord, ChunkCoordHash> candidates;
-    for (const ChunkCoord c : added) {
-        for (const ChunkCoord n : layout_.neighbourhood(c)) {
-            candidates.insert(n);
-        }
+    // Die Netze aus den Jobs.
+    changes.meshes.reserve(remesh_.size());
+    for (usize i = 0; i < remesh_.size(); ++i) {
+        neighbourhoods_.insert_or_assign(remesh_[i], std::move(remesh_neighbourhoods_[i]));
+        changes.meshes.emplace_back(remesh_[i], std::move(meshes_[i]));
     }
-    for (const ChunkCoord c : changes.removed) {
-        for (const ChunkCoord n : old.neighbourhood(c)) {
-            if (layout_.contains(n)) {
-                candidates.insert(n);
-            }
-        }
+    remesh_.clear();
+    remesh_neighbourhoods_.clear();
+    meshes_.clear();
+    // Änderungen über Pinsel seit dem Start der Jobs gleich mit; ihre Netze kommen nach denen aus
+    // den Jobs und ersetzen sie.
+    for (const ChunkCoord c : edited_while_meshing_) {
+        store.mark_changed(c);
     }
-    std::vector<ChunkCoord> remesh;
-    for (const ChunkCoord c : candidates) {
-        std::vector<ChunkCoord> around = layout_.neighbourhood(c);
-        auto [it, inserted] = neighbourhoods_.try_emplace(c);
-        if (inserted || it->second != around) {
-            it->second = std::move(around);
-            remesh.push_back(c);
-        }
-    }
-    // Änderungen über Pinsel seit dem letzten Aufruf gleich mit.
+    edited_while_meshing_.clear();
     if (store.has_changes()) {
-        const std::vector<ChunkCoord> edited = edit_targets(store);
-        remesh.insert(remesh.end(), edited.begin(), edited.end());
+        mesh_into(jobs, store, edit_targets(store), changes);
     }
-    mesh_into(jobs, store, std::move(remesh), changes);
 
     ++stats_.commits;
     stats_.leaves = static_cast<u32>(layout_.size());
     stats_.per_level = layout_.level_counts();
-    stats_.last_added = static_cast<u32>(added.size());
+    stats_.last_added = static_cast<u32>(added_);
     stats_.last_removed = static_cast<u32>(changes.removed.size());
     stats_.last_meshed = static_cast<u32>(changes.meshes.size());
     stats_.last_commit_ms = elapsed_ms(start);
     stats_.max_commit_ms = std::max(stats_.max_commit_ms, stats_.last_commit_ms);
+    stats_.last_mesh_ms = now_ms() - mesh_start_ms_;
     return changes;
 }
 
 std::vector<ChunkCoord> Streamer::edit_targets(ChunkStore& store) {
     std::unordered_set<ChunkCoord, ChunkCoordHash> touched;
-    for (const ChunkCoord c : store.take_changes()) {
+    const std::vector<ChunkCoord> changed = store.take_changes();
+    if (phase_ == Phase::meshing) {
+        edited_while_meshing_.insert(edited_while_meshing_.end(), changed.begin(), changed.end());
+    }
+    for (const ChunkCoord c : changed) {
         // Pinsel legen Chunks der Stufe 0 auch dort an, wo ein grobes Blatt liegt; die gehören
         // nicht zur Auswahl (Änderungen in groben Stufen folgen mit den Deltas in R3.4).
         if (store.find(c) != nullptr && !layout_.contains(c)) {

@@ -42,9 +42,11 @@ struct StreamStats {
     u32 last_added = 0;
     u32 last_removed = 0;
     u32 last_meshed = 0;
-    // Zeit der letzten Übernahme (Meshing im Hauptthread mit Jobs), in Millisekunden.
+    // Zeit der letzten Übernahme im Hauptthread, in Millisekunden. Die Netze dafür entstehen vorher
+    // in Jobs; last_mesh_ms ist die Zeit vom Start dieser Jobs bis zur Übernahme.
     f64 last_commit_ms = 0.0;
     f64 max_commit_ms = 0.0;
+    f64 last_mesh_ms = 0.0;
     // Seit dem Start erzeugte Chunks und ihre Zeit in Jobs (Summe über alle Threads).
     u64 generated_total = 0;
     f64 generate_ms_total = 0.0;
@@ -63,10 +65,10 @@ struct StreamChanges {
 };
 
 // Lädt Terrain um Beobachter (WORLD-08, R3.3, ADR 0041): wählt den Baum der Chunks, erzeugt
-// fehlende Chunks im Job-System (Nahes zuerst, höchstens max_generating gleichzeitig) und
-// übernimmt eine neue Auswahl erst, wenn alle ihre Chunks da sind. Dann ersetzt es in einem
-// Schritt Chunks und Netze: neue Blätter und Nachbarn, deren Nachbarschaft sich geändert hat,
-// werden gemeshed; so gibt es nie einen Frame mit Rissen. Änderungen über Pinsel an Chunks der
+// fehlende Chunks im Job-System (Nahes zuerst, höchstens max_generating gleichzeitig). Sind alle
+// Chunks einer neuen Auswahl da, meshen Jobs die neuen Blätter und die Nachbarn, deren
+// Nachbarschaft sich ändert; erst dann ersetzt es in einem Schritt Chunks und Netze. So gibt es nie
+// einen Frame mit Rissen, und der Hauptthread wartet nicht auf das Meshing. Änderungen über Pinsel an Chunks der
 // Stufe 0 (ChunkStore::mark_changed) werden im selben Aufruf neu gemeshed. Speicher bleibt
 // begrenzt: Im ChunkStore liegen nur die Blätter der Auswahl.
 //
@@ -99,9 +101,14 @@ public:
 
 private:
     struct Pending;
-    void start_batch(const ChunkStore& store, std::span<const math::DVec3> observers);
+    // Schritte einer Änderung der Auswahl. Was nicht an Pinseln und dem ChunkStore hängt, läuft in
+    // Jobs; der Hauptthread schaltet nur weiter.
+    enum class Phase : u8 { idle, selecting, generating, preparing, meshing };
+    void start_batch(const ChunkStore& store);
     void launch(jobs::JobSystem& jobs);
     void collect();
+    void prepare();
+    void start_meshing(jobs::JobSystem& jobs, const ChunkStore& store);
     StreamChanges commit(jobs::JobSystem& jobs, ChunkStore& store);
     std::vector<ChunkCoord> edit_targets(ChunkStore& store);
     void mesh_into(jobs::JobSystem& jobs, const ChunkStore& store, std::vector<ChunkCoord> coords,
@@ -113,13 +120,31 @@ private:
     // Nachbarschaft, mit der jedes Blatt zuletzt gemeshed wurde.
     std::unordered_map<ChunkCoord, std::vector<ChunkCoord>, ChunkCoordHash> neighbourhoods_;
 
-    // Laufende Änderung der Auswahl.
-    bool batch_ = false;
+    // Laufende Änderung der Auswahl: Auswahl in einem Job, dann Chunks erzeugen, dann in einem Job
+    // planen, was neu zu meshen ist, dann meshen.
+    Phase phase_ = Phase::idle;
+    LodLayout planned_;
     LodLayout target_;
     std::vector<ChunkCoord> queue_;
     usize next_ = 0;
     std::vector<std::unique_ptr<Pending>> in_flight_;
     std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> ready_;
+    // Plan aus prepare(): neu zu meshende Blätter mit ihrer neuen Nachbarschaft, alle Chunks, die
+    // ihre Netze lesen, verschwindende Blätter.
+    std::vector<ChunkCoord> remesh_;
+    std::vector<std::vector<ChunkCoord>> remesh_neighbourhoods_;
+    std::vector<ChunkCoord> needed_;
+    std::vector<ChunkCoord> removed_;
+    usize added_ = 0;
+    std::vector<Mesh> meshes_;
+    // Kopien der Chunks der Stufe 0 aus dem Store (Pinsel ändern sie im Hauptthread weiter) und die
+    // Zuordnung aller Chunks, die die Jobs lesen.
+    std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> copies_;
+    ChunkMap source_;
+    // Änderungen über Pinsel, während die Jobs meshen: Ihre Netze kommen nach der Übernahme noch
+    // einmal, weil die Jobs mit den alten Samples rechnen.
+    std::vector<ChunkCoord> edited_while_meshing_;
+    f64 mesh_start_ms_ = 0.0;
     jobs::Counter counter_;
     jobs::JobSystem* jobs_ = nullptr;
 

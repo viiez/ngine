@@ -476,6 +476,43 @@ TEST_CASE("Streaming around several observers and remeshing brush edits", "[voxe
     CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
 }
 
+TEST_CASE("Brush edits while streaming in the background stay in the meshes", "[voxel]") {
+    jobs::JobSystem jobs;
+    voxel::ChunkStore store;
+    voxel::Streamer streamer{{.seed = 5}, test_stream};
+    MeshMap meshes;
+    std::array observer{DVec3{0.0, 50.0, 0.0}};
+    apply(meshes, streamer.update(jobs, store, observer, true));
+    const voxel::Generator generator{{.seed = 5}};
+    u64 commits = streamer.stats().commits;
+    int frames = 0;
+    // Der Beobachter fliegt, jeder Frame trägt vor ihm ab, nahe am Rand der feinsten Stufe. Dort
+    // meshen die Jobs gerade Blätter neu, deren Nachbarn feiner werden.
+    for (; frames < 20000; ++frames) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        if (frames < 300) {
+            observer[0].x += 1.0;
+        }
+        const f32 x = static_cast<f32>(observer[0].x) + 24.0f + static_cast<f32>(frames % 5) * 8.0f;
+        const auto ground = static_cast<f32>(generator.height(static_cast<i64>(x), 0));
+        static_cast<void>(voxel::apply(store, {.mode = voxel::BrushMode::Remove,
+                                               .center = {x, ground, 0.0f},
+                                               .radius = 5.0f}));
+        apply(meshes, streamer.update(jobs, store, observer));
+        CHECK(!store.has_changes());
+        if (streamer.stats().commits != commits) {
+            commits = streamer.stats().commits;
+            CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
+        }
+        if (frames > 300 && streamer.idle()) {
+            break;
+        }
+    }
+    CHECK(frames < 20000);
+    CHECK(streamer.stats().commits >= 3);
+    CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
+}
+
 TEST_CASE("A streamer can be destroyed while chunks are generated", "[voxel]") {
     jobs::JobSystem jobs;
     voxel::ChunkStore store;

@@ -103,6 +103,48 @@ private:
 // Kleinster Abstand eines Beobachters zum Bereich des Chunks (0 innerhalb), in Voxeln.
 [[nodiscard]] f64 observer_distance(std::span<const math::DVec3> observers, ChunkCoord coord) noexcept;
 
+// Woher der LodMesher die Samples der Blätter liest: Chunk zu einer Koordinate (nullptr: fehlt, gilt
+// als outside()) und der Wert außerhalb. find() muss aus mehreren Jobs gleichzeitig gehen.
+class ChunkSource {
+public:
+    ChunkSource() = default;
+    ChunkSource(const ChunkSource&) = default;
+    ChunkSource& operator=(const ChunkSource&) = default;
+    virtual ~ChunkSource() = default;
+    [[nodiscard]] virtual const Chunk* find(ChunkCoord coord) const noexcept = 0;
+    [[nodiscard]] virtual Sample outside() const noexcept = 0;
+};
+
+// Feste Zuordnung von Koordinaten zu Chunks, die anderswo liegen. Damit meshen Jobs, während der
+// ChunkStore im Hauptthread weiter geändert wird (Streamer, R3.3).
+class ChunkMap final : public ChunkSource {
+public:
+    explicit ChunkMap(Sample outside = {}) noexcept : outside_{outside} {}
+    void add(ChunkCoord coord, const Chunk* chunk) {
+        chunks_.insert_or_assign(coord, chunk);
+    }
+    void clear() noexcept {
+        chunks_.clear();
+    }
+    void set_outside(Sample outside) noexcept {
+        outside_ = outside;
+    }
+    [[nodiscard]] usize size() const noexcept {
+        return chunks_.size();
+    }
+    [[nodiscard]] const Chunk* find(ChunkCoord coord) const noexcept override {
+        const auto it = chunks_.find(coord);
+        return it == chunks_.end() ? nullptr : it->second;
+    }
+    [[nodiscard]] Sample outside() const noexcept override {
+        return outside_;
+    }
+
+private:
+    std::unordered_map<ChunkCoord, const Chunk*, ChunkCoordHash> chunks_;
+    Sample outside_;
+};
+
 // Erzeugt Netze für Blätter eines LOD-Baums mit Surface Nets (R3.3, ADR 0041). Wie Mesher, aber
 // über Stufengrenzen hinweg geschlossen: Auf einer Fläche zwischen zwei Stufen gelten die Samples
 // der groben Seite, Zwischenpunkte der feinen Seite werden linear interpoliert. Jede Gitterkante
@@ -118,6 +160,8 @@ public:
     // Ersetzt out durch das Netz des Blatts leaf. layout muss ausgeglichen sein; store hält die
     // Samples aller Blätter (fehlende Blätter gelten als outside()).
     void build(const LodLayout& layout, const ChunkStore& store, ChunkCoord leaf, Mesh& out);
+    // Wie oben, Samples aus source.
+    void build(const LodLayout& layout, const ChunkSource& source, ChunkCoord leaf, Mesh& out);
 
 private:
     // Zwischenspeicher hinter einem Zeiger, damit die Schnittstelle schlank bleibt.

@@ -548,8 +548,8 @@ flowchart LR
   endloses Terrain (`Terrain::streaming`) hält einen Baum von Chunks; ein Chunk der Stufe n deckt
   32·2ⁿ Voxel mit 32³ Samples ab. `select_lod()` wählt die Blätter um alle Beobachter (Entities mit
   `TerrainObserver` und `TerrainUpdate::observers`), 2:1 ausgeglichen. Der `Streamer` erzeugt
-  fehlende Chunks im Job-System und übernimmt eine Auswahl erst, wenn alle da sind; der
-  `LodMesher` schließt die Grenzen zwischen Stufen mit Nahtpolygonen. Terrains fester Größe nutzen
+  fehlende Chunks und ihre Netze im Job-System und übernimmt eine Auswahl erst, wenn alle da sind;
+  der `LodMesher` schließt die Grenzen zwischen Stufen mit Nahtpolygonen. Terrains fester Größe nutzen
   weiter `mesh_chunks()`.
 
 ```mermaid
@@ -558,12 +558,14 @@ sequenceDiagram
     participant S as Streamer
     participant J as Job-System
     participant C as ChunkStore
-    W->>S: update(Beobachter in Voxeln)
-    S->>S: select_lod(), fehlende Blätter nach Abstand
-    S->>J: Generator::fill() (höchstens max_generating)
+    W->>S: update(Beobachter in Voxeln), einmal pro Frame
+    S->>J: select_lod()
+    S->>J: Generator::fill() nach Abstand (höchstens max_generating)
     J-->>S: fertige Chunks (eigene Kopien)
-    S->>C: alle da: Chunks tauschen, alte Blätter weg
-    S->>J: mesh_leaves() für neue Blätter und geänderte Nachbarschaften
+    S->>J: planen: neue Blätter, geänderte Nachbarschaften
+    S->>J: LodMesher über ChunkMap (Stufe 0 als Kopie)
+    J-->>S: Netze
+    S->>C: Übernahme: Chunks tauschen, alte Blätter weg
     S-->>W: StreamChanges (Netze, entfernte Blätter)
 ```
 

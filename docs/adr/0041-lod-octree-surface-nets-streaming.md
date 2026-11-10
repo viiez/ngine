@@ -25,11 +25,11 @@ ohne dass ein Frame halb geladene Bereiche zeigt, und der Speicher muss begrenzt
   liegt, und verbindet die Eckpunkte der Zellen um sich (drei oder vier verschiedene) zu einem
   Viereck oder Dreieck. Weil der Baum ausgeglichen ist, liest das Netz eines Blatts nur die Blätter,
   die es berühren.
-- **Streaming mit Übernahme in einem Schritt:** Der `Streamer` erzeugt fehlende Chunks einer neuen
-  Auswahl im Job-System (Nahes zuerst, mit Budget) in eigenen Chunks und übernimmt die Auswahl erst,
-  wenn alle da sind. Dann tauscht er Chunks und Netze in einem Aufruf aus und meshet nur neue
-  Blätter und Blätter, deren Nachbarschaft sich geändert hat. Im `ChunkStore` liegen nur die
-  Blätter der Auswahl.
+- **Streaming mit Übernahme in einem Schritt:** Der `Streamer` rechnet die Auswahl in einem Job,
+  erzeugt fehlende Chunks im Job-System (Nahes zuerst, mit Budget) in eigenen Chunks und meshet,
+  sobald alle da sind, in Jobs neue Blätter und Blätter, deren Nachbarschaft sich ändert. Chunks
+  der Stufe 0 lesen diese Jobs als Kopie, weil Pinsel sie im Hauptthread ändern. Erst dann tauscht
+  er Chunks und Netze in einem Aufruf aus. Im `ChunkStore` liegen nur die Blätter der Auswahl.
 
 ## Konsequenzen
 
@@ -37,8 +37,9 @@ ohne dass ein Frame halb geladene Bereiche zeigt, und der Speicher muss begrenzt
   Kanten über mehrere Stufen).
 - Der Mesher für den Baum ist aufwendiger als der für eine Stufe (rund 1,7-mal so teuer pro Netz)
   und eine zweite Umsetzung von Surface Nets neben `Mesher`, der für Terrains fester Größe bleibt.
-- Eine Übernahme meshet viele Netze auf einmal im Hauptthread (parallel im Job-System) und lädt sie
-  im selben Frame hoch; ein Budget für Uploads pro Frame fehlt noch (Schuld TD-39).
+- Der Hauptthread schaltet nur weiter und tauscht (rund 1 ms). Die neuen Netze einer Übernahme
+  lädt der Renderer aber im selben Frame hoch; ein Budget für Uploads pro Frame fehlt noch (Schuld
+  TD-39). Eine Änderung der Auswahl braucht einige hundert Millisekunden, bis sie sichtbar wird.
 - Pinsel wirken nur auf Blätter der Stufe 0; Änderungen gehen beim Entladen verloren, bis R3.4 sie
   als Deltas speichert (Schuld TD-40).
 - Ein Blatt, dessen Nachbarschaft sich ändert, wird ganz neu gemeshed, auch wenn sich nur ein Rand

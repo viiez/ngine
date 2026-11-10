@@ -352,7 +352,7 @@ struct LodMesher::Impl {
     };
 
     const LodLayout* layout = nullptr;
-    const ChunkStore* store = nullptr;
+    const ChunkSource* store = nullptr;
     ChunkCoord self{};
     i64 step = 1;
     std::array<i64, 3> origin{};
@@ -544,7 +544,7 @@ struct LodMesher::Impl {
         }
     }
 
-    void prepare(const LodLayout& lay, const ChunkStore& st, ChunkCoord leaf) {
+    void prepare(const LodLayout& lay, const ChunkSource& st, ChunkCoord leaf) {
         layout = &lay;
         store = &st;
         self = leaf;
@@ -895,10 +895,35 @@ LodMesher::~LodMesher() = default;
 LodMesher::LodMesher(LodMesher&&) noexcept = default;
 LodMesher& LodMesher::operator=(LodMesher&&) noexcept = default;
 
+namespace {
+
+// Liest direkt aus dem ChunkStore.
+class StoreSource final : public ChunkSource {
+public:
+    explicit StoreSource(const ChunkStore& store) noexcept : store_{&store} {}
+    [[nodiscard]] const Chunk* find(ChunkCoord coord) const noexcept override {
+        return store_->find(coord);
+    }
+    [[nodiscard]] Sample outside() const noexcept override {
+        return store_->outside();
+    }
+
+private:
+    const ChunkStore* store_;
+};
+
+} // namespace
+
 void LodMesher::build(const LodLayout& layout, const ChunkStore& store, ChunkCoord leaf,
                       Mesh& out) {
+    const StoreSource source{store};
+    build(layout, source, leaf, out);
+}
+
+void LodMesher::build(const LodLayout& layout, const ChunkSource& source, ChunkCoord leaf,
+                      Mesh& out) {
     NGINE_PROFILE_ZONE("voxel::LodMesher::build");
-    impl_->prepare(layout, store, leaf);
+    impl_->prepare(layout, source, leaf);
     impl_->build(out);
 }
 
