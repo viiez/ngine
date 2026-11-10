@@ -422,7 +422,10 @@ TEST_CASE("Streaming without waiting commits only complete selections", "[voxel]
     u64 commits = 0;
     int frames = 0;
     // Frames von rund 1 ms; die Jobs erzeugen im Hintergrund.
-    for (; frames < 20000; ++frames) {
+    // Die Jobs brauchen Zeit, nicht Frames: Grenze nach Uhrzeit, großzügig für ThreadSanitizer.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes{10};
+    bool finished = false;
+    for (; std::chrono::steady_clock::now() < deadline; ++frames) {
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
         if (frames == 40) {
             observer[0].x += 150.0;
@@ -438,10 +441,11 @@ TEST_CASE("Streaming without waiting commits only complete selections", "[voxel]
             CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
         }
         if (frames > 40 && streamer.idle()) {
+            finished = true;
             break;
         }
     }
-    CHECK(frames < 20000);
+    CHECK(finished);
     CHECK(commits >= 2);
     CHECK(streamer.layout().leaf_of(-150, 50, 120)->level == 0);
 }
@@ -488,7 +492,10 @@ TEST_CASE("Brush edits while streaming in the background stay in the meshes", "[
     int frames = 0;
     // Der Beobachter fliegt, jeder Frame trägt vor ihm ab, nahe am Rand der feinsten Stufe. Dort
     // meshen die Jobs gerade Blätter neu, deren Nachbarn feiner werden.
-    for (; frames < 20000; ++frames) {
+    // Die Jobs brauchen Zeit, nicht Frames: Grenze nach Uhrzeit, großzügig für ThreadSanitizer.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes{10};
+    bool finished = false;
+    for (; std::chrono::steady_clock::now() < deadline; ++frames) {
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
         if (frames < 300) {
             observer[0].x += 1.0;
@@ -505,10 +512,11 @@ TEST_CASE("Brush edits while streaming in the background stay in the meshes", "[
             CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
         }
         if (frames > 300 && streamer.idle()) {
+            finished = true;
             break;
         }
     }
-    CHECK(frames < 20000);
+    CHECK(finished);
     CHECK(streamer.stats().commits >= 3);
     CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
 }
