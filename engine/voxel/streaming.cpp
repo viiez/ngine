@@ -55,6 +55,11 @@ Streamer::~Streamer() {
     }
 }
 
+u32 Streamer::job_limit(const jobs::JobSystem& jobs) const noexcept {
+    return desc_.max_generating > 0 ? desc_.max_generating
+                                    : std::max(1u, (jobs.worker_count() + 1) / 2);
+}
+
 bool Streamer::idle() const noexcept {
     return phase_ == Phase::idle;
 }
@@ -173,8 +178,7 @@ void Streamer::start_batch(const ChunkStore& store) {
 }
 
 void Streamer::launch(jobs::JobSystem& jobs) {
-    const u32 limit =
-        desc_.max_generating > 0 ? desc_.max_generating : 2 * (jobs.worker_count() + 1);
+    const u32 limit = job_limit(jobs);
     while (in_flight_.size() < limit && next_ < queue_.size()) {
         auto pending = std::make_unique<Pending>();
         pending->coord = queue_[next_++];
@@ -310,15 +314,16 @@ void Streamer::start_meshing(jobs::JobSystem& jobs, const ChunkStore& store) {
 
     meshes_.clear();
     meshes_.resize(remesh_.size());
-    // Wenige Blätter pro Job: Ein LodMesher hat einige hundert KiB Zwischenspeicher.
-    const usize threads = usize{jobs.worker_count()} + 1;
-    const usize per_job = std::max<usize>(1, remesh_.size() / (threads * 4));
-    for (usize begin = 0; begin < remesh_.size(); begin += per_job) {
-        const usize end = std::min(remesh_.size(), begin + per_job);
+    // Höchstens job_limit() Jobs, die sich die Blätter teilen: Das Streaming soll nicht alle
+    // Threads belegen, sonst fehlt dem Hauptthread und dem Grafiktreiber Rechenzeit.
+    next_mesh_.store(0, std::memory_order_relaxed);
+    const usize count = std::min<usize>(job_limit(jobs), remesh_.size());
+    for (usize j = 0; j < count; ++j) {
         jobs.run(
-            [this, begin, end] {
+            [this] {
                 LodMesher mesher;
-                for (usize i = begin; i < end; ++i) {
+                for (usize i = next_mesh_.fetch_add(1, std::memory_order_relaxed);
+                     i < remesh_.size(); i = next_mesh_.fetch_add(1, std::memory_order_relaxed)) {
                     mesher.build(target_, source_, remesh_[i], meshes_[i]);
                 }
             },

@@ -1,6 +1,7 @@
 module;
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <span>
 #include <unordered_map>
@@ -23,7 +24,8 @@ export namespace ngine::voxel {
 
 struct StreamDesc {
     LodDesc lod;
-    // Höchstens so viele Chunks gleichzeitig im Job-System erzeugen; 0 heißt zwei pro Thread.
+    // Höchstens so viele Jobs des Streamings gleichzeitig (Erzeugen, Meshen); 0 heißt die Hälfte
+    // der Threads, damit Hauptthread und Grafiktreiber genug Rechenzeit behalten.
     u32 max_generating = 0;
     // Neue Auswahl erst, wenn sich ein Beobachter so weit (Voxel) bewegt hat.
     f64 reselect_distance = 4.0;
@@ -110,6 +112,7 @@ private:
     void collect();
     void prepare();
     void start_meshing(jobs::JobSystem& jobs, const ChunkStore& store);
+    [[nodiscard]] u32 job_limit(const jobs::JobSystem& jobs) const noexcept;
     StreamChanges commit(jobs::JobSystem& jobs, ChunkStore& store);
     std::vector<ChunkCoord> edit_targets(ChunkStore& store);
     void mesh_into(jobs::JobSystem& jobs, const ChunkStore& store, std::vector<ChunkCoord> coords,
@@ -138,6 +141,7 @@ private:
     std::vector<ChunkCoord> removed_;
     usize added_ = 0;
     std::vector<Mesh> meshes_;
+    std::atomic<usize> next_mesh_{0};
     // Spiegel der Blätter der Stufe 0 im Store: Pinsel ändern diese im Hauptthread, während Jobs
     // meshen, also lesen die Jobs den Spiegel. Neue Blätter spiegeln Jobs beim Meshing; geänderte
     // (stale_) kopiert der Hauptthread vor dem nächsten Meshing neu.
