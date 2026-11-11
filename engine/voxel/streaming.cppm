@@ -71,9 +71,9 @@ struct StreamChanges {
 // fehlende Chunks im Job-System (Nahes zuerst, höchstens max_generating gleichzeitig). Sind alle
 // Chunks einer neuen Auswahl da, meshen Jobs die neuen Blätter und die Nachbarn, deren
 // Nachbarschaft sich ändert; erst dann ersetzt es in einem Schritt Chunks und Netze. So gibt es nie
-// einen Frame mit Rissen, und der Hauptthread wartet nicht auf das Meshing. Änderungen über Pinsel an Chunks der
-// Stufe 0 (ChunkStore::mark_changed) werden im selben Aufruf neu gemeshed. Speicher bleibt
-// begrenzt: Im ChunkStore liegen nur die Blätter der Auswahl.
+// einen Frame mit Rissen, und der Hauptthread wartet nicht auf das Meshing. Änderungen über
+// Pinsel an Chunks der Stufe 0 (ChunkStore::mark_changed) werden im selben Aufruf neu gemeshed.
+// Speicher bleibt begrenzt: Im ChunkStore liegen nur die Blätter der Auswahl.
 //
 // Gehört einem Thread; erzeugende Jobs schreiben nur in eigene Chunks außerhalb des ChunkStore.
 // Der Generator ist eine reine Funktion, also brauchen die Jobs keine Sperre.
