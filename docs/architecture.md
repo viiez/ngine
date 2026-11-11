@@ -180,7 +180,10 @@ pro Block vergibt Bereiche nach first fit und verschmilzt freie Nachbarn. Modell
 Terrain-Chunks (`TerrainMeshes`) bekommen je einen Bereich für Eckpunkte und einen für Indizes; ein
 Draw nutzt die Geräteadresse des Bereichs und `first_index` im Indexpuffer des Blocks. Freigegebene
 Bereiche werden erst `frames_in_flight + 2` Frames später wieder vergeben, damit weder ein Frame im
-Flug noch eine Kopie auf der Transfer-Queue sie noch liest (`upload_async()` mit Offset).
+Flug noch eine Kopie auf der Transfer-Queue sie noch liest (`upload_async()` mit Offset). Seit R3.3
+lädt `TerrainMeshes` neue Fassungen höchstens `upload_budget` Bytes pro Frame (8 MiB, mindestens ein
+Netz) vorab in eigene Bereiche und tauscht die Draws eines Terrains erst, wenn alle da sind; so
+bleibt die Übernahme des Streamings auch über mehrere Frames ohne Risse.
 
 Statische Geometrie liegt im GPU-Speicher (`MemoryUsage::Gpu`) und wird über `Device::upload()`
 gefüllt: Die Daten landen in einem Staging-Ring, die Kopien in einem eigenen Command Buffer, der vor

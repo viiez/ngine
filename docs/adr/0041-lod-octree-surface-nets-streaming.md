@@ -38,9 +38,10 @@ ohne dass ein Frame halb geladene Bereiche zeigt, und der Speicher muss begrenzt
   Kanten über mehrere Stufen).
 - Der Mesher für den Baum ist aufwendiger als der für eine Stufe (rund 1,7-mal so teuer pro Netz)
   und eine zweite Umsetzung von Surface Nets neben `Mesher`, der für Terrains fester Größe bleibt.
-- Der Hauptthread schaltet nur weiter und tauscht (rund 1 ms). Die neuen Netze einer Übernahme
-  lädt der Renderer aber im selben Frame hoch; ein Budget für Uploads pro Frame fehlt noch (Schuld
-  TD-39). Eine Änderung der Auswahl braucht einige hundert Millisekunden, bis sie sichtbar wird.
+- Der Hauptthread schaltet nur weiter und tauscht (rund 1 ms). Der Renderer lädt die neuen Netze
+  mit einem Budget pro Frame vorab hoch und tauscht die Draws erst, wenn alle da sind; auch dort
+  entsteht also kein Frame mit Rissen. Eine Änderung der Auswahl braucht einige hundert
+  Millisekunden, bis sie sichtbar wird.
 - Pinsel wirken nur auf Blätter der Stufe 0; Änderungen gehen beim Entladen verloren, bis R3.4 sie
   als Deltas speichert (Schuld TD-40).
 - Ein Blatt, dessen Nachbarschaft sich ändert, wird ganz neu gemeshed, auch wenn sich nur ein Rand

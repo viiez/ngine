@@ -131,17 +131,30 @@ usize stream_terrain(TerrainData& data, jobs::JobSystem& jobs,
     if (changes.empty()) {
         return 0;
     }
+    // Alte Netze gibt ein Job frei: Hunderte große Blöcke auf einmal kosten im Hauptthread
+    // spürbar Zeit (vor allem unter Windows).
+    std::vector<voxel::Mesh> old;
+    const auto retire = [&](voxel::ChunkCoord coord) {
+        if (const auto it = data.meshes.find(coord); it != data.meshes.end()) {
+            old.push_back(std::move(it->second.mesh));
+            data.meshes.erase(it);
+        }
+    };
     for (const voxel::ChunkCoord coord : changes.removed) {
-        data.meshes.erase(coord);
+        retire(coord);
     }
     for (auto& [coord, mesh] : changes.meshes) {
         if (mesh.indices.empty()) {
-            data.meshes.erase(coord);
+            retire(coord);
             continue;
         }
         ChunkMesh& entry = data.meshes[coord];
+        old.push_back(std::move(entry.mesh));
         entry.mesh = std::move(mesh);
         entry.version = next_mesh_version.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (!old.empty()) {
+        jobs.run([retired = std::move(old)] { static_cast<void>(retired); });
     }
     data.stats.mesh_ms = elapsed_ms(start);
     count_meshes(data);
