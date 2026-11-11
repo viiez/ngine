@@ -190,8 +190,12 @@ public:
         eye_ = flight_->start;
         flight_->commits = data().stats.stream.commits;
         flight_->generated = data().stats.stream.generated_total;
-        log::info("Voxel-Demo: Autopilot fliegt {:.1f} km mit {:.0f} m/s", distance / 1000.0,
-                  speed);
+        if (speed > 0.0f) {
+            log::info("Voxel-Demo: Autopilot fliegt {:.1f} km mit {:.0f} m/s", distance / 1000.0,
+                      speed);
+        } else {
+            log::info("Voxel-Demo: Autopilot schwebt {:.0f} s", distance);
+        }
     }
     [[nodiscard]] bool flight_active() const noexcept {
         return flight_.has_value();
@@ -420,18 +424,20 @@ private:
             f.gpu.add(mib(renderer_->geometry().stats().used));
         }
         f.seconds += static_cast<f64>(dt);
-        if (f.travelled < f.distance) {
+        // Mit Geschwindigkeit 0 schwebt die Kamera distance Sekunden lang (Vergleich ohne Flug).
+        if (f.speed > 0.0f ? f.travelled < f.distance : f.seconds < f.distance) {
             return;
         }
         const voxel::StreamStats& st = s.stream;
         flight_report_ = std::format(
-            "Flug: {:.1f} km in {:.1f} s ({:.0f} m/s), {} Frames; Frame-Zeit Median {:.2f} ms, "
+            "{}: {:.1f} km in {:.1f} s ({:.0f} m/s), {} Frames; Frame-Zeit Median {:.2f} ms, "
             "99. Perzentil {:.2f} ms, höchstens {:.2f} ms; {} Übernahmen (höchstens {:.1f} ms), {} "
             "Chunks erzeugt; Chunks {:.0f} bis {:.0f}, Samples {:.1f} bis {:.1f} MiB, Netze {:.1f} "
             "bis {:.1f} MiB, Geometrie auf der GPU {:.1f} bis {:.1f} MiB; update_terrains() 99. "
             "Perzentil {:.2f} ms, höchstens {:.2f} ms; Pässe 99. Perzentil {:.2f} ms, höchstens "
             "{:.2f} ms, bis {} Netze in einem Frame hochgeladen",
-            f.distance / 1000.0, f.seconds, f.distance / std::max(f.seconds, 1e-3),
+            f.speed > 0.0f ? "Flug" : "Schweben", f.travelled / 1000.0, f.seconds,
+            f.travelled / std::max(f.seconds, 1e-3),
             f.frame_ms.size(), percentile(f.frame_ms, 0.5), percentile(f.frame_ms, 0.99),
             percentile(f.frame_ms, 1.0), st.commits - f.commits, st.max_commit_ms,
             st.generated_total - f.generated, f.chunks.min, f.chunks.max, f.samples.min,

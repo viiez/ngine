@@ -62,7 +62,8 @@ Debug-Zeichnen um (von Anfang an mit `--debug-draw`), F2 färbt die Kaskaden der
 `--jobs-demo`, `--scene-demo`, `--script-demo` (C#-Skripte), `--net-demo` (Server und Client in
 einem Prozess) und `--voxel-demo` (endloses prozedurales Voxel-Terrain mit Materialien und LOD,
 `--seed <n>` wählt den Startwert, `--view <m>` die Sichtweite (Standard 2000), G oder `--flight [m]`
-startet einen Autopiloten, der Frame-Zeiten und Speicher misst; links trägt die Maus ab, rechts auf, die mittlere
+startet einen Autopiloten, der Frame-Zeiten und Speicher misst, `--hover [s]` misst zum Vergleich
+ohne Flug; links trägt die Maus ab, rechts auf, die mittlere
 Taste glättet, das Mausrad zoomt; F schaltet den Flugmodus um, dort dreht die rechte Taste die Kamera, WASD, Q/E und Shift fliegen und die mittlere
 Taste trägt auf; F1 zeigt die Grenzen der Chunks nach Stufe; mit `--headless` ohne GPU samt Messung der Zeit
 pro Chunk und Streaming um drei Beobachter, mit `--image <pfad>` offscreen als Bild). Netzwerk: `--server [--port n]`

@@ -86,6 +86,8 @@ struct Options {
     float view = 2000.0f;
     // Autopilot der Voxel-Demo: fliegt so viele Meter, misst und beendet dann die Sandbox.
     std::optional<double> flight;
+    // Wie --flight, aber die Kamera schwebt so viele Sekunden an der Startstelle (Vergleichswert).
+    std::optional<double> hover;
     bool script_demo = false;
     bool net_demo = false;
     bool server = false;
@@ -142,6 +144,17 @@ Options parse_options(std::span<char*> args) {
             if (std::from_chars(value.data(), value.data() + value.size(), view).ec ==
                 std::errc{}) {
                 options.view = view;
+            }
+        } else if (arg == "--hover") {
+            options.hover = 50.0;
+            if (i + 1 < args.size()) {
+                const std::string_view value{args[i + 1]};
+                double seconds = 0.0;
+                if (std::from_chars(value.data(), value.data() + value.size(), seconds).ec ==
+                    std::errc{}) {
+                    options.hover = seconds;
+                    ++i;
+                }
             }
         } else if (arg == "--flight") {
             options.flight = 4000.0;
@@ -235,6 +248,8 @@ int run_windowed(const Options& options) {
             // Autopilot mit 80 m/s (R3.3): Messung von Frame-Zeit und Speicher beim Flug.
             if (options.flight) {
                 voxels->start_flight(*options.flight, 80.0f);
+            } else if (options.hover) {
+                voxels->start_flight(*options.hover, 0.0f);
             }
         } else {
             auto created =
@@ -277,7 +292,7 @@ int run_windowed(const Options& options) {
                 }
                 voxels->remesh();
                 // Mit --flight endet die Sandbox nach dem Flug.
-                if (options.flight && !voxels->flight_active()) {
+                if ((options.flight || options.hover) && !voxels->flight_active()) {
                     running = false;
                 }
             } else {
