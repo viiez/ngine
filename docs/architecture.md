@@ -563,7 +563,7 @@ sequenceDiagram
     S->>J: Generator::fill() nach Abstand (höchstens max_generating)
     J-->>S: fertige Chunks (eigene Kopien)
     S->>J: planen: neue Blätter, geänderte Nachbarschaften
-    S->>J: LodMesher über ChunkMap (Stufe 0 als Kopie)
+    S->>J: LodMesher über ChunkMap (Stufe 0 aus dem Spiegel)
     J-->>S: Netze
     S->>C: Übernahme: Chunks tauschen, alte Blätter weg
     S-->>W: StreamChanges (Netze, entfernte Blätter)

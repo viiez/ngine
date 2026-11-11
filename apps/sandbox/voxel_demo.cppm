@@ -278,6 +278,9 @@ public:
         const usize meshed =
             world::update_terrains(world_, jobs_, {.observers = extra, .wait = wait || wait_});
         const f64 ms = elapsed_ms(start);
+        if (flight_) {
+            flight_->update_ms.push_back(ms);
+        }
         if (meshed > 0) {
             ++mesh_count_;
             total_ms_ += ms;
@@ -353,12 +356,18 @@ public:
     void add_passes(rhi::Device& /*device*/, render::RenderGraph& graph,
                     render::TextureHandle target) {
         NGINE_PROFILE_ZONE("VoxelScene::add_passes");
+        const auto start = std::chrono::steady_clock::now();
         static_cast<void>(world::update_transforms(world_));
         resources_->update();
         if (chunk_bounds_) {
             draw_chunk_bounds();
         }
         renderer_->add_passes(graph, world_, target);
+        // Beim Flug: Zeit im Hauptthread für die Pässe, darin das Hochladen neuer Netze.
+        if (flight_) {
+            flight_->passes_ms.push_back(elapsed_ms(start));
+            flight_->uploads = std::max(flight_->uploads, renderer_->stats().terrain_uploads);
+        }
     }
 
 private:
@@ -419,13 +428,17 @@ private:
             "Flug: {:.1f} km in {:.1f} s ({:.0f} m/s), {} Frames; Frame-Zeit Median {:.2f} ms, "
             "99. Perzentil {:.2f} ms, höchstens {:.2f} ms; {} Übernahmen (höchstens {:.1f} ms), {} "
             "Chunks erzeugt; Chunks {:.0f} bis {:.0f}, Samples {:.1f} bis {:.1f} MiB, Netze {:.1f} "
-            "bis {:.1f} MiB, Geometrie auf der GPU {:.1f} bis {:.1f} MiB",
+            "bis {:.1f} MiB, Geometrie auf der GPU {:.1f} bis {:.1f} MiB; update_terrains() 99. "
+            "Perzentil {:.2f} ms, höchstens {:.2f} ms; Pässe 99. Perzentil {:.2f} ms, höchstens "
+            "{:.2f} ms, bis {} Netze in einem Frame hochgeladen",
             f.distance / 1000.0, f.seconds, f.distance / std::max(f.seconds, 1e-3),
             f.frame_ms.size(), percentile(f.frame_ms, 0.5), percentile(f.frame_ms, 0.99),
             percentile(f.frame_ms, 1.0), st.commits - f.commits, st.max_commit_ms,
             st.generated_total - f.generated, f.chunks.min, f.chunks.max, f.samples.min,
             f.samples.max, f.meshes.min, f.meshes.max, renderer_ ? f.gpu.min : 0.0,
-            renderer_ ? f.gpu.max : 0.0);
+            renderer_ ? f.gpu.max : 0.0, percentile(f.update_ms, 0.99),
+            percentile(f.update_ms, 1.0), percentile(f.passes_ms, 0.99),
+            percentile(f.passes_ms, 1.0), f.uploads);
         log::info("{}", flight_report_);
         flight_.reset();
         const Vec3 forward = math::to_mat3(rotation_) * Vec3{0.0f, 0.0f, -1.0f};
@@ -467,6 +480,11 @@ private:
         u64 commits = 0;
         u64 generated = 0;
         Range samples, meshes, chunks, gpu;
+        // Zeit von update_terrains() und der Pässe des Renderers pro Frame, meiste Uploads in
+        // einem Frame.
+        std::vector<f64> update_ms;
+        std::vector<f64> passes_ms;
+        u32 uploads = 0;
     };
 
     // Das Job-System lebt länger als die Welt: Der Streamer des Terrains wartet beim Zerstören auf

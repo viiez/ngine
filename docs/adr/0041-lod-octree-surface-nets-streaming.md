@@ -28,7 +28,8 @@ ohne dass ein Frame halb geladene Bereiche zeigt, und der Speicher muss begrenzt
 - **Streaming mit Übernahme in einem Schritt:** Der `Streamer` rechnet die Auswahl in einem Job,
   erzeugt fehlende Chunks im Job-System (Nahes zuerst, mit Budget) in eigenen Chunks und meshet,
   sobald alle da sind, in Jobs neue Blätter und Blätter, deren Nachbarschaft sich ändert. Chunks
-  der Stufe 0 lesen diese Jobs als Kopie, weil Pinsel sie im Hauptthread ändern. Erst dann tauscht
+  der Stufe 0 lesen diese Jobs aus einem Spiegel, weil Pinsel sie im Hauptthread ändern; der
+  Spiegel kostet so viel Speicher wie die Samples der Stufe 0. Erst dann tauscht
   er Chunks und Netze in einem Aufruf aus. Im `ChunkStore` liegen nur die Blätter der Auswahl.
 
 ## Konsequenzen

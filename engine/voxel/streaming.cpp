@@ -5,6 +5,7 @@ module;
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <span>
 #include <unordered_map>
@@ -144,7 +145,8 @@ StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
     for (const auto& [coord, chunk] : ready_) {
         bytes += chunk.memory_bytes();
     }
-    stats_.sample_bytes = bytes;
+    // Den Spiegel füllen eventuell gerade Jobs; gezählt wird er bei der Übernahme.
+    stats_.sample_bytes = bytes + mirror_bytes_;
     return changes;
 }
 
@@ -263,17 +265,47 @@ void Streamer::start_meshing(jobs::JobSystem& jobs, const ChunkStore& store) {
     phase_ = Phase::meshing;
     mesh_start_ms_ = now_ms();
     // Was die Jobs lesen: neue Chunks aus ready_, grobe Chunks direkt aus dem Store (Pinsel ändern
-    // nur Stufe 0), Chunks der Stufe 0 als Kopie, weil Pinsel sie im Hauptthread weiter ändern.
-    // ready_ und target_ bleiben bis zur Übernahme unverändert.
-    copies_.clear();
+    // nur Stufe 0), Chunks der Stufe 0 aus dem Spiegel, weil Pinsel sie im Hauptthread weiter
+    // ändern. ready_ und target_ bleiben bis zur Übernahme unverändert.
     source_.clear();
     source_.set_outside(store.outside());
     for (const ChunkCoord n : needed_) {
         if (const auto it = ready_.find(n); it != ready_.end()) {
             source_.add(n, &it->second);
         } else if (const Chunk* chunk = store.find(n)) {
-            source_.add(n, n.level == 0 ? &copies_.try_emplace(n, *chunk).first->second : chunk);
+            if (n.level != 0) {
+                source_.add(n, chunk);
+                continue;
+            }
+            // Meist schon gespiegelt; kopiert wird nur, was fehlt oder sich geändert hat.
+            const auto [mirrored, inserted] = mirror_.try_emplace(n);
+            const bool stale = stale_.erase(n) > 0;
+            if (inserted || stale) {
+                mirrored->second = *chunk;
+            }
+            source_.add(n, &mirrored->second);
         }
+    }
+    // Neue Blätter der Stufe 0 spiegeln Jobs, solange ready_ unverändert bleibt; die Einträge legt
+    // der Hauptthread an, damit die Jobs nur in eigene Chunks schreiben.
+    std::vector<std::pair<Chunk*, const Chunk*>> to_mirror;
+    for (const auto& [coord, chunk] : ready_) {
+        if (coord.level == 0) {
+            stale_.erase(coord);
+            to_mirror.emplace_back(&mirror_[coord], &chunk);
+        }
+    }
+    constexpr usize mirror_per_job = 32;
+    for (usize begin = 0; begin < to_mirror.size(); begin += mirror_per_job) {
+        const usize end = std::min(to_mirror.size(), begin + mirror_per_job);
+        jobs.run(
+            [part = std::vector(to_mirror.begin() + static_cast<std::ptrdiff_t>(begin),
+                                to_mirror.begin() + static_cast<std::ptrdiff_t>(end))] {
+                for (const auto& [mirror, chunk] : part) {
+                    *mirror = *chunk;
+                }
+            },
+            &counter_);
     }
 
     meshes_.clear();
@@ -307,6 +339,8 @@ StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
     for (const ChunkCoord c : changes.removed) {
         neighbourhoods_.erase(c);
         store.remove(c);
+        mirror_.erase(c);
+        stale_.erase(c);
     }
     for (auto& [coord, chunk] : ready_) {
         store.get_or_create(coord) = std::move(chunk);
@@ -315,7 +349,6 @@ StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
     queue_.clear();
     next_ = 0;
     source_.clear();
-    copies_.clear();
     needed_.clear();
     // Im Store liegen damit nur Blätter der Auswahl: Chunks, die Pinsel außerhalb anlegen, entfernt
     // edit_targets() schon im selben Aufruf.
@@ -339,6 +372,10 @@ StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
         mesh_into(jobs, store, edit_targets(store), changes);
     }
 
+    mirror_bytes_ = 0;
+    for (const auto& [coord, chunk] : mirror_) {
+        mirror_bytes_ += chunk.memory_bytes();
+    }
     ++stats_.commits;
     stats_.leaves = static_cast<u32>(layout_.size());
     stats_.per_level = layout_.level_counts();
@@ -354,6 +391,12 @@ StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
 std::vector<ChunkCoord> Streamer::edit_targets(ChunkStore& store) {
     std::unordered_set<ChunkCoord, ChunkCoordHash> touched;
     const std::vector<ChunkCoord> changed = store.take_changes();
+    // Der Spiegel dieser Chunks ist veraltet; neu kopiert wird beim nächsten Meshing.
+    for (const ChunkCoord c : changed) {
+        if (c.level == 0 && mirror_.contains(c)) {
+            stale_.insert(c);
+        }
+    }
     if (phase_ == Phase::meshing) {
         edited_while_meshing_.insert(edited_while_meshing_.end(), changed.begin(), changed.end());
     }

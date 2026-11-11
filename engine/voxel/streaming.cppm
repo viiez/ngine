@@ -4,6 +4,7 @@ module;
 #include <memory>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -137,9 +138,13 @@ private:
     std::vector<ChunkCoord> removed_;
     usize added_ = 0;
     std::vector<Mesh> meshes_;
-    // Kopien der Chunks der Stufe 0 aus dem Store (Pinsel ändern sie im Hauptthread weiter) und die
+    // Spiegel der Blätter der Stufe 0 im Store: Pinsel ändern diese im Hauptthread, während Jobs
+    // meshen, also lesen die Jobs den Spiegel. Neue Blätter spiegeln Jobs beim Meshing; geänderte
+    // (stale_) kopiert der Hauptthread vor dem nächsten Meshing neu.
+    std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> mirror_;
+    std::unordered_set<ChunkCoord, ChunkCoordHash> stale_;
+    usize mirror_bytes_ = 0;
     // Zuordnung aller Chunks, die die Jobs lesen.
-    std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> copies_;
     ChunkMap source_;
     // Änderungen über Pinsel, während die Jobs meshen: Ihre Netze kommen nach der Übernahme noch
     // einmal, weil die Jobs mit den alten Samples rechnen.
