@@ -60,6 +60,9 @@ struct EntitySnapshot {
         // Elternteil im Dokument; beim ersten Knoten das Elternteil des ganzen Teilbaums.
         EntityId parent = 0;
         std::vector<Component> components;
+        // Deltas eines Terrains (R3.4): Sie leben in den Laufzeitdaten, nicht in der Reflection,
+        // und müssen Löschen mit Undo und Spielen überstehen.
+        std::shared_ptr<const voxel::DeltaMap> terrain_deltas;
     };
     std::vector<Node> nodes;
 };

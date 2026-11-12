@@ -19,6 +19,7 @@ import :chunk;
 import :mesh;
 import :generator;
 import :lod;
+import :delta;
 
 export namespace ngine::voxel {
 
@@ -55,6 +56,8 @@ struct StreamStats {
     f64 generate_ms_total = 0.0;
     // Speicher der Samples aller Chunks im Speicher (sichtbar und fertig erzeugt).
     usize sample_bytes = 0;
+    // Grobe Blätter, die wegen Änderungen über Pinsel neu erzeugt wurden (R3.4).
+    u64 refreshed_total = 0;
 };
 
 // Was update() an den Netzen geändert hat: neue Fassungen und verschwundene Blätter.
@@ -74,6 +77,10 @@ struct StreamChanges {
 // einen Frame mit Rissen, und der Hauptthread wartet nicht auf das Meshing. Änderungen über
 // Pinsel an Chunks der Stufe 0 (ChunkStore::mark_changed) werden im selben Aufruf neu gemeshed.
 // Speicher bleibt begrenzt: Im ChunkStore liegen nur die Blätter der Auswahl.
+//
+// Mit Deltas (set_deltas(), R3.4) entsteht jeder Chunk aus Grundwelt und Deltas, Änderungen
+// überleben also das Entladen. Nach einer Änderung (invalidate()) erzeugt der Streamer die groben
+// Blätter im geänderten Bereich neu und übernimmt sie wie eine neue Auswahl.
 //
 // Gehört einem Thread; erzeugende Jobs schreiben nur in eigene Chunks außerhalb des ChunkStore.
 // Der Generator ist eine reine Funktion, also brauchen die Jobs keine Sperre.
@@ -102,6 +109,16 @@ public:
     // Keine Änderung der Auswahl in Arbeit.
     [[nodiscard]] bool idle() const noexcept;
 
+    // Chunks entstehen aus Grundwelt und diesen Deltas (R3.4); deltas muss den Streamer überleben
+    // und denselben Generator haben. nullptr: nur Grundwelt.
+    void set_deltas(const TerrainDeltas* deltas) noexcept {
+        deltas_ = deltas;
+    }
+    // Die Deltas im Bereich (Samples der Stufe 0) haben sich geändert, die Chunks der Stufe 0 im
+    // ChunkStore schon mit (TerrainDeltas::apply(), restore()). Grobe Blätter dort entstehen neu;
+    // Chunks, die gerade mit älteren Deltas erzeugt werden, nach der Übernahme ebenso.
+    void invalidate(const SampleBox& box);
+
 private:
     struct Pending;
     // Schritte einer Änderung der Auswahl. Was nicht an Pinseln und dem ChunkStore hängt, läuft in
@@ -120,6 +137,14 @@ private:
 
     Generator generator_;
     StreamDesc desc_;
+    const TerrainDeltas* deltas_ = nullptr;
+    // Grobe Blätter, die wegen geänderter Deltas neu zu erzeugen sind, und die davon in der
+    // laufenden Änderung (ihre Nachbarschaft wird neu gemeshed).
+    std::unordered_set<ChunkCoord, ChunkCoordHash> regen_;
+    std::vector<ChunkCoord> refreshed_;
+    // Geänderte Bereiche seit dem Start der laufenden Änderung: Chunks, die dort erzeugt wurden,
+    // sind womöglich veraltet.
+    std::vector<SampleBox> batch_edits_;
     LodLayout layout_;
     // Nachbarschaft, mit der jedes Blatt zuletzt gemeshed wurde.
     std::unordered_map<ChunkCoord, std::vector<ChunkCoord>, ChunkCoordHash> neighbourhoods_;

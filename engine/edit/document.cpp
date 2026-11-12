@@ -225,6 +225,9 @@ Result<void> SceneDocument::save(std::string_view path) {
     if (playing()) {
         return std::unexpected(std::string{"Während des Spielens wird nicht gespeichert"});
     }
+    // Terrains mit Änderungen brauchen einen Ordner für ihre Deltas neben der Szene (R3.4). Der
+    // Name ist kein Schritt im Verlauf; er gehört zur Datei.
+    world::assign_terrain_folders(*world_, path);
     if (auto result = world::save_scene_file(*world_, path, prefabs_); !result) {
         return result;
     }
@@ -269,6 +272,8 @@ Result<void> SceneDocument::begin_play() {
                                 (*static_cast<decltype(visit)*>(context))(type, component, data);
                             },
                     });
+        // Deltas eines Terrains: Was beim Spielen gegraben wird, ist danach wieder weg (R3.4).
+        node.terrain_deltas = world::terrain_deltas(world_->entity(entity));
         backup.nodes.push_back(std::move(node));
     }
     history_.seal();
@@ -313,6 +318,9 @@ Result<void> SceneDocument::end_play() {
                 result = std::unexpected(restored.error());
             }
             world_->modified(fresh[i], id);
+        }
+        if (node.terrain_deltas) {
+            world::set_terrain_deltas(world_->entity(fresh[i]), node.terrain_deltas);
         }
     }
     notify(PlayStateChanged{.playing = false});

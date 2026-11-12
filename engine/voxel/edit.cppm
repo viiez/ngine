@@ -17,6 +17,11 @@ enum class BrushMode : u8 {
     Remove,
     // Dichte mit den Nachbarn mitteln; rundet Kanten ab.
     Smooth,
+    // Zur waagrechten Ebene durch die Mitte hin angleichen: füllt darunter auf, trägt darüber ab
+    // (R3.4).
+    Flatten,
+    // Material fester Samples ersetzen, ohne die Form zu ändern (R3.4).
+    Paint,
 };
 
 // Kugelförmiger Pinsel. Mitte und Radius in Voxeln (Gitterkoordinaten).
@@ -24,11 +29,16 @@ struct Brush {
     BrushMode mode = BrushMode::Remove;
     Vec3 center;
     f32 radius = 3.0f;
-    // Nur für Add: Material der neuen Samples.
+    // Für Add und Paint: Material der neuen bzw. bemalten Samples; Smooth und Flatten nehmen es
+    // für fest gewordene Samples ohne festen Nachbarn.
     Material material = 2;
-    // Nur für Smooth: Anteil der Mittelung pro Anwendung, 0 bis 1.
+    // Für Smooth und Flatten: Anteil der Angleichung pro Anwendung, 0 bis 1.
     f32 strength = 0.5f;
 };
+
+// Bereich der Samples, die der Pinsel ändern kann (Koordinaten des Terrains, ungeklemmt). Glätten
+// liest zusätzlich die Nachbarn im Abstand 1.
+[[nodiscard]] SampleBox brush_box(const Brush& brush);
 
 // Wendet den Pinsel an und liefert den Bereich der Samples, der sich geändert haben kann. Erhöht
 // die Version des Gitters.

@@ -14,6 +14,7 @@ target_sources(ngine_voxel
             noise.cppm
             generator.cppm
             lod.cppm
+            delta.cppm
             streaming.cppm
     PRIVATE
         grid.cpp
@@ -24,6 +25,7 @@ target_sources(ngine_voxel
         noise.cpp
         generator.cpp
         lod.cpp
+        delta.cpp
         streaming.cpp)
 
 # Läuft ohne GPU: Der Server braucht Dichtefeld und Bearbeitung, nur das Zeichnen nicht. Seit

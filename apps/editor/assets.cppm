@@ -13,8 +13,9 @@ module;
 
 // Assets im Editor (R2.4): Asset-Browser (EDIT-09) mit Ziehen in den Viewport, Einfügen eines
 // Modells als ein Undo-Schritt und Hot Reload (PLAT-06). Seit R2.5 auch Prefabs ziehen und alle
-// Modelle kochen (ASSET-02). Die Datenbank, der Ressourcen-Manager und
-// der Dateibeobachter liegen in der Engine; hier steht nur, was der Editor daraus macht.
+// Modelle kochen (ASSET-02), seit R3.4 im Hintergrund mit Fortschritt (TD-34). Die Datenbank, der
+// Ressourcen-Manager und der Dateibeobachter liegen in der Engine; hier steht nur, was der Editor
+// daraus macht.
 export module editor.assets;
 
 import ngine.core;
@@ -23,6 +24,7 @@ import ngine.cook;
 import ngine.edit;
 import ngine.editor_ui;
 import ngine.filesystem;
+import ngine.jobs;
 import ngine.math;
 import ngine.reflect;
 import ngine.render;
@@ -105,7 +107,8 @@ export void insert_terrain(edit::SceneDocument& document, edit::Selection& selec
     node.id = document.reserve_id();
     add_component(types, node, world::Name{"Terrain"});
     add_component(types, node, world::Transform{.position = position});
-    add_component(types, node, world::Terrain{});
+    // Endlos um die Kamera (R3.3); Änderungen als Deltas neben der Szene (R3.4).
+    add_component(types, node, world::Terrain{.streaming = true});
     const edit::EntityId id = node.id;
     if (auto result =
             document.execute(edit::insert_entities(std::move(snapshot), "Terrain einfügen"));
@@ -207,12 +210,21 @@ public:
         }
         if (cache != nullptr) {
             ui::same_line();
-            if (ui::button("Alles kochen")) {
-                cook_everything(*database, *cache, false);
-            }
-            if (ui::is_item_hovered()) {
-                ui::set_tooltip("Modelle, deren Cache veraltet ist, neu kochen (glTF und Texturen "
-                                "zu gekochtem Format mit KTX2)");
+            if (cooking_) {
+                const cook::CookProgress progress = cooking_->progress();
+                ui::text(std::format("Kocht {} von {}", progress.finished, progress.total));
+                ui::same_line();
+                if (ui::button("Abbrechen")) {
+                    cooking_->cancel();
+                }
+            } else {
+                if (ui::button("Alles kochen")) {
+                    start_cook(*database, *cache, false);
+                }
+                if (ui::is_item_hovered()) {
+                    ui::set_tooltip("Modelle, deren Cache veraltet ist, im Hintergrund neu kochen "
+                                    "(glTF und Texturen zu gekochtem Format mit KTX2)");
+                }
             }
         }
         ui::same_line();
@@ -252,19 +264,44 @@ public:
         ui::end_child();
     }
 
-    // Kocht die Modelle des Asset-Ordners (synchron; der Editor steht so lange). force: auch
-    // aktuelle.
-    static void cook_everything(const asset::AssetDatabase& database,
-                                const asset::AssetCache& cache, bool force) {
-        const cook::CookReport report = cook::cook_all(database, cache, {}, force);
-        for (const std::string& error : report.errors) {
-            log::error("Kochen: {}", error);
+    // Job-System für das Kochen im Hintergrund; ohne kocht „Alles kochen“ synchron.
+    jobs::JobSystem* jobs = nullptr;
+
+    // Kocht die Modelle des Asset-Ordners im Hintergrund (TD-34); der Editor bleibt bedienbar,
+    // der Asset-Browser zeigt den Fortschritt. force: auch aktuelle. Läuft schon ein Kochen,
+    // passiert nichts.
+    void start_cook(const asset::AssetDatabase& database, const asset::AssetCache& cache,
+                    bool force) {
+        if (cooking_) {
+            log::warn("Kochen läuft schon");
+            return;
         }
+        if (jobs == nullptr) {
+            log_report(cook::cook_all(database, cache, {}, force));
+            return;
+        }
+        cooking_ = std::make_unique<cook::BackgroundCook>(*jobs, database, cache,
+                                                          cook::CookSettings{}, force);
+        log::info("Kochen im Hintergrund: {} Modelle", cooking_->progress().total);
+    }
+    [[nodiscard]] bool cooking() const noexcept {
+        return cooking_ != nullptr;
+    }
+    // Einmal pro Frame: meldet das Ende eines Kochens.
+    void poll() {
+        if (cooking_ && cooking_->done()) {
+            log_report(cooking_->report());
+            cooking_.reset();
+        }
+    }
+
+private:
+    static void log_report(const cook::CookReport& report) {
         log::info("Kochen: {} gekocht, {} aktuell, {} fehlgeschlagen in {:.1f} s", report.cooked,
                   report.current, report.failed, report.seconds);
     }
 
-private:
+    std::unique_ptr<cook::BackgroundCook> cooking_;
     std::string filter_;
     asset::AssetId selected_ = 0;
 };

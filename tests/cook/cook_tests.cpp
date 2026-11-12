@@ -1,16 +1,19 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 import ngine.core;
 import ngine.filesystem;
+import ngine.jobs;
 import ngine.math;
 import ngine.asset;
 import ngine.cook;
@@ -233,4 +236,39 @@ TEST_CASE("Cooking a folder only regenerates what changed", "[cook]") {
     const cook::CookReport forced = cook::cook_all(*database, cache, settings, true);
     CHECK(forced.cooked == 1);
     CHECK(forced.current == 0);
+}
+
+TEST_CASE("Cooking everything in the background reports progress", "[cook]") {
+    const TempDir dir;
+    for (const char* name : {"kiste.gltf", "kiste.bin", "kiste.png"}) {
+        copy(filesystem::join(NGINE_ASSET_SOURCE_DIR "/modelle", name), dir.file(name));
+    }
+    auto database = asset::AssetDatabase::open(dir.path());
+    REQUIRE(database);
+    const asset::AssetCache cache{asset::default_cache_dir(database->root())};
+    const cook::CookSettings settings{.textures = {.uastc_level = 0}};
+    jobs::JobSystem jobs{{.worker_count = 2}};
+
+    {
+        // Der aufrufende Thread bleibt frei, gekocht wird in einem Job.
+        cook::BackgroundCook cooking{jobs, *database, cache, settings};
+        CHECK(cooking.progress().total == 1);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes{5};
+        while (!cooking.done() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
+        REQUIRE(cooking.done());
+        CHECK(cooking.progress().finished == 1);
+        CHECK(cooking.progress().failed == 0);
+        const cook::CookReport report = cooking.report();
+        CHECK(report.cooked == 1);
+        CHECK(report.failed == 0);
+        CHECK(cache.model_current(database->find_path("kiste.gltf")->id));
+    }
+    {
+        // Abbrechen vor dem Start: Der Destruktor wartet, nichts bleibt halb.
+        cook::BackgroundCook cooking{jobs, *database, cache, settings, true};
+        cooking.cancel();
+    }
+    CHECK(cache.model_current(database->find_path("kiste.gltf")->id));
 }

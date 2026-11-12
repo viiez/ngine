@@ -28,6 +28,11 @@ f64 elapsed_ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
+bool overlaps(const SampleBox& a, const SampleBox& b) noexcept {
+    return a.min_x < b.max_x && b.min_x < a.max_x && a.min_y < b.max_y && b.min_y < a.max_y &&
+           a.min_z < b.max_z && b.min_z < a.max_z;
+}
+
 f64 now_ms() {
     return std::chrono::duration<f64, std::milli>(
                std::chrono::steady_clock::now().time_since_epoch())
@@ -40,6 +45,8 @@ f64 now_ms() {
 struct Streamer::Pending {
     ChunkCoord coord;
     Chunk chunk;
+    // Deltas zum Zeitpunkt des Starts, unveränderlich (R3.4).
+    std::shared_ptr<const DeltaMap> deltas;
     f64 ms = 0.0;
     std::atomic<bool> done{false};
 };
@@ -64,6 +71,22 @@ bool Streamer::idle() const noexcept {
     return phase_ == Phase::idle;
 }
 
+void Streamer::invalidate(const SampleBox& box) {
+    if (box.empty()) {
+        return;
+    }
+    // Blätter der Stufe 0 im Store sind schon aktuell; grobe übernehmen geänderte Samples auf
+    // ihrem Raster, also alle, deren Bereich die Änderung schneidet.
+    for (const ChunkCoord c : layout_.leaves()) {
+        if (c.level > 0 && overlaps(chunk_box(c), box)) {
+            regen_.insert(c);
+        }
+    }
+    if (phase_ != Phase::idle) {
+        batch_edits_.push_back(box);
+    }
+}
+
 StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
                                std::span<const math::DVec3> observers, bool wait) {
     NGINE_PROFILE_ZONE("voxel::Streamer::update");
@@ -83,18 +106,24 @@ StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
                 moved = math::length(observers[i] - selected_for_[i]) > desc_.reselect_distance;
             }
             if (!moved) {
-                break;
+                if (regen_.empty()) {
+                    break;
+                }
+                // Nur geänderte grobe Blätter neu erzeugen; die Auswahl bleibt.
+                target_ = layout_;
+                start_batch(store);
+            } else {
+                // Die Auswahl rechnet ein Job; selected_for_ bleibt bis zur nächsten unverändert.
+                selected_for_.assign(observers.begin(), observers.end());
+                phase_ = Phase::selecting;
+                jobs.run([this] { planned_ = select_lod(selected_for_, desc_.lod); }, &counter_);
             }
-            // Die Auswahl rechnet ein Job; selected_for_ bleibt bis zur nächsten unverändert.
-            selected_for_.assign(observers.begin(), observers.end());
-            phase_ = Phase::selecting;
-            jobs.run([this] { planned_ = select_lod(selected_for_, desc_.lod); }, &counter_);
         }
         if (phase_ == Phase::selecting) {
             if (!jobs_done()) {
                 break;
             }
-            if (planned_ == layout_) {
+            if (planned_ == layout_ && regen_.empty()) {
                 planned_ = {};
                 phase_ = Phase::idle;
                 continue;
@@ -160,11 +189,19 @@ void Streamer::start_batch(const ChunkStore& store) {
     queue_.clear();
     next_ = 0;
     ready_.clear();
+    refreshed_.clear();
+    batch_edits_.clear();
     for (const ChunkCoord c : target_.leaves()) {
         if (!layout_.contains(c) || store.find(c) == nullptr) {
             queue_.push_back(c);
+        } else if (regen_.contains(c)) {
+            queue_.push_back(c);
+            refreshed_.push_back(c);
         }
     }
+    // Was nicht mehr zur Auswahl gehört, entsteht ohnehin neu oder verschwindet.
+    regen_.clear();
+    stats_.refreshed_total += refreshed_.size();
     // Nahes zuerst; bei gleichem Abstand feine Stufen zuerst.
     std::vector<std::pair<f64, ChunkCoord>> order;
     order.reserve(queue_.size());
@@ -182,12 +219,18 @@ void Streamer::launch(jobs::JobSystem& jobs) {
     while (in_flight_.size() < limit && next_ < queue_.size()) {
         auto pending = std::make_unique<Pending>();
         pending->coord = queue_[next_++];
+        if (deltas_ != nullptr) {
+            pending->deltas = deltas_->snapshot();
+        }
         Pending* job = pending.get();
         const Generator* generator = &generator_;
         jobs.run(
             [generator, job] {
                 const auto start = std::chrono::steady_clock::now();
                 generator->fill(job->coord, job->chunk);
+                if (job->deltas) {
+                    apply_deltas(*job->deltas, job->coord, job->chunk);
+                }
                 job->ms = elapsed_ms(start);
                 job->done.store(true, std::memory_order_release);
             },
@@ -249,13 +292,22 @@ void Streamer::prepare() {
             }
         }
     }
+    // Neu erzeugte grobe Blätter (R3.4): Ihre Samples haben sich geändert, also alle Netze, die sie
+    // lesen, auch bei gleicher Nachbarschaft.
+    std::unordered_set<ChunkCoord, ChunkCoordHash> forced;
+    for (const ChunkCoord c : refreshed_) {
+        for (const ChunkCoord n : target_.neighbourhood(c)) {
+            forced.insert(n);
+            candidates.insert(n);
+        }
+    }
     remesh_.clear();
     remesh_neighbourhoods_.clear();
     std::unordered_set<ChunkCoord, ChunkCoordHash> needed;
     for (const ChunkCoord c : candidates) {
         std::vector<ChunkCoord> around = target_.neighbourhood(c);
         const auto it = neighbourhoods_.find(c);
-        if (it == neighbourhoods_.end() || it->second != around) {
+        if (forced.contains(c) || it == neighbourhoods_.end() || it->second != around) {
             needed.insert(around.begin(), around.end());
             remesh_.push_back(c);
             remesh_neighbourhoods_.push_back(std::move(around));
@@ -347,10 +399,30 @@ StreamChanges Streamer::commit(jobs::JobSystem& jobs, ChunkStore& store) {
         mirror_.erase(c);
         stale_.erase(c);
     }
+    // Chunks, deren Deltas sich seit dem Start geändert haben, sind womöglich veraltet: grobe
+    // entstehen in der nächsten Änderung neu, solche der Stufe 0 gleich hier, weil Pinsel sie im
+    // Store direkt ändern (R3.4).
+    std::vector<ChunkCoord> stale;
     for (auto& [coord, chunk] : ready_) {
+        if (deltas_ != nullptr && std::any_of(batch_edits_.begin(), batch_edits_.end(),
+                                              [&, c = coord](const SampleBox& box) {
+                                                  return overlaps(chunk_box(c), box);
+                                              })) {
+            if (coord.level == 0) {
+                stale.push_back(coord);
+            } else {
+                regen_.insert(coord);
+            }
+        }
         store.get_or_create(coord) = std::move(chunk);
     }
     ready_.clear();
+    batch_edits_.clear();
+    refreshed_.clear();
+    for (const ChunkCoord c : stale) {
+        deltas_->build(c, store.get_or_create(c));
+        store.mark_changed(c);
+    }
     queue_.clear();
     next_ = 0;
     source_.clear();
@@ -411,8 +483,8 @@ std::vector<ChunkCoord> Streamer::edit_targets(ChunkStore& store) {
         if (store.find(c) != nullptr && !layout_.contains(c)) {
             store.remove(c);
         }
-        if (const auto leaf = layout_.leaf_of(chunk_origin(c.x), chunk_origin(c.y),
-                                              chunk_origin(c.z))) {
+        if (const auto leaf =
+                layout_.leaf_of(chunk_origin(c.x), chunk_origin(c.y), chunk_origin(c.z))) {
             touched.insert(*leaf);
         }
     }

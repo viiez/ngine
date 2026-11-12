@@ -18,6 +18,6 @@ target_sources(ngine_cook
 
 # KTX-Software steckt nur in ktx_encode.cpp, MikkTSpace nur in tangents_mikktspace.cpp.
 target_link_libraries(ngine_cook
-    PUBLIC ngine::core ngine::asset
+    PUBLIC ngine::core ngine::asset ngine::jobs
     PRIVATE ngine::math ngine::filesystem ngine::profile ngine_ktx mikktspace::mikktspace)
 ngine_set_compiler_options(ngine_cook)

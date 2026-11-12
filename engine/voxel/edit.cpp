@@ -61,6 +61,24 @@ SampleBox reach_box(Vec3 center, f32 reach) {
             hi(center.x + reach), hi(center.y + reach), hi(center.z + reach)};
 }
 
+// Material für ein fest gewordenes Sample: das eines festen Nachbarn, sonst das des Pinsels.
+template <typename Access>
+Material neighbour_material(const Access& access, const Brush& brush, i64 x, i64 y, i64 z) {
+    for (u32 n = 0; n < 6; ++n) {
+        const i64 sx = x + (n == 0 ? -1 : n == 1 ? 1 : 0);
+        const i64 sy = y + (n == 2 ? -1 : n == 3 ? 1 : 0);
+        const i64 sz = z + (n == 4 ? -1 : n == 5 ? 1 : 0);
+        if (!access.contains(sx, sy, sz)) {
+            continue;
+        }
+        const Material m = access.get(sx, sy, sz).material;
+        if (m != air) {
+            return m;
+        }
+    }
+    return brush.material;
+}
+
 template <typename Access>
 bool add_or_remove(const Access& access, const Brush& brush, const SampleBox& box) {
     bool changed = false;
@@ -139,20 +157,7 @@ bool smooth(const Access& access, const Brush& brush, const SampleBox& box) {
                     s.material = air;
                 } else if (s.material == air) {
                     // Neu fest gewordene Samples übernehmen das Material eines festen Nachbarn.
-                    s.material = brush.material;
-                    for (u32 n = 0; n < 6; ++n) {
-                        const i64 sx = x + (n == 0 ? -1 : n == 1 ? 1 : 0);
-                        const i64 sy = y + (n == 2 ? -1 : n == 3 ? 1 : 0);
-                        const i64 sz = z + (n == 4 ? -1 : n == 5 ? 1 : 0);
-                        if (!access.contains(sx, sy, sz)) {
-                            continue;
-                        }
-                        const Material m = access.get(sx, sy, sz).material;
-                        if (m != air) {
-                            s.material = m;
-                            break;
-                        }
-                    }
+                    s.material = neighbour_material(access, brush, x, y, z);
                 }
                 if (s != before) {
                     changed = access.put(x, y, z, s) || changed;
@@ -163,15 +168,79 @@ bool smooth(const Access& access, const Brush& brush, const SampleBox& box) {
     return changed;
 }
 
+// Ebnen (R3.4): Abstand zur waagrechten Ebene durch die Mitte, positiv darunter. Zum Rand der Kugel
+// hin weich ausgeblendet, damit keine Stufe entsteht.
 template <typename Access>
-bool apply_brush(const Access& access, const Brush& brush, const SampleBox& box) {
-    return brush.mode == BrushMode::Smooth ? smooth(access, brush, box)
-                                           : add_or_remove(access, brush, box);
+bool flatten(const Access& access, const Brush& brush, const SampleBox& box) {
+    bool changed = false;
+    for (i64 z = box.min_z; z < box.max_z; ++z) {
+        for (i64 y = box.min_y; y < box.max_y; ++y) {
+            for (i64 x = box.min_x; x < box.max_x; ++x) {
+                const f32 dist = length(to_vec(x, y, z) - brush.center);
+                const f32 t = std::clamp(1.0f - dist / brush.radius, 0.0f, 1.0f);
+                const f32 weight = std::min(1.0f, t * 2.0f) * brush.strength;
+                if (weight <= 0.0f) {
+                    continue;
+                }
+                Sample s = access.get(x, y, z);
+                const Sample before = s;
+                const f32 old = dequantize(s.density);
+                const f32 target =
+                    std::clamp(brush.center.y - static_cast<f32>(y), -max_distance, max_distance);
+                s.density = quantize(old + (target - old) * weight);
+                if (s.density <= 0) {
+                    s.material = air;
+                } else if (s.material == air) {
+                    s.material = neighbour_material(access, brush, x, y, z);
+                }
+                if (s != before) {
+                    changed = access.put(x, y, z, s) || changed;
+                }
+            }
+        }
+    }
+    return changed;
 }
 
-// Außerhalb der Kugel ändert sich nur der geklemmte Abstand bis max_distance.
+// Bemalen (R3.4): feste Samples in der Kugel bekommen das Material des Pinsels.
+template <typename Access>
+bool paint(const Access& access, const Brush& brush, const SampleBox& box) {
+    bool changed = false;
+    for (i64 z = box.min_z; z < box.max_z; ++z) {
+        for (i64 y = box.min_y; y < box.max_y; ++y) {
+            for (i64 x = box.min_x; x < box.max_x; ++x) {
+                if (length(to_vec(x, y, z) - brush.center) > brush.radius) {
+                    continue;
+                }
+                Sample s = access.get(x, y, z);
+                if (s.material != air && s.material != brush.material) {
+                    s.material = brush.material;
+                    changed = access.put(x, y, z, s) || changed;
+                }
+            }
+        }
+    }
+    return changed;
+}
+
+template <typename Access>
+bool apply_brush(const Access& access, const Brush& brush, const SampleBox& box) {
+    switch (brush.mode) {
+    case BrushMode::Smooth: return smooth(access, brush, box);
+    case BrushMode::Flatten: return flatten(access, brush, box);
+    case BrushMode::Paint: return brush.material != air && paint(access, brush, box);
+    case BrushMode::Add:
+    case BrushMode::Remove: break;
+    }
+    return add_or_remove(access, brush, box);
+}
+
+// Außerhalb der Kugel ändert sich beim Auftragen und Abtragen nur der geklemmte Abstand bis
+// max_distance; die anderen Pinsel wirken nur in der Kugel.
 f32 brush_reach(const Brush& brush) {
-    return brush.mode == BrushMode::Smooth ? brush.radius : brush.radius + max_distance;
+    return brush.mode == BrushMode::Add || brush.mode == BrushMode::Remove
+               ? brush.radius + max_distance
+               : brush.radius;
 }
 
 // Strahltest über eine Abstandsfunktion; inside sagt, wo es Samples gibt.
@@ -202,6 +271,10 @@ std::optional<RayHit> march(const Distance& distance_at, const Inside& inside, V
 }
 
 } // namespace
+
+SampleBox brush_box(const Brush& brush) {
+    return reach_box(brush.center, brush_reach(brush));
+}
 
 Box apply(Grid& grid, const Brush& brush) {
     if (brush.radius <= 0.0f) {

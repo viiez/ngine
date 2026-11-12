@@ -13,13 +13,15 @@ target_sources(ngine_edit
             tree.cppm
             gizmo.cppm
             prefabs.cppm
+            terrain.cppm
     PRIVATE
         document.cpp
         commands.cpp
         inspector.cpp
         tree.cpp
         gizmo.cpp
-        prefabs.cpp)
+        prefabs.cpp
+        terrain.cpp)
 
 # Editor-Logik ohne UI, Fenster und GPU (R2.2, Gizmos und Spielen seit R2.3); der Editor und die Tests bauen darauf auf.
 target_link_libraries(ngine_edit

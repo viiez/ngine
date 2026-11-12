@@ -38,8 +38,7 @@ std::array<ChunkCoord, 8> children(ChunkCoord c) noexcept {
     std::array<ChunkCoord, 8> result{};
     for (u32 i = 0; i < 8; ++i) {
         result[i] = {c.x * 2 + static_cast<i32>(i & 1u), c.y * 2 + static_cast<i32>((i >> 1) & 1u),
-                     c.z * 2 + static_cast<i32>((i >> 2) & 1u),
-                     static_cast<u8>(c.level - 1)};
+                     c.z * 2 + static_cast<i32>((i >> 2) & 1u), static_cast<u8>(c.level - 1)};
     }
     return result;
 }
@@ -179,7 +178,8 @@ LodLayout select_lod(std::span<const math::DVec3> observers, const LodDesc& desc
         for (i64 z = first(o.z); z <= last(o.z); ++z) {
             for (i64 y = floor_div(y_min, e); y <= floor_div(y_max - 1, e); ++y) {
                 for (i64 x = first(o.x); x <= last(o.x); ++x) {
-                    roots.insert({static_cast<i32>(x), static_cast<i32>(y), static_cast<i32>(z), top});
+                    roots.insert(
+                        {static_cast<i32>(x), static_cast<i32>(y), static_cast<i32>(z), top});
                 }
             }
         }
@@ -218,8 +218,9 @@ LodLayout select_lod(std::span<const math::DVec3> observers, const LodDesc& desc
             for (i32 dz = -1; dz <= 1; ++dz) {
                 for (i32 dy = -1; dy <= 1; ++dy) {
                     for (i32 dx = -1; dx <= 1; ++dx) {
-                        const auto other = layout.leaf_at2(
-                            probe2(b.min_x, le, dx), probe2(b.min_y, le, dy), probe2(b.min_z, le, dz));
+                        const auto other =
+                            layout.leaf_at2(probe2(b.min_x, le, dx), probe2(b.min_y, le, dy),
+                                            probe2(b.min_z, le, dz));
                         if (other && other->level > leaf.level + 1 && leaves.erase(*other) > 0) {
                             for (const ChunkCoord child : children(*other)) {
                                 if (in_height(child)) {
@@ -249,6 +250,68 @@ void mesh_leaves(jobs::JobSystem& jobs, const LodLayout& layout, const ChunkStor
             mesher.build(layout, store, leaves[i], out[i]);
         }
     });
+}
+
+std::optional<RayHit> raycast(const LodLayout& layout, const ChunkStore& store, Vec3 origin,
+                              Vec3 direction, f32 max_length) {
+    // Abstand in Voxeln am Punkt p und Schrittweite der Stufe dort.
+    const auto distance_at = [&](Vec3 p, f32& spacing) -> f32 {
+        spacing = 1.0f;
+        const auto x = static_cast<i64>(std::floor(p.x));
+        const auto y = static_cast<i64>(std::floor(p.y));
+        const auto z = static_cast<i64>(std::floor(p.z));
+        const std::optional<ChunkCoord> leaf = layout.leaf_of(x, y, z);
+        if (!leaf) {
+            return -max_distance;
+        }
+        if (leaf->level == 0) {
+            return store.distance_at(p);
+        }
+        const Chunk* chunk = store.find(*leaf);
+        if (chunk == nullptr) {
+            return -max_distance;
+        }
+        spacing = static_cast<f32>(i64{1} << leaf->level);
+        const SampleBox box = chunk_box(*leaf);
+        const auto local = [&](f32 v, i64 min) {
+            return std::clamp((v - static_cast<f32>(min)) / spacing, 0.0f,
+                              static_cast<f32>(chunk_voxels - 1));
+        };
+        const f32 lx = local(p.x, box.min_x);
+        const f32 ly = local(p.y, box.min_y);
+        const f32 lz = local(p.z, box.min_z);
+        const auto ix = std::min(static_cast<u32>(lx), u32{chunk_voxels - 2});
+        const auto iy = std::min(static_cast<u32>(ly), u32{chunk_voxels - 2});
+        const auto iz = std::min(static_cast<u32>(lz), u32{chunk_voxels - 2});
+        const f32 tx = lx - static_cast<f32>(ix);
+        const f32 ty = ly - static_cast<f32>(iy);
+        const f32 tz = lz - static_cast<f32>(iz);
+        const auto d = [&](u32 dx, u32 dy, u32 dz) {
+            return dequantize(chunk->sample(ix + dx, iy + dy, iz + dz).density);
+        };
+        const auto lerp = [](f32 a, f32 b, f32 t) { return a + (b - a) * t; };
+        const f32 c00 = lerp(d(0, 0, 0), d(1, 0, 0), tx);
+        const f32 c10 = lerp(d(0, 1, 0), d(1, 1, 0), tx);
+        const f32 c01 = lerp(d(0, 0, 1), d(1, 0, 1), tx);
+        const f32 c11 = lerp(d(0, 1, 1), d(1, 1, 1), tx);
+        return lerp(lerp(c00, c10, ty), lerp(c01, c11, ty), tz) * spacing;
+    };
+    f32 spacing = 1.0f;
+    f32 previous_t = 0.0f;
+    f32 previous_d = distance_at(origin, spacing);
+    for (f32 t = 0.25f * spacing; t <= max_length; t += 0.25f * spacing) {
+        const Vec3 p = origin + direction * t;
+        const f32 d = distance_at(p, spacing);
+        if (d > 0.0f && previous_d <= 0.0f) {
+            // Linear zwischen dem letzten Punkt in der Luft und dem ersten im Stoff.
+            const f32 f = previous_d < 0.0f ? previous_d / (previous_d - d) : 0.0f;
+            const f32 hit_t = previous_t + (t - previous_t) * f;
+            return RayHit{origin + direction * hit_t, hit_t};
+        }
+        previous_t = t;
+        previous_d = d;
+    }
+    return std::nullopt;
 }
 
 } // namespace ngine::voxel
