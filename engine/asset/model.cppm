@@ -39,10 +39,6 @@ struct Primitive {
     std::vector<meshlet::Meshlet> meshlets;
 };
 
-// Teilt alle Teilnetze ohne Meshlets mit dem eigenen Verfahren (meshlet::build()) auf. Braucht
-// keine GPU und läuft beim Laden im Hintergrund.
-void ensure_meshlets(Model& model);
-
 struct Mesh {
     std::string name;
     std::vector<Primitive> primitives;
@@ -112,6 +108,10 @@ struct Model {
     // alle Knoten ohne Elternteil).
     std::vector<u32> roots;
 };
+
+// Teilt alle Teilnetze ohne Meshlets mit dem eigenen Verfahren (meshlet::build()) auf. Braucht
+// keine GPU und läuft beim Laden im Hintergrund.
+void ensure_meshlets(Model& model);
 
 // Lädt eine glTF-2.0-Datei (.gltf mit eingebetteten oder externen Puffern, .glb) samt Bildern.
 // Fehlerhafte Dateien liefern eine Meldung mit Pfad und Ursache, nie einen Absturz. Was nicht

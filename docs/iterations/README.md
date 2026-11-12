@@ -28,6 +28,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R3.2](R3.2-prozedurale-welt-und-materialien.md) | Konstruktion | Prozedurale Welt und Materialien | abgeschlossen |
 | [R3.3](R3.3-streaming-und-lod.md) | Konstruktion | Streaming und LOD | abgeschlossen |
 | [R3.4](R3.4-deltas-und-voxel-werkzeuge.md) | Konstruktion | Deltas und Voxel-Werkzeuge | abgeschlossen |
+| [R3.5](R3.5-gpu-getriebenes-zeichnen.md) | Konstruktion | GPU-getriebenes Zeichnen | in Arbeit |
 
 ## Vorlage
 

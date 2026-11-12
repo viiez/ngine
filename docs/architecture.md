@@ -35,6 +35,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.world` | `ngine::world` | ECS-Adapter für flecs: `World`, `Entity`, `Query`, Hierarchie, `Schedule` für Systeme ([ADR 0019](adr/0019-systems-on-job-system.md)), Szenen speichern und laden (JSON oder binär `.nscene`, R2.5), Prefabs mit Instanzen und Überschreibungen (`:prefab`, [ADR 0037](adr/0037-prefabs-field-overrides.md)); `Transform`, `WorldTransform` und `update_transforms()` nur für geänderte Teilbäume ([ADR 0025](adr/0025-own-math-mixed-precision.md)), `world_affine()`; Terrain als Komponente (`:terrain`, R3.1: Beschreibung `Terrain` in der Szene, Laufzeitdaten in der transienten `TerrainState`, `update_terrains()` erzeugt und meshet in Jobs; seit R3.2 Form `Procedural` mit Startwert, `generator_desc()`; seit R3.3 endlose Terrains mit `streaming`, `view_distance` und `detail`, Beobachter über die Komponente `TerrainObserver` und `TerrainUpdate`; seit R3.4 Deltas in `TerrainData`, `edit_terrain()`, `raycast_terrain()`, `restore_terrain()`, `terrain_deltas()`/`set_terrain_deltas()` und Regionen-Dateien neben der Szene über `Terrain::deltas`, `save_terrain_deltas()`, `load_terrain_deltas()`); Speicher von flecs im Budget `Category::World` | vorhanden |
 | `ngine.asset` | `ngine::asset` | Ressourcen-Schicht: `load_gltf()` liefert `Model` (Meshes mit festem Eckpunktformat, Materialien nach Metallic-Roughness, Texturen, Bilder, Knoten) in reinen CPU-Daten, `decode_image()` RGBA8, Normalen, Tangenten und Kugeln erzeugen, Mip-Ketten auf der CPU (`mip_chain()`); Adapter `gltf_fastgltf.cpp` und `image_stb.cpp` ([ADR 0027](adr/0027-gltf-assets-material-store.md)). Seit R2.4 `AssetId`, `AssetRef` und `AssetDatabase` mit `.meta`-Dateien (`:database`), `ResourceManager` mit `Handle<T>`, Laden im Hintergrund über `ngine.jobs` und Neuladen samt Abhängigkeiten (`:resources`, [ADR 0033](adr/0033-asset-ids-meta-resource-manager.md)). Seit R2.5 gekochte Modelle (`:cooked`: Binärformat, `AssetCache` mit Stempeln der Quellen, `decode_ktx2()` nach BC7 oder RGBA8, Adapter `ktx_libktx.cpp`), Lader mit Bereitschaft (`ready`, TD-30), Assets der Art `Prefab` ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | vorhanden (ab R1.3) |
 | `ngine.cook` | `ngine::cook` | Asset-Pipeline: glTF zu gekochten Modellen (`cook_model()`, `cook_all()`, `model_cooker()` für den Lader des Renderers), Tangenten nach MikkTSpace (`tangents_mikktspace.cpp`), Bilder zu KTX2 mit Basis Universal (`encode_ktx2()`, Adapter `ktx_encode.cpp`), Kochen im Hintergrund über `ngine.jobs` mit Fortschritt (`BackgroundCook`, R3.4); nur Editor, Werkzeug `ngine_cook` und Tests linken es ([ADR 0036](adr/0036-cooked-assets-ktx2-cache.md)) | vorhanden (ab R2.5) |
+| `ngine.meshlet` | `ngine::meshlet` | Meshlets ohne GPU (R3.5): `Meshlet` mit höchstens 64 Eckpunkten und 124 Dreiecken, Hüllkugel und Normalenkegel; `build()` teilt ein Netz wie einen k-d-Baum und sortiert seine Indizes um, `compute_bounds()`, `valid()`, `local_data()` für Mesh Shader ([ADR 0043](adr/0043-gpu-driven-meshlets.md)). Genutzt von `ngine.voxel` (Netze der Chunks), `ngine.asset` (Teilnetze), `ngine.cook` (meshoptimizer) und `ngine.render` | vorhanden (ab R3.5) |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); seit R3.1 Chunks (`:chunk`: `ChunkCoord`, `Chunk` mit einheitlichem Wert, `ChunkStore` mit Vormerkung geänderter Chunks, `gather()` mit Randschicht), nahtloses Meshing einzelner Chunks (`Mesher::build_chunk()`) und Meshing und Füllen über `ngine.jobs` (`:meshing`), Pinsel und Strahltest auf dem `ChunkStore` ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)); seit R3.2 deterministisches Rauschen (`:noise`: Simplex 2D/3D, fBm, Ridged) und der Generator aus Regeln (`:generator`: `Generator`, `generate_chunks()` in Jobs, `checksum()`), Gewichte der Materialien je Eckpunkt mit Palette pro Netz ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md), [ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); seit R3.3 LOD (`:lod`: `LodLayout`, `select_lod()`, `LodMesher` und `mesh_leaves()` über Stufengrenzen) und Streaming (`:streaming`: `Streamer` mit Jobs, Budget und Übernahme in einem Schritt, [ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)); seit R3.4 Deltas gegenüber der Grundwelt (`:delta`: `ChunkDelta`, `TerrainDeltas` mit Momentaufnahmen, `apply_deltas()` für alle Stufen, Regionen-Dateien), Pinsel Ebnen und Bemalen, Strahltest über das `LodLayout` ([ADR 0042](adr/0042-terrain-deltas-region-files.md)) | vorhanden (ab D1) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/` | vorhanden (Durchstich D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
@@ -42,7 +43,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten nach Scancode mit Loslassen, Texteingabe, Fokus, Maus mit relativem Modus und Zeigerform, Zwischenablage, Bildschirmskalierung, Rückruf zum Zeichnen beim Ziehen des Fensters; nur mit `NGINE_WITH_WINDOW`) | vorhanden |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Scissor, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `upload_async()` mit `UploadTicket` über eine eigene Transfer-Queue, wo es eine gibt (R2.4, [ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)), auch für blockkomprimierte Texturen (BC7, `Capabilities::bc_compression`, R2.5); Rücklesen über Puffer im Speicher `CpuRead` (`copy_texture_to_buffer()`, `Buffer::read()`); Zeitstempel der GPU ohne Warten (`calibrated_timestamp()`); `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
 | `ngine.rhi.vulkan` | `ngine::rhi_vulkan` | Vulkan-Backend (Pflicht 1.3, optional 1.4, Mesh Shader, Raytracing; [ADR 0017](adr/0017-platform-baseline-feature-tiers.md)) mit volk und VMA; exportierte Partition `requirements` (Auswertung der Anforderungen, ohne GPU testbar) und `headless_surface()` für Tests, interne Partitionen `common`, `context` (Timeline, Löschliste, bindloser Satz), `instance`, `physical_device`, `resources`, `command_list`, `upload`, `swapchain` | vorhanden |
-| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer` (Verweise über `AssetRef`, R2.4), `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, gemeinsame Geometriepuffer (`GeometryBuffer` mit `RangeAllocator`, R3.1, TD-23), `TerrainMeshes`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Terrain mit PBR, Schatten und Auswahl seit R3.1, seit R3.2 mit Materialtabelle `TerrainMaterial` und triplanaren Texturen über `set_terrain_materials()`, Tone Mapping, Debug-Linien, Auswahl per Klick über einen ID-Puffer, Kamera von außen über `camera_override`, Modelle über den Ressourcen-Manager, `reload_shaders()`), `GpuModel`, `upload_model()`, `register_loaders()` (seit R2.5 mit `ModelLoading`: erst aus dem Cache, dann kochen, dann aus den Quellen; BC7-Texturen, wo die GPU sie kann), Lader für einzelne Texturen `ColorTexture` (sRGB) und `DataTexture` (linear, R3.2) und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)). Das Innenleben (Zustand `RendererCore` hinter `Renderer::Impl`, Draws) steht seit R3.2 in der internen Partition `:renderer_detail`, verteilt auf `renderer.cpp`, `pipelines.cpp`, `passes.cpp`, `terrain_pass.cpp` und `textures.cpp` (TD-36) | vorhanden (ab R1.2) |
+| `ngine.render` | `ngine::render` | Renderer (Laufzeit-Schicht, kennt die RHI, nie Vulkan): `RenderGraph` mit Passes, importierten und transienten Ressourcen, Plan ohne GPU (`compile()`), `TexturePool` ([ADR 0026](adr/0026-render-graph-bindless.md)); `GpuProfiler` mit einer GPU-Zone pro Pass; Komponenten `Camera`, `MeshRenderer` (Verweise über `AssetRef`, R2.4), `DirectionalLight`, `PointLight` und `SpotLight`, `MeshStore`, `MaterialStore`, gemeinsame Geometriepuffer (`GeometryBuffer` mit `RangeAllocator`, R3.1, TD-23), `TerrainMeshes`, `Renderer` (Schatten der Sonne über Kaskaden, PBR vorwärts mit Lichtliste in ein HDR-Ziel, Terrain mit PBR, Schatten und Auswahl seit R3.1, seit R3.2 mit Materialtabelle `TerrainMaterial` und triplanaren Texturen über `set_terrain_materials()`, Tone Mapping, Debug-Linien, Auswahl per Klick über einen ID-Puffer, Kamera von außen über `camera_override`, Modelle über den Ressourcen-Manager, `reload_shaders()`), `GpuModel`, `upload_model()`, `register_loaders()` (seit R2.5 mit `ModelLoading`: erst aus dem Cache, dann kochen, dann aus den Quellen; BC7-Texturen, wo die GPU sie kann), Lader für einzelne Texturen `ColorTexture` (sRGB) und `DataTexture` (linear, R3.2) und `spawn_model()` ([ADR 0027](adr/0027-gltf-assets-material-store.md), [ADR 0028](adr/0028-lights-cascaded-shadows.md)). Das Innenleben (Zustand `RendererCore` hinter `Renderer::Impl`, Draws) steht seit R3.2 in der internen Partition `:renderer_detail`, verteilt auf `renderer.cpp`, `pipelines.cpp`, `passes.cpp`, `terrain_pass.cpp` und `textures.cpp` (TD-36). Seit R3.5 GPU-getrieben ([ADR 0043](adr/0043-gpu-driven-meshlets.md)): Meshlet-Daten in `MeshStore` und `TerrainMeshes`, Partition `:culling` (`GpuMeshlet`, `GpuInstance`, `GpuView`, `frustum_planes()`, `pack_meshlets()`, Größe des Hi-Z), Instanzen und Gruppen, Prüfen und Hi-Z in `driven.cpp`, Mesh-Shader-Pfad und Rückfallpfad mit indirekten Draws (`use_mesh_shaders`, `occlusion_culling`), Statistik der GPU in `RenderStats`; der `TexturePool` gibt Texturen nach ihrem letzten Pass zurück (TD-16) | vorhanden (ab R1.2) |
 | `ngine.shaders` | `ngine::shaders` | Eingebaute Slang-Shader als SPIR-V (Dreieck, Voxel-Test für die RHI, Terrain, Vollbild-Kopie, Testmuster als Compute, PBR mit gemeinsamer Beleuchtung `lighting.slang`, Schatten, Debug-Linien, Tone Mapping, Editor-UI); `bindless.slang` für den gemeinsamen Descriptor-Satz | vorhanden |
 | `ngine.shader_compiler` | `ngine::shader_compiler` | Slang-Shader zur Laufzeit nach SPIR-V übersetzen (`Compiler`, Hot Reload); Adapter für die Slang-Bibliothek in `compiler.cpp`; nur Editor und Tests linken es ([ADR 0034](adr/0034-hot-reload-polling-slang-runtime.md)) | vorhanden (ab R2.4) |
 | `ngine.editor_ui` | `ngine::editor_ui` | Editor-UI: Adapter für Dear ImGui mit Docking (`:context`, `:widgets`; nur `context.cpp` und `widgets.cpp` kennen ImGui), Zeichenliste in Engine-Typen (`:draw`), `UiRenderer` als Pass im Render-Graph über die RHI (`:pass`), Log-Konsole (`:console`) und Viewport-Größe (`:viewport`), Zeichnen von Linien, Formen und Text in die Zeichenliste eines Fensters (R2.3); ohne Fenster und GPU testbar ([ADR 0029](adr/0029-editor-imgui-over-rhi.md)) | vorhanden (ab R2.1) |
@@ -67,6 +68,7 @@ flowchart BT
     serialize["ngine.serialize"]
     world["ngine.world<br/>(flecs)"]
     voxel["ngine.voxel"]
+    meshlet["ngine.meshlet"]
     script["ngine.script<br/>(.NET über hostfxr)"]
     net["ngine.net<br/>(GameNetworkingSockets)"]
     replication["ngine.replication"]
@@ -78,7 +80,7 @@ flowchart BT
     math["ngine.math"]
     render["ngine.render"]
     asset["ngine.asset<br/>(fastgltf, stb_image, KTX-Software)"]
-    cook["ngine.cook<br/>(KTX-Software, MikkTSpace)"]
+    cook["ngine.cook<br/>(KTX-Software, MikkTSpace, meshoptimizer)"]
     cook --> asset
     cook --> jobs
     editor --> cook
@@ -94,6 +96,9 @@ flowchart BT
     render --> shaders
     world --> math
     voxel --> math
+    voxel --> meshlet
+    meshlet --> math
+    asset --> meshlet
     voxel --> jobs
     world --> voxel
     fs --> core
@@ -502,6 +507,34 @@ flowchart LR
     cam["Kamera<br/>DVec3, Quat"] --> r
     r --> m["Mat4 in 32 Bit<br/>für die GPU"]
 ```
+
+## GPU-getriebenes Zeichnen
+
+Seit R3.5 zeichnet der Renderer jedes Netz als Instanz aus Meshlets
+([ADR 0043](adr/0043-gpu-driven-meshlets.md)). Die CPU sammelt nur Instanzen (Teilnetze der
+MeshRenderer, Chunks der Terrains) und ordnet ihre Meshlets in Gruppen zu 32; welche Meshlets
+gezeichnet werden, entscheidet die GPU.
+
+```mermaid
+flowchart LR
+    cpu["CPU: Instanzen,<br/>Gruppen, Sichten"] --> clear["Zähler leeren"]
+    clear --> cull1["Prüfen Phase 1<br/>Stumpf, Kegel,<br/>Hi-Z des letzten Frames"]
+    cull1 --> shadow["Schatten<br/>(4 Kaskaden)"]
+    shadow --> fwd1["Vorwärts Phase 1"]
+    fwd1 --> hiz["Hi-Z aus der Tiefe"]
+    hiz --> cull2["Prüfen Phase 2<br/>gegen das neue Hi-Z"]
+    cull2 --> fwd2["Vorwärts Phase 2<br/>+ Durchsichtiges sortiert"]
+    fwd2 --> tone["Tone Mapping"]
+```
+
+- Mit Mesh Shadern prüft ein Task-Shader je Gruppe und startet je sichtbarem Meshlet einen
+  Mesh-Shader; das Prüfen steckt im Draw selbst. Ohne die Stufe schreibt ein Compute-Shader je
+  sichtbarem Meshlet einen indirekten Draw, gezeichnet mit `draw_indexed_indirect_count()` je
+  Kategorie und Geometrieblock. Beide Pfade lesen dieselben Puffer und dieselben Shader-Funktionen.
+- Kategorien: Terrain, undurchsichtig, maskiert, je einseitig und doppelseitig; jede hat ihre
+  Pipelines für Vorwärts, Schatten und Auswahl. Durchsichtiges zeichnet die CPU sortiert.
+- Zwei Hi-Z-Pyramiden wechseln sich ab. Phase 2 zeichnet nur, was Phase 1 als verdeckt verworfen
+  hat und jetzt sichtbar ist; so fehlt nach schnellen Drehungen nichts.
 
 ## Voxel-Terrain
 
