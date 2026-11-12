@@ -26,7 +26,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R3](R3-voxel-terrain.md) | Konstruktion | Reifegrad Voxel-Terrain (R3.1 bis R3.5) | in Arbeit |
 | [R3.1](R3.1-chunks-und-meshing.md) | Konstruktion | Chunks und Meshing in Jobs | abgeschlossen |
 | [R3.2](R3.2-prozedurale-welt-und-materialien.md) | Konstruktion | Prozedurale Welt und Materialien | abgeschlossen |
-| [R3.3](R3.3-streaming-und-lod.md) | Konstruktion | Streaming und LOD | in Arbeit |
+| [R3.3](R3.3-streaming-und-lod.md) | Konstruktion | Streaming und LOD | abgeschlossen |
 
 ## Vorlage
 

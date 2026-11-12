@@ -78,7 +78,7 @@ eine Komponente.
 | WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten (A4); binär als `.nscene` mit Typtabelle (R2.5) | A4 / R2.5 | fertig |
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern: Positionen in 64 Bit, gezeichnet relativ zur Kamera ([ADR 0012](adr/0012-64bit-world-coordinates.md)); `--far` zeigt es | R1.1 | fertig |
 | WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming; R3.3: Baum von Chunks in Stufen, ausgeglichen, um mehrere Beobachter ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | in Arbeit |
-| WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen; R3.3: Terrain lädt um `TerrainObserver` im Job-System mit Budget, Übernahme in einem Schritt, Speicher begrenzt; Budget für Uploads folgt (TD-39) | R3 | in Arbeit |
+| WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen; R3.3: Terrain lädt um `TerrainObserver` im Job-System mit Budget, Übernahme in einem Schritt, Speicher begrenzt; Renderer lädt neue Netze mit Budget pro Frame und tauscht sie auf einmal | R3 | in Arbeit |
 | WORLD-09 | Befehlspuffer | Strukturänderungen aus Systemen heraus sammeln und nach dem Schedule ausführen | R4 | geplant |
 | WORLD-10 | Phasen für Systeme | Systeme in Phasen (Eingabe, Simulation, Rendering) und mit expliziter Reihenfolge | R4 | geplant |
 
