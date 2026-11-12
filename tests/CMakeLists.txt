@@ -41,10 +41,12 @@ add_executable(ngine_tests
     edit/edit_tests.cpp
     edit/gizmo_play_tests.cpp
     edit/prefab_edit_tests.cpp
+    edit/terrain_edit_tests.cpp
     voxel/voxel_tests.cpp
     voxel/chunk_tests.cpp
     voxel/generator_tests.cpp
     voxel/lod_tests.cpp
+    voxel/delta_tests.cpp
     script/script_tests.cpp
     net/transport_tests.cpp
     replication/replication_tests.cpp

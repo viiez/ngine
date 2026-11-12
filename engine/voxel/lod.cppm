@@ -16,6 +16,7 @@ import ngine.jobs;
 import :grid;
 import :chunk;
 import :mesh;
+import :edit;
 
 export namespace ngine::voxel {
 
@@ -30,8 +31,8 @@ inline constexpr u8 max_lod_level = 10;
 // Achsenparalleler Bereich eines Chunks in Voxeln (Stufe 0), min inklusive, max exklusive.
 [[nodiscard]] constexpr SampleBox chunk_box(ChunkCoord c) noexcept {
     const i64 e = chunk_extent(c.level);
-    return {i64{c.x} * e,       i64{c.y} * e,       i64{c.z} * e,
-            i64{c.x} * e + e,   i64{c.y} * e + e,   i64{c.z} * e + e};
+    return {i64{c.x} * e,     i64{c.y} * e,     i64{c.z} * e,
+            i64{c.x} * e + e, i64{c.y} * e + e, i64{c.z} * e + e};
 }
 
 // Welche Chunks der Baum um die Beobachter auswählt (VOX-04, WORLD-07, R3.3, ADR 0041). Alle
@@ -101,10 +102,11 @@ private:
 [[nodiscard]] LodLayout select_lod(std::span<const math::DVec3> observers, const LodDesc& desc);
 
 // Kleinster Abstand eines Beobachters zum Bereich des Chunks (0 innerhalb), in Voxeln.
-[[nodiscard]] f64 observer_distance(std::span<const math::DVec3> observers, ChunkCoord coord) noexcept;
+[[nodiscard]] f64 observer_distance(std::span<const math::DVec3> observers,
+                                    ChunkCoord coord) noexcept;
 
-// Woher der LodMesher die Samples der Blätter liest: Chunk zu einer Koordinate (nullptr: fehlt, gilt
-// als outside()) und der Wert außerhalb. find() muss aus mehreren Jobs gleichzeitig gehen.
+// Woher der LodMesher die Samples der Blätter liest: Chunk zu einer Koordinate (nullptr: fehlt,
+// gilt als outside()) und der Wert außerhalb. find() muss aus mehreren Jobs gleichzeitig gehen.
 class ChunkSource {
 public:
     ChunkSource() = default;
@@ -168,6 +170,12 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// Strahltest über die Blätter eines LOD-Baums (R3.4); Koordinaten in Voxeln relativ zum Ursprung
+// des Terrains. Liest grobe Blätter auf ihrem Raster und geht dort in größeren Schritten. Außerhalb
+// der Blätter ist Luft.
+[[nodiscard]] std::optional<RayHit> raycast(const LodLayout& layout, const ChunkStore& store,
+                                            Vec3 origin, Vec3 direction, f32 max_length);
 
 // Netze vieler Blätter parallel im Job-System: out[i] wird zum Netz von leaves[i]. layout und
 // store werden nur gelesen.

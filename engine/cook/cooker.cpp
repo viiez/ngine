@@ -2,13 +2,18 @@ module;
 
 #include <ngine/profile.hpp>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <expected>
 #include <format>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -17,6 +22,7 @@ module ngine.cook;
 import ngine.core;
 import ngine.asset;
 import ngine.filesystem;
+import ngine.jobs;
 import ngine.profile;
 
 namespace ngine::cook {
@@ -114,36 +120,161 @@ asset::ModelCooker model_cooker(CookSettings settings) {
     return [settings](std::string_view source) { return cook_model(source, settings); };
 }
 
+namespace {
+
+// Ein Modell für cook_all() und BackgroundCook.
+struct CookItem {
+    asset::AssetId id = 0;
+    std::string path;
+    std::string file;
+};
+
+std::vector<CookItem> models_of(const asset::AssetDatabase& database) {
+    std::vector<CookItem> items;
+    for (const asset::AssetInfo& info : database.assets()) {
+        if (info.type == asset::AssetType::Model) {
+            items.push_back({info.id, info.path, info.file});
+        }
+    }
+    return items;
+}
+
+enum class CookOutcome : u8 { cooked, current, failed };
+
+// Kocht ein Modell in den Cache; bei einem Fehler steht er in error.
+CookOutcome cook_one(const CookItem& item, const asset::AssetCache& cache,
+                     const CookSettings& settings, bool force, std::string& error) {
+    if (!force && cache.model_current(item.id)) {
+        return CookOutcome::current;
+    }
+    auto cooked = cook_model(item.file, settings);
+    if (cooked) {
+        if (auto stored = cache.store_model(item.id, *cooked); !stored) {
+            cooked = std::unexpected(std::move(stored.error()));
+        }
+    }
+    if (!cooked) {
+        error = std::format("{}: {}", item.path, cooked.error());
+        log::error("Kochen: {}", error);
+        return CookOutcome::failed;
+    }
+    log::info("Gekocht: {} ({} Textur(en))", item.path, cooked->textures.size());
+    return CookOutcome::cooked;
+}
+
+f64 seconds_since(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<f64>(std::chrono::steady_clock::now() - start).count();
+}
+
+} // namespace
+
 CookReport cook_all(const asset::AssetDatabase& database, const asset::AssetCache& cache,
                     const CookSettings& settings, bool force) {
     NGINE_PROFILE_ZONE("cook::cook_all");
     const auto start = std::chrono::steady_clock::now();
     CookReport report;
-    for (const asset::AssetInfo& info : database.assets()) {
-        if (info.type != asset::AssetType::Model) {
-            continue;
-        }
-        if (!force && cache.model_current(info.id)) {
-            ++report.current;
-            continue;
-        }
-        auto cooked = cook_model(info.file, settings);
-        if (cooked) {
-            if (auto stored = cache.store_model(info.id, *cooked); !stored) {
-                cooked = std::unexpected(std::move(stored.error()));
-            }
-        }
-        if (!cooked) {
+    for (const CookItem& item : models_of(database)) {
+        std::string error;
+        switch (cook_one(item, cache, settings, force, error)) {
+        case CookOutcome::cooked: ++report.cooked; break;
+        case CookOutcome::current: ++report.current; break;
+        case CookOutcome::failed:
             ++report.failed;
-            report.errors.push_back(std::format("{}: {}", info.path, cooked.error()));
-            log::error("Kochen: {}: {}", info.path, cooked.error());
-            continue;
+            report.errors.push_back(std::move(error));
+            break;
         }
-        ++report.cooked;
-        log::info("Gekocht: {} ({} Textur(en))", info.path, cooked->textures.size());
     }
-    report.seconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - start).count();
+    report.seconds = seconds_since(start);
     return report;
+}
+
+// --- Kochen im Hintergrund (TD-34) ------------------------------------------------------------
+
+struct BackgroundCook::State {
+    std::vector<CookItem> items;
+    const asset::AssetCache* cache = nullptr;
+    CookSettings settings;
+    bool force = false;
+    std::chrono::steady_clock::time_point start;
+    std::atomic<usize> finished{0};
+    std::atomic<usize> failed{0};
+    std::atomic<bool> cancelled{false};
+    std::atomic<bool> done{false};
+    jobs::Counter counter;
+    mutable std::mutex mutex;
+    CookReport report;
+};
+
+BackgroundCook::BackgroundCook(jobs::JobSystem& jobs, const asset::AssetDatabase& database,
+                               const asset::AssetCache& cache, CookSettings settings, bool force)
+    : state_{std::make_shared<State>()}, jobs_{&jobs} {
+    State& state = *state_;
+    state.items = models_of(database);
+    state.cache = &cache;
+    state.force = force;
+    state.start = std::chrono::steady_clock::now();
+    // Die Kodierung der Bilder nutzt sonst alle Kerne.
+    if (settings.textures.threads == 0) {
+        settings.textures.threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    }
+    state.settings = std::move(settings);
+    jobs.run(
+        [shared = state_] {
+            NGINE_PROFILE_ZONE("cook::BackgroundCook");
+            State& s = *shared;
+            for (const CookItem& item : s.items) {
+                if (s.cancelled.load(std::memory_order_relaxed)) {
+                    break;
+                }
+                std::string error;
+                const CookOutcome outcome = cook_one(item, *s.cache, s.settings, s.force, error);
+                {
+                    const std::scoped_lock lock{s.mutex};
+                    switch (outcome) {
+                    case CookOutcome::cooked: ++s.report.cooked; break;
+                    case CookOutcome::current: ++s.report.current; break;
+                    case CookOutcome::failed:
+                        ++s.report.failed;
+                        s.report.errors.push_back(std::move(error));
+                        break;
+                    }
+                }
+                if (outcome == CookOutcome::failed) {
+                    s.failed.fetch_add(1, std::memory_order_relaxed);
+                }
+                s.finished.fetch_add(1, std::memory_order_release);
+            }
+            {
+                const std::scoped_lock lock{s.mutex};
+                s.report.seconds = seconds_since(s.start);
+            }
+            s.done.store(true, std::memory_order_release);
+        },
+        &state.counter);
+}
+
+BackgroundCook::~BackgroundCook() {
+    state_->cancelled.store(true, std::memory_order_relaxed);
+    jobs_->wait(state_->counter);
+}
+
+bool BackgroundCook::done() const noexcept {
+    return state_->done.load(std::memory_order_acquire);
+}
+
+CookProgress BackgroundCook::progress() const noexcept {
+    return {.total = state_->items.size(),
+            .finished = state_->finished.load(std::memory_order_acquire),
+            .failed = state_->failed.load(std::memory_order_relaxed)};
+}
+
+void BackgroundCook::cancel() noexcept {
+    state_->cancelled.store(true, std::memory_order_relaxed);
+}
+
+CookReport BackgroundCook::report() const {
+    const std::scoped_lock lock{state_->mutex};
+    return state_->report;
 }
 
 } // namespace ngine::cook

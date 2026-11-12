@@ -109,6 +109,10 @@ export struct MenuTargets {
     std::function<void()> extra_menus;
     // Fügt ein Voxel-Terrain ein (R3.1); leer: kein Menüeintrag.
     std::function<void()> new_terrain;
+    // Pinsel für Terrains (R3.4): Schalter und ob ein Terrain ausgewählt ist; nullptr: kein
+    // Eintrag.
+    bool* terrain_brush = nullptr;
+    bool terrain_selected = false;
 };
 
 export class EditorMenu {
@@ -191,6 +195,14 @@ public:
                 gizmo.space = local ? edit::GizmoSpace::Local : edit::GizmoSpace::World;
             }
             ui::menu_item("Raster", "Strg beim Ziehen", &gizmo.snap.enabled);
+            if (targets.terrain_brush != nullptr) {
+                ui::separator();
+                // Ohne ausgewähltes Terrain sagt der Eintrag, was fehlt.
+                ui::menu_item(targets.terrain_selected ? "Terrain-Pinsel"
+                                                       : "Terrain-Pinsel (erst Terrain auswählen)",
+                              {}, targets.terrain_brush,
+                              targets.terrain_selected && !document.playing());
+            }
             ui::end_menu();
         }
         if (ui::begin_menu("Spiel")) {

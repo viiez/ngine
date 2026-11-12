@@ -582,10 +582,14 @@ bool is_binary_scene_path(std::string_view path) {
 
 Result<void> save_scene_file(const World& world, std::string_view path,
                              const PrefabLookup& prefabs) {
-    if (is_binary_scene_path(path)) {
-        return filesystem::write_file(path, save_scene_binary(world, prefabs));
+    auto written = is_binary_scene_path(path)
+                       ? filesystem::write_file(path, save_scene_binary(world, prefabs))
+                       : filesystem::write_text(path, save_scene(world, prefabs));
+    if (!written) {
+        return written;
     }
-    return filesystem::write_text(path, save_scene(world, prefabs));
+    // Änderungen am Terrain liegen als Regionen-Dateien neben der Szene (R3.4).
+    return save_terrain_deltas(world, path);
 }
 
 Result<usize> load_scene_file(World& world, std::string_view path, const PrefabLookup& prefabs) {
@@ -594,13 +598,25 @@ Result<usize> load_scene_file(World& world, std::string_view path, const PrefabL
         return std::unexpected(std::move(bytes.error()));
     }
     // Am Inhalt erkennen, nicht an der Endung: „NGSC“ am Anfang heißt binär.
-    if (bytes->size() >= 4 && (*bytes)[0] == std::byte{'N'} && (*bytes)[1] == std::byte{'G'} &&
-        (*bytes)[2] == std::byte{'S'} && (*bytes)[3] == std::byte{'C'}) {
-        return load_scene_binary(world, *bytes, prefabs);
+    const bool binary = bytes->size() >= 4 && (*bytes)[0] == std::byte{'N'} &&
+                        (*bytes)[1] == std::byte{'G'} && (*bytes)[2] == std::byte{'S'} &&
+                        (*bytes)[3] == std::byte{'C'};
+    auto loaded = binary ? load_scene_binary(world, *bytes, prefabs)
+                         : load_scene(world,
+                                      std::string_view{reinterpret_cast<const char*>(bytes->data()),
+                                                       bytes->size()},
+                                      prefabs);
+    if (!loaded) {
+        return loaded;
     }
-    return load_scene(world,
-                      std::string_view{reinterpret_cast<const char*>(bytes->data()), bytes->size()},
-                      prefabs);
+    // Deltas der Terrains aus ihren Ordnern neben der Szene (R3.4). Fehlen sie oder sind sie
+    // beschädigt, lädt die Szene trotzdem, nur ohne die Änderungen.
+    if (auto deltas = load_terrain_deltas(world, path); !deltas) {
+        log::error("Deltas des Terrains: {}", deltas.error());
+    } else if (*deltas > 0) {
+        log::info("Deltas des Terrains geladen: {} Chunks", *deltas);
+    }
+    return loaded;
 }
 
 } // namespace ngine::world

@@ -96,6 +96,8 @@ void text_colored(UiColor color, std::string_view text);
 void text_disabled(std::string_view text);
 // Text, der am Fensterrand umbricht.
 void text_wrapped(std::string_view text);
+// Fortschrittsbalken (fraction 0 bis 1) mit Beschriftung in der Mitte; width 0: Standardbreite.
+void progress_bar(f32 fraction, std::string_view overlay = {}, f32 width = 0.0f);
 void separator();
 // Nächstes Element in dieselbe Zeile.
 void same_line(f32 spacing = -1.0f);

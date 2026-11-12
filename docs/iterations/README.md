@@ -27,6 +27,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R3.1](R3.1-chunks-und-meshing.md) | Konstruktion | Chunks und Meshing in Jobs | abgeschlossen |
 | [R3.2](R3.2-prozedurale-welt-und-materialien.md) | Konstruktion | Prozedurale Welt und Materialien | abgeschlossen |
 | [R3.3](R3.3-streaming-und-lod.md) | Konstruktion | Streaming und LOD | abgeschlossen |
+| [R3.4](R3.4-deltas-und-voxel-werkzeuge.md) | Konstruktion | Deltas und Voxel-Werkzeuge | abgeschlossen |
 
 ## Vorlage
 

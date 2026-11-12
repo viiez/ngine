@@ -1,9 +1,12 @@
 module;
 
+#include <expected>
 #include <map>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 
 export module ngine.world:terrain;
 
@@ -13,6 +16,7 @@ import ngine.math;
 import ngine.reflect;
 export import ngine.voxel;
 import :ecs;
+import :prefab;
 
 export namespace ngine::world {
 
@@ -33,7 +37,9 @@ enum class TerrainShape : u8 {
 // entstehen die Chunks aus dem Generator mit Startwert (ADR 0039); Höhen in Metern über der
 // Unterkante. Seit R3.3 kann es endlos sein (streaming): Dann lädt es sich um die Beobachter
 // (TerrainObserver, Kamera des Editors) bis view_distance nach, in der Ferne in gröberen Stufen
-// (VOX-04, WORLD-08, ADR 0041); size_x und size_z gelten dann nicht.
+// (VOX-04, WORLD-08, ADR 0041); size_x und size_z gelten dann nicht. Seit R3.4 werden Änderungen
+// als Deltas gegenüber der Grundwelt gehalten (VOX-06, ADR 0042) und mit der Szene in
+// Regionen-Dateien im Ordner deltas neben ihr gespeichert.
 struct Terrain {
     i32 size_x = 8;
     i32 size_y = 4;
@@ -60,6 +66,9 @@ struct Terrain {
     // Feinheit der Stufen (nur streaming): Ein Chunk teilt sich in acht, solange ein Beobachter
     // näher als detail × seine Breite ist.
     f32 detail = 2.0f;
+    // Ordner der Deltas relativ zur Szene (R3.4); leer, bis der Editor beim ersten Speichern mit
+    // Änderungen einen Namen vergibt (assign_terrain_folders()).
+    std::string deltas;
 
     friend bool operator==(const Terrain&, const Terrain&) noexcept = default;
 };
@@ -101,12 +110,17 @@ struct TerrainStats {
     // Endlose Terrains (R3.3): Messwerte des Streamers.
     bool streaming = false;
     voxel::StreamStats stream;
+    // Deltas (R3.4): Chunks mit Delta und ihre kodierte Größe.
+    u32 delta_chunks = 0;
+    usize delta_bytes = 0;
 };
 
 // Laufzeitdaten eines Terrains: Chunks, Netze und Messwerte. Gehört zu TerrainState und wird
 // zwischen Welt (schreibt in update_terrains() und über Pinsel) und Renderer (liest) geteilt.
 struct TerrainData {
     voxel::ChunkStore chunks;
+    // Änderungen gegenüber der Grundwelt (R3.4); vor dem Streamer, der sie liest.
+    voxel::TerrainDeltas deltas;
     // Netze aller Chunks, die eines haben (auch Chunks am Rand ohne eigene Samples).
     std::map<voxel::ChunkCoord, ChunkMesh> meshes;
     // Eindeutig im Programmlauf, z. B. als Schlüssel für GPU-Daten im Renderer.
@@ -129,8 +143,10 @@ struct TerrainState {
 // kleinsten Koordinate liegt bei chunk_origin(first)).
 [[nodiscard]] voxel::ChunkCoord terrain_first_chunk(const Terrain& terrain) noexcept;
 
-// Erzeugt alle Chunks des Terrains neu aus dem Generator, parallel im Job-System.
-void generate_terrain(const Terrain& terrain, voxel::ChunkStore& chunks, jobs::JobSystem& jobs);
+// Erzeugt alle Chunks des Terrains neu aus dem Generator, parallel im Job-System, und rechnet die
+// Deltas ein.
+void generate_terrain(const Terrain& terrain, voxel::ChunkStore& chunks, jobs::JobSystem& jobs,
+                      const voxel::DeltaMap* deltas = nullptr);
 
 struct TerrainUpdate {
     // Weitere Beobachter in Weltkoordinaten, z. B. die Kamera des Editors, die keine Entity ist.
@@ -145,6 +161,43 @@ struct TerrainUpdate {
 // Beobachter um die Position des Terrains (R3.3). Läuft wie update_transforms() nach
 // Schedule::run(), einmal pro Frame. Liefert die Zahl der neu gemeshten Chunks.
 usize update_terrains(World& world, jobs::JobSystem& jobs, const TerrainUpdate& update = {});
+
+// --- Bearbeiten (R3.4) --------------------------------------------------------------------------
+// Alle Funktionen tun nichts, solange das Terrain keine Laufzeitdaten hat (vor dem ersten
+// update_terrains()).
+
+// Lage in der Welt in Voxeln relativ zum Ursprung des Terrains und zurück.
+[[nodiscard]] math::DVec3 terrain_voxels(Entity terrain, math::DVec3 world_position);
+[[nodiscard]] math::DVec3 terrain_world(Entity terrain, math::DVec3 voxels);
+
+// Erste Oberfläche entlang eines Strahls (Weltkoordinaten, direction normiert, max_distance in
+// Metern); bei endlosen Terrains auch in groben Stufen.
+[[nodiscard]] std::optional<math::DVec3> raycast_terrain(Entity terrain, math::DVec3 origin,
+                                                         math::Vec3 direction, f64 max_distance);
+
+// Wendet einen Pinsel an (Mitte und Radius in Voxeln relativ zum Ursprung des Terrains) und hält
+// die Deltas aktuell; neue Netze kommen mit dem nächsten update_terrains(), grobe Stufen etwas
+// später. Liefert die geänderten Deltas für Undo.
+voxel::TerrainEdit edit_terrain(Entity terrain, const voxel::Brush& brush);
+// Setzt Deltas einzelner Chunks auf after bzw. before (Undo, Redo).
+void restore_terrain(Entity terrain, std::span<const voxel::DeltaChange> changes, bool after);
+
+// Alle Deltas eines Terrains (für Spielen, Löschen und Undo); nullptr ohne Laufzeitdaten.
+[[nodiscard]] std::shared_ptr<const voxel::DeltaMap> terrain_deltas(Entity terrain);
+// Ersetzt alle Deltas; legt die Laufzeitdaten bei Bedarf an. Das Terrain entsteht neu.
+void set_terrain_deltas(Entity terrain, std::shared_ptr<const voxel::DeltaMap> deltas);
+
+// --- Speichern (R3.4) ---------------------------------------------------------------------------
+
+// Gibt jedem Terrain mit Deltas ohne Ordner einen freien Namen aus dem Namen der Szene
+// („<szene>.terrain“, „<szene>.terrain2“, …). Liefert, wie viele Namen vergeben wurden.
+usize assign_terrain_folders(World& world, std::string_view scene_path);
+// Schreibt die Deltas aller Terrains als Regionen-Dateien in ihren Ordner neben der Szene und
+// entfernt Regionen ohne Deltas (aus save_scene_file()).
+[[nodiscard]] Result<void> save_terrain_deltas(const World& world, std::string_view scene_path);
+// Lädt die Deltas aller Terrains ohne Laufzeitdaten aus ihrem Ordner (aus load_scene_file()).
+// Liefert die Zahl der geladenen Chunks mit Delta.
+[[nodiscard]] Result<usize> load_terrain_deltas(World& world, std::string_view scene_path);
 
 // Registriert Terrain, TerrainShape, TerrainObserver und TerrainState in der Reflection (aus
 // register_types()).

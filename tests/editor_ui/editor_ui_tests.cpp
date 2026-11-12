@@ -61,6 +61,8 @@ TEST_CASE("Editor UI produces draw data and a font texture", "[editor_ui]") {
                 ui::text("Hallo Editor");
                 bool flag = true;
                 ui::checkbox("Schalter", flag);
+                ui::progress_bar(0.5f, "1 von 2", 120.0f);
+                ui::progress_bar(2.0f);
             }
             ui::end_window();
             frame_data = &context.end_frame();

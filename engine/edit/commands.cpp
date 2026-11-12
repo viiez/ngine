@@ -474,6 +474,7 @@ void append_subtree(SceneDocument& document, u64 entity, EntityId parent,
                                                      type, component, data);
                                              },
                                      });
+    node.terrain_deltas = world::terrain_deltas(world.entity(entity));
     const EntityId id = node.id;
     snapshot.nodes.push_back(std::move(node));
     for (const u64 child : world.children(entity)) {
@@ -573,6 +574,9 @@ Result<void> restore(SceneDocument& document, const EntitySnapshot& snapshot) {
                 return result;
             }
             world.modified(entity.id(), id);
+        }
+        if (node.terrain_deltas) {
+            world::set_terrain_deltas(entity, node.terrain_deltas);
         }
     }
     return {};

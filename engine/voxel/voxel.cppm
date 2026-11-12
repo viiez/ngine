@@ -8,6 +8,7 @@
 //   :noise    deterministisches Simplex-Rauschen, fBm, Gratrauschen (R3.2)
 //   :generator prozedurale Grundwelt aus Regeln: Hügel, Felswände, Höhlen, Überhänge (R3.2)
 //   :lod      Baum der Chunks in Stufen um Beobachter, Netze mit Nähten zwischen Stufen (R3.3)
+//   :delta    Änderungen als Deltas zur Grundwelt, in allen Stufen, Regionen-Dateien (R3.4)
 //   :streaming Laden, Erzeugen und Entladen um Beobachter mit Budget, Übernahme ohne Risse (R3.3)
 export module ngine.voxel;
 
@@ -22,4 +23,5 @@ export import :edit;
 export import :noise;
 export import :generator;
 export import :lod;
+export import :delta;
 export import :streaming;

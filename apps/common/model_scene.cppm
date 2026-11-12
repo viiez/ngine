@@ -389,6 +389,10 @@ public:
         return *renderer_;
     }
     // Ressourcen-Manager der Szene; update() läuft in add_passes().
+    // Job-System der Szene (Terrain, Laden, im Editor auch das Kochen im Hintergrund).
+    [[nodiscard]] jobs::JobSystem& jobs() noexcept {
+        return jobs_;
+    }
     [[nodiscard]] asset::ResourceManager& resources() noexcept {
         return *resources_;
     }

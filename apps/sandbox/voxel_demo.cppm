@@ -24,7 +24,8 @@ module;
 // zeigt Materialien mit Texturen aus dem Asset-Ordner; ein Flugmodus führt in die Höhlen. Seit R3.3
 // ist es endlos: Es lädt sich um die Kamera und die Mitte der Kreisbahn nach, in der Ferne in
 // gröberen Stufen, bis rund 2 km weit. Ein Autopilot fliegt einige Kilometer und misst dabei
-// Frame-Zeiten und Speicher.
+// Frame-Zeiten und Speicher. Seit R3.4 sind Änderungen Deltas gegenüber der Grundwelt: Ein Krater
+// bleibt, wenn sein Chunk entladen wird, und ist auch in den groben Stufen zu sehen.
 export module sandbox.voxel_demo;
 
 import app.model_scene;
@@ -230,9 +231,10 @@ public:
         brush_timer_ = 1.0f / 30.0f;
         const Vec3 direction = camera_ray(math::to_mat3(rotation_), render::Camera{}.fov_y,
                                           cursor_->first, cursor_->second, viewport);
-        if (const auto hit = voxel::raycast(chunks(), eye_in_terrain(), direction, 1000.0f)) {
+        // Über alle Stufen: Auch ein ferner Hang lässt sich treffen.
+        if (const auto hit = world::raycast_terrain(terrain_, eye_, direction, 1000.0)) {
             edit({.mode = *brush_,
-                  .center = hit->position,
+                  .center = math::to_f32(world::terrain_voxels(terrain_, *hit)),
                   .radius = 4.0f,
                   .material = 2,
                   .strength = 0.6f});
@@ -247,7 +249,9 @@ public:
         const auto meters = static_cast<f32>(voxel::voxel_size);
         const Vec3 above{center_.x / meters + std::cos(angle) * radius, 400.0f,
                          center_.z / meters + std::sin(angle) * radius};
-        const auto hit = voxel::raycast(chunks(), above, {0.0f, -1.0f, 0.0f}, 800.0f);
+        const auto hit =
+            world::raycast_terrain(terrain_, world::terrain_world(terrain_, math::to_f64(above)),
+                                   {0.0f, -1.0f, 0.0f}, 400.0);
         if (!hit) {
             return;
         }
@@ -258,14 +262,16 @@ public:
             mode = voxel::BrushMode::Add;
         }
         edit({.mode = mode,
-              .center = hit->position,
+              .center = math::to_f32(world::terrain_voxels(terrain_, *hit)),
               .radius = 4.0f,
               .material = 2,
               .strength = 0.8f});
     }
 
+    // Als Delta gegenüber der Grundwelt (R3.4): bleibt beim Entladen erhalten und erscheint in
+    // den groben Stufen.
     void edit(const voxel::Brush& brush) {
-        static_cast<void>(voxel::apply(chunks(), brush));
+        static_cast<void>(world::edit_terrain(terrain_, brush));
         ++edits_;
     }
 
@@ -303,12 +309,14 @@ public:
         std::string text = std::format(
             "{} Chunks ({}; {} einheitlich, {:.1f} MiB Samples), {} Netze mit {} Dreiecken "
             "({:.1f} MiB), Streaming: {} Übernahmen (zuletzt {:.1f} ms, höchstens {:.1f} ms), "
-            "{} in Arbeit, {} Chunks erzeugt ({:.2f} ms pro Chunk in Jobs); {} Änderungen; "
+            "{} in Arbeit, {} Chunks erzeugt ({:.2f} ms pro Chunk in Jobs); {} Änderungen "
+            "(Deltas: {} Chunks, {:.1f} KiB; {} grobe Blätter neu erzeugt); "
             "Netze im Mittel {:.2f} ms, höchstens {:.2f} ms ({} Läufe, {} Netze)",
             s.chunks, level_counts(st), s.uniform_chunks, mib(s.sample_bytes), s.meshes,
             s.triangles, mib(s.mesh_bytes), st.commits, st.last_commit_ms, st.max_commit_ms,
             st.queued + st.generating + st.generated, st.generated_total,
             st.generate_ms_total / static_cast<f64>(std::max<u64>(st.generated_total, 1)), edits_,
+            s.delta_chunks, static_cast<f64>(s.delta_bytes) / 1024.0, st.refreshed_total,
             total_ms_ / static_cast<f64>(std::max<u64>(mesh_count_, 1)), max_ms_, mesh_count_,
             meshed_chunks_);
         if (renderer_) {
@@ -375,10 +383,6 @@ public:
     }
 
 private:
-    [[nodiscard]] voxel::ChunkStore& chunks() {
-        return terrain_.get_mut<world::TerrainState>()->data->chunks;
-    }
-
     void update_camera() {
         const f32 pitch = 0.5f;
         const Vec3 offset{std::cos(yaw_) * std::cos(pitch), std::sin(pitch),
@@ -413,8 +417,8 @@ private:
         f.travelled = std::min(f.distance, f.travelled + static_cast<f64>(f.speed * dt));
         const Vec3 heading = math::normalize(Vec3{1.0f, 0.0f, 0.35f});
         eye_ = f.start + math::to_f64(heading) * f.travelled;
-        rotation_ = math::look_rotation(math::normalize(heading + Vec3{0.0f, -0.25f, 0.0f}),
-                                        Vec3{0, 1, 0});
+        rotation_ =
+            math::look_rotation(math::normalize(heading + Vec3{0.0f, -0.25f, 0.0f}), Vec3{0, 1, 0});
         camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
         const world::TerrainStats& s = data().stats;
         f.samples.add(mib(s.sample_bytes));
@@ -437,11 +441,10 @@ private:
             "Perzentil {:.2f} ms, höchstens {:.2f} ms; Pässe 99. Perzentil {:.2f} ms, höchstens "
             "{:.2f} ms, bis {} Netze in einem Frame hochgeladen",
             f.speed > 0.0f ? "Flug" : "Schweben", f.travelled / 1000.0, f.seconds,
-            f.travelled / std::max(f.seconds, 1e-3),
-            f.frame_ms.size(), percentile(f.frame_ms, 0.5), percentile(f.frame_ms, 0.99),
-            percentile(f.frame_ms, 1.0), st.commits - f.commits, st.max_commit_ms,
-            st.generated_total - f.generated, f.chunks.min, f.chunks.max, f.samples.min,
-            f.samples.max, f.meshes.min, f.meshes.max, renderer_ ? f.gpu.min : 0.0,
+            f.travelled / std::max(f.seconds, 1e-3), f.frame_ms.size(), percentile(f.frame_ms, 0.5),
+            percentile(f.frame_ms, 0.99), percentile(f.frame_ms, 1.0), st.commits - f.commits,
+            st.max_commit_ms, st.generated_total - f.generated, f.chunks.min, f.chunks.max,
+            f.samples.min, f.samples.max, f.meshes.min, f.meshes.max, renderer_ ? f.gpu.min : 0.0,
             renderer_ ? f.gpu.max : 0.0, percentile(f.update_ms, 0.99),
             percentile(f.update_ms, 1.0), percentile(f.passes_ms, 0.99),
             percentile(f.passes_ms, 1.0), f.uploads);
@@ -468,11 +471,6 @@ private:
             debug.aabb(corner, corner + DVec3{size, size, size},
                        colors[std::min<usize>(coord.level, colors.size() - 1)]);
         }
-    }
-
-    // Kamera in Voxeln relativ zum Ursprung des Terrains, für den Strahltest.
-    [[nodiscard]] Vec3 eye_in_terrain() const {
-        return math::to_f32((eye_ - origin_) * (1.0 / voxel::voxel_size));
     }
 
     struct Flight {

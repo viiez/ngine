@@ -23,6 +23,11 @@
 // Instanz aufbrechen, Änderungen in die Vorlage übernehmen; Prefabs lassen sich aus dem
 // Asset-Browser ziehen (WORLD-04). Szenen mit der Endung .nscene speichert er binär.
 //
+// Seit R3.4: Voxel-Werkzeuge (EDIT-08): Ist ein Terrain ausgewählt, zeigt die Werkzeugleiste den
+// Pinsel zum Abtragen, Auftragen, Glätten, Ebnen und Bemalen mit Vorschau unter der Maus; ein
+// Pinselstrich ist ein Schritt im Verlauf. Änderungen am Terrain speichert der Editor als Deltas in
+// Regionen-Dateien neben der Szene. „Alles kochen“ läuft im Hintergrund (TD-34).
+//
 // Optionen:
 //   --scene <pfad>  Szene öffnen statt der Standardszene
 //   --save <pfad>   Szene beim Beenden dorthin speichern (für automatische Tests)
@@ -79,6 +84,7 @@ import editor.inspector;
 import editor.menu;
 import editor.overlay;
 import editor.scene_tree;
+import editor.terrain_tools;
 import editor.viewport_tools;
 
 namespace {
@@ -282,6 +288,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                     : app::find_upwards("engine/shaders", "pbr.slang");
         HotReload hot_reload{database ? &*database : nullptr, shader_dir};
         AssetPanel asset_panel;
+        asset_panel.jobs = &(*scene)->jobs();
         ModelDrop model_drop;
 
         // Dokument, Auswahl und Ereignisse: Die Fenster kennen sich nicht, sie reden über den Bus.
@@ -336,6 +343,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         u64 frame_count = 0;
         std::string title;
         ViewportTools tools;
+        TerrainTools terrain_tools;
+        // Dauer des laufenden Frames für Werkzeuge, die pro Sekunde wirken (Pinsel).
+        f32 frame_dt = 0.0f;
         PlayControls play;
         EditorMenu menu{options.scene_path.value_or("szene.json")};
         MenuTargets targets{.document = document,
@@ -346,7 +356,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                             .play = play,
                             .quit = [&] { running = false; },
                             .extra_menus = {},
-                            .new_terrain = [&] { editor::insert_terrain(document, selection); }};
+                            .new_terrain = [&] { editor::insert_terrain(document, selection); },
+                            .terrain_brush = &terrain_tools.active};
         targets.extra_menus = [&] {
             const edit::EntityId selected = selection.current();
             const u64 entity = document.entity_of(selected);
@@ -368,11 +379,12 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 ui::end_menu();
             }
             if (ui::begin_menu("Assets")) {
-                if (ui::menu_item("Alles kochen", {}, nullptr, database && cache)) {
-                    AssetPanel::cook_everything(*database, *cache, false);
+                const bool can_cook = database && cache && !asset_panel.cooking();
+                if (ui::menu_item("Alles kochen", {}, nullptr, can_cook)) {
+                    asset_panel.start_cook(*database, *cache, false);
                 }
-                if (ui::menu_item("Alles neu kochen", {}, nullptr, database && cache)) {
-                    AssetPanel::cook_everything(*database, *cache, true);
+                if (ui::menu_item("Alles neu kochen", {}, nullptr, can_cook)) {
+                    asset_panel.start_cook(*database, *cache, true);
                 }
                 ui::end_menu();
             }
@@ -383,6 +395,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         // Fenster des Editors; dünn, die Logik liegt in Engine und Szene.
         const auto draw_ui = [&] {
+            targets.terrain_selected = TerrainTools::selected_terrain(document, selection) != 0;
             menu.draw_menu_bar(targets);
             ui::dockspace(default_layout());
 
@@ -394,6 +407,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                          ui::WindowFlags::NoScrollWithMouse);
                 if (visible) {
                     tools.draw_toolbar(document, play);
+                    terrain_tools.draw_toolbar(document, selection);
                     const ui::Size available = ui::content_region_available();
                     viewport_size.request(available.width, available.height);
                     const ui::Extent extent = viewport_size.current();
@@ -424,14 +438,23 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     bool gizmo_used = false;
                     if (camera_view) {
                         const edit::ViewCamera camera = view_camera(*camera_view, extent);
-                        gizmo_used = !looking && tools.update(document, selection, camera, corner,
-                                                              viewport_hovered);
+                        // Der Pinsel geht vor: Ist er an, formt der Klick das Terrain.
+                        gizmo_used =
+                            !looking && terrain_tools.update(document, selection, camera, corner,
+                                                             viewport_hovered, frame_dt);
+                        if (terrain_tools.active) {
+                            tools.gizmo.reset();
+                        } else {
+                            gizmo_used = !looking && tools.update(document, selection, camera,
+                                                                  corner, viewport_hovered);
+                        }
                         tools.draw(document, selection, camera, corner,
                                    (*scene)->renderer().debug().texts());
+                        terrain_tools.draw(camera, corner);
                     }
                     // Klick ins Bild: Entity unter dem Mauszeiger aus dem ID-Puffer auswählen,
                     // wenn der Gizmo den Klick nicht für sich genommen hat.
-                    if (!gizmo_used && viewport_hovered &&
+                    if (!gizmo_used && !terrain_tools.active && viewport_hovered &&
                         ui::is_mouse_clicked(ui::MouseButton::Left)) {
                         const ui::Point mouse = ui::mouse_position();
                         const f32 x = mouse.x - corner.x;
@@ -495,12 +518,31 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text(std::format("Verlauf: {} von {}", document.history().position(),
                                          document.history().size()));
                     ui::text(std::format("Neu berechnete Weltlagen: {}", transforms_updated));
+                    // Deltas des ausgewählten Terrains (R3.4).
+                    if (const edit::EntityId terrain =
+                            TerrainTools::selected_terrain(document, selection);
+                        terrain != 0) {
+                        const world::Entity entity =
+                            document.world().entity(document.entity_of(terrain));
+                        if (const auto* state = entity.get<world::TerrainState>();
+                            state != nullptr && state->data) {
+                            const world::TerrainStats& terrain_stats = state->data->stats;
+                            ui::text(std::format("Terrain: {} Chunks, {} Dreiecke",
+                                                 terrain_stats.chunks, terrain_stats.triangles));
+                            ui::text(std::format(
+                                "Deltas: {} Chunks, {:.1f} KiB", terrain_stats.delta_chunks,
+                                static_cast<f64>(terrain_stats.delta_bytes) / 1024.0));
+                        }
+                    }
                     ui::separator();
                     ui::text_disabled("Kamera: rechte Maustaste im Viewport halten,");
                     ui::text_disabled("W/A/S/D, E/Q, Shift schneller");
                     ui::text_disabled("Linksklick ins Bild wählt aus");
                     ui::text_disabled("W/E/R: Verschieben, Drehen, Skalieren");
                     ui::text_disabled("Strg beim Ziehen: Raster, F5: Spielen");
+                    ui::text_disabled(
+                        "Terrain-Pinsel: Terrain auswählen, dann „Pinsel“ über dem Viewport "
+                        "oder Werkzeug > Terrain-Pinsel");
                 }
                 ui::end_window();
             }
@@ -508,7 +550,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             menu.draw_dialogs(targets);
             menu.handle_shortcuts(targets);
             // Ein Regler oder Gizmo, der losgelassen ist, beendet seinen Schritt im Verlauf.
-            if (!ui::is_any_item_active() && !tools.gizmo.dragging()) {
+            if (!ui::is_any_item_active() && !tools.gizmo.dragging() &&
+                !terrain_tools.tool.stroking()) {
                 document.history().seal();
             }
         };
@@ -520,6 +563,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             const f32 dt = std::chrono::duration<f32>(now - last_time).count();
             last_time = now;
             times.add(dt);
+            frame_dt = dt;
 
             // Neue Größe aus dem letzten Frame übernehmen, bevor die UI auf die Textur zeigt.
             if (ui::Extent extent; viewport_size.take_change(extent)) {
@@ -532,6 +576,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             hot_reload.poll(database ? &*database : nullptr, (*scene)->resources(),
                             (*scene)->renderer());
             model_drop.update(document, selection);
+            asset_panel.poll();
             // Geänderte Vorlagen: Instanzen nachziehen (Überschreibungen bleiben).
             if ((*scene)->update_prefabs() > 0) {
                 document.notify(edit::EntityChanged{});

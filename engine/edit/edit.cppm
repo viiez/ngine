@@ -8,6 +8,7 @@
 //   :tree      Zeilen des Szenenbaums
 //   :gizmo     Gizmos zum Verschieben, Drehen und Skalieren, Kamera des Viewports (R2.3)
 //   :prefabs   Prefabs anlegen, aufbrechen und zum Einfügen vorbereiten (R2.5)
+//   :terrain   Voxel-Werkzeuge: Pinsel als Befehle mit Deltas für Undo (R3.4)
 export module ngine.edit;
 
 export import :document;
@@ -17,3 +18,4 @@ export import :inspector;
 export import :tree;
 export import :gizmo;
 export import :prefabs;
+export import :terrain;

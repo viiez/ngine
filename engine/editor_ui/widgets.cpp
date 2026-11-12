@@ -161,6 +161,12 @@ void text_wrapped(std::string_view text) {
     ImGui::PopTextWrapPos();
 }
 
+void progress_bar(f32 fraction, std::string_view overlay, f32 width) {
+    const std::string label{overlay};
+    ImGui::ProgressBar(std::clamp(fraction, 0.0f, 1.0f), ImVec2{width, 0.0f},
+                       overlay.empty() ? nullptr : label.c_str());
+}
+
 void separator() {
     ImGui::Separator();
 }

@@ -2,6 +2,7 @@ module;
 
 #include <cstddef>
 #include <expected>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,6 +16,7 @@ export module ngine.cook;
 
 import ngine.core;
 import ngine.asset;
+import ngine.jobs;
 
 export namespace ngine::cook {
 
@@ -73,5 +75,40 @@ struct CookReport {
 [[nodiscard]] CookReport cook_all(const asset::AssetDatabase& database,
                                   const asset::AssetCache& cache, const CookSettings& settings = {},
                                   bool force = false);
+
+// Stand eines Kochens im Hintergrund.
+struct CookProgress {
+    // Modelle insgesamt und davon fertig (gekocht, aktuell oder fehlgeschlagen).
+    usize total = 0;
+    usize finished = 0;
+    usize failed = 0;
+};
+
+// Kocht wie cook_all(), aber im Hintergrund über das Job-System (TD-34): ein Job, der die Modelle
+// nacheinander kocht, die Bilder mit höchstens der Hälfte der Kerne, damit Editor und Treiber
+// genug Rechenzeit behalten (Erkenntnis aus R3.3). Die Liste der Modelle entsteht beim Start; die
+// Datenbank darf sich danach ändern, cache muss das Kochen überleben. Der Destruktor bricht ab und
+// wartet auf das Modell, das gerade kocht.
+class BackgroundCook {
+public:
+    BackgroundCook(jobs::JobSystem& jobs, const asset::AssetDatabase& database,
+                   const asset::AssetCache& cache, CookSettings settings = {}, bool force = false);
+    ~BackgroundCook();
+    BackgroundCook(const BackgroundCook&) = delete;
+    BackgroundCook& operator=(const BackgroundCook&) = delete;
+
+    [[nodiscard]] bool done() const noexcept;
+    [[nodiscard]] CookProgress progress() const noexcept;
+    // Nach dem Modell, das gerade kocht, ist Schluss.
+    void cancel() noexcept;
+    // Ergebnis; vollständig erst nach done().
+    [[nodiscard]] CookReport report() const;
+
+private:
+    // Zustand mit Sperre in cooker.cpp, damit die Schnittstelle kein <mutex> braucht.
+    struct State;
+    std::shared_ptr<State> state_;
+    jobs::JobSystem* jobs_;
+};
 
 } // namespace ngine::cook
