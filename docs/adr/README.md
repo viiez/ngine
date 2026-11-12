@@ -49,3 +49,4 @@ betroffene Code einreichen.
 | [0038](0038-terrain-chunks-shared-geometry.md) | Terrain aus Chunks mit Randschicht, Terrain als Komponente, gemeinsame Geometriepuffer | angenommen |
 | [0039](0039-deterministic-noise-rule-generator.md) | Eigenes deterministisches Rauschen in `f64` ohne FMA und ein Generator aus Regeln, Prüfsumme in beiden CI-Läufen | angenommen |
 | [0040](0040-terrain-materials-weights-triplanar.md) | Terrain-Materialien als Gewichte je Eckpunkt mit Palette pro Chunk, triplanar im Shader | angenommen |
+| [0041](0041-lod-octree-surface-nets-streaming.md) | LOD als ausgeglichener Baum von Chunks, Surface Nets über Stufengrenzen, Streaming mit Übernahme in einem Schritt | angenommen |

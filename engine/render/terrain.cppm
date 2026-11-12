@@ -69,6 +69,11 @@ struct TerrainChunkGpu {
 // Hält die Netze der Chunks aller Terrains in den Geometriepuffern des Renderers (R3.1): lädt neue
 // Fassungen hoch, gibt veraltete und verschwundene frei. Der Renderer kennt keine Dichtefelder,
 // nur fertige Netze aus world::TerrainData.
+//
+// Seit R3.3 mit Budget pro Frame (TD-39): Neue Fassungen landen zuerst in eigenen Bereichen, höchstens
+// upload_budget Bytes pro Frame (mindestens ein Netz). Gezeichnet werden sie erst, wenn alle Netze
+// eines Terrains so weit sind; dann tauscht sync() alle auf einmal. So bleibt die Übernahme des
+// Streamings ohne Risse, auch wenn ihre Netze über mehrere Frames hochgeladen werden.
 class TerrainMeshes {
 public:
     explicit TerrainMeshes(GeometryBuffer& geometry) noexcept : geometry_{&geometry} {}
@@ -83,19 +88,31 @@ public:
     // Gibt Terrains frei, die seit zwei Frames niemand abgeglichen hat.
     void collect(u64 frame);
 
+    // Bytes, die sync() pro Frame über alle Terrains höchstens hochlädt.
+    u64 upload_budget = u64{8} << 20U;
+
     [[nodiscard]] usize terrain_count() const noexcept {
         return terrains_.size();
     }
 
 private:
     struct Entry {
+        // Gezeichnete Netze.
         std::map<voxel::ChunkCoord, TerrainChunkGpu> chunks;
+        // Hochgeladene, noch nicht gezeichnete Fassungen (ohne Bereiche: Netz ist leer).
+        std::map<voxel::ChunkCoord, TerrainChunkGpu> staged;
         u64 last_used = 0;
     };
     void release(TerrainChunkGpu& chunk);
+    // Lädt mesh nach chunk hoch; false, wenn der Platz fehlt.
+    bool upload(const world::ChunkMesh& mesh, TerrainChunkGpu& chunk);
 
     GeometryBuffer* geometry_;
     std::unordered_map<u64, Entry> terrains_;
+    // Budget des laufenden Frames.
+    u64 budget_frame_ = ~u64{0};
+    u64 budget_left_ = 0;
+    bool uploaded_in_frame_ = false;
 };
 
 } // namespace ngine::render

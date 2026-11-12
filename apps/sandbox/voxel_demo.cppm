@@ -3,6 +3,7 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -12,6 +13,7 @@ module;
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -19,7 +21,10 @@ module;
 // Welt, gemeshed im Job-System und gezeichnet vom Renderer mit PBR und Schatten (vorher, im
 // Durchstich D1, ein Chunk mit eigenem Pass). Mit der Maus veränderbar, auch über Chunk-Grenzen.
 // Seit R3.2 entsteht es aus dem Generator mit Startwert (Hügel, Felswände, Höhlen, Überhänge) und
-// zeigt Materialien mit Texturen aus dem Asset-Ordner; ein Flugmodus führt in die Höhlen.
+// zeigt Materialien mit Texturen aus dem Asset-Ordner; ein Flugmodus führt in die Höhlen. Seit R3.3
+// ist es endlos: Es lädt sich um die Kamera und die Mitte der Kreisbahn nach, in der Ferne in
+// gröberen Stufen, bis rund 2 km weit. Ein Autopilot fliegt einige Kilometer und misst dabei
+// Frame-Zeiten und Speicher.
 export module sandbox.voxel_demo;
 
 import app.model_scene;
@@ -65,11 +70,46 @@ f64 elapsed_ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
+f64 mib(usize bytes) {
+    return static_cast<f64>(bytes) / (1024.0 * 1024.0);
+}
+
+// Wert beim Anteil q (0 bis 1) einer Messreihe.
+f64 percentile(std::vector<f64> values, f64 q) {
+    if (values.empty()) {
+        return 0.0;
+    }
+    std::sort(values.begin(), values.end());
+    const auto index = static_cast<usize>(q * static_cast<f64>(values.size() - 1) + 0.5);
+    return values[std::min(index, values.size() - 1)];
+}
+
+std::string level_counts(const voxel::StreamStats& s) {
+    std::string text;
+    for (usize level = 0; level < s.per_level.size(); ++level) {
+        if (s.per_level[level] > 0) {
+            text += std::format("{}S{}={}", text.empty() ? "" : " ", level, s.per_level[level]);
+        }
+    }
+    return text;
+}
+
 } // namespace
 
-// Terrain der Demo: 12 × 4 × 12 Chunks (192 m × 64 m × 192 m) aus dem Generator.
-export world::Terrain demo_terrain(u32 seed = 1) {
-    return world::Terrain{.size_x = 12, .size_y = 4, .size_z = 12, .seed = seed};
+// Spanne einer Größe während einer Messung. Nicht im anonymen Namensraum, weil VoxelScene sie als
+// Feld hält.
+struct Range {
+    f64 min = 1e300;
+    f64 max = 0.0;
+    void add(f64 value) {
+        min = std::min(min, value);
+        max = std::max(max, value);
+    }
+};
+
+// Terrain der Demo (seit R3.3): endlos um die Beobachter, Sichtweite view in Metern, 64 m hoch.
+export world::Terrain demo_terrain(u32 seed = 1, f32 view = 2000.0f) {
+    return world::Terrain{.size_y = 4, .seed = seed, .streaming = true, .view_distance = view};
 }
 
 // Zustand der Demo: Welt mit Terrain, Sonne und Kamera, Pinsel, Renderer.
@@ -86,13 +126,21 @@ public:
                                       math::normalize(Vec3{0.5f, -0.7f, -0.45f}), {0, 1, 0})})
             .set(render::DirectionalLight{.color = {1.0f, 0.95f, 0.88f}, .intensity = 3.0f});
         camera_ = world_.create("Kamera");
-        camera_.set(world::Transform{}).set(render::Camera{.near_plane = 0.2f});
+        // Um die Kamera lädt das Terrain (R3.3).
+        camera_.set(world::Transform{})
+            .set(render::Camera{.near_plane = 0.2f})
+            .set(world::TerrainObserver{});
         // Mitte der Oberfläche: Hier treffen sich vier Chunks, Änderungen kreuzen ihre Grenzen.
-        const voxel::Generator generator{world::generator_desc(terrain)};
-        center_ = {0.0f, static_cast<f32>(generator.height(0, 0) * voxel::voxel_size), 0.0f};
-        distance_ = static_cast<f32>(std::max(terrain.size_x, terrain.size_z)) * 8.0f;
+        generator_ = voxel::Generator{world::generator_desc(terrain)};
+        center_ = {0.0f, static_cast<f32>(generator_.height(0, 0) * voxel::voxel_size), 0.0f};
+        distance_ = 96.0f;
         update_camera();
-        remesh();
+        // Erstes Laden in einem Schritt, damit das erste Bild schon die ganze Sicht zeigt.
+        const auto start = std::chrono::steady_clock::now();
+        remesh(true);
+        log::info("Voxel-Demo: Terrain bis {:.0f} m geladen in {:.0f} ms ({} Chunks: {})",
+                  terrain.view_distance, elapsed_ms(start), data().stats.stream.leaves,
+                  level_counts(data().stats.stream));
     }
 
     // --- Eingabe ------------------------------------------------------------------------------
@@ -124,9 +172,37 @@ public:
     [[nodiscard]] bool flying() const noexcept {
         return flying_;
     }
-    // Zeigt die Grenzen der Chunks mit Netz (F1).
+    // Zeigt die Grenzen der Chunks mit Netz, nach Stufe gefärbt (F1).
     void toggle_chunk_bounds() {
         chunk_bounds_ = !chunk_bounds_;
+    }
+    // Wartet in jedem Frame, bis das Terrain zu den Beobachtern passt (Bilder offscreen).
+    void set_wait_for_terrain(bool wait) {
+        wait_ = wait;
+    }
+
+    // Autopilot (R3.3): fliegt distance Meter geradeaus in 90 m Höhe mit speed m/s und misst
+    // Frame-Zeiten, Übernahmen des Streamings und Speicher. Läuft über update().
+    void start_flight(f64 distance, f32 speed) {
+        flying_ = true;
+        flight_ = Flight{.distance = distance, .speed = speed, .start = eye_};
+        flight_->start.y = origin_.y + 90.0;
+        eye_ = flight_->start;
+        flight_->commits = data().stats.stream.commits;
+        flight_->generated = data().stats.stream.generated_total;
+        if (speed > 0.0f) {
+            log::info("Voxel-Demo: Autopilot fliegt {:.1f} km mit {:.0f} m/s", distance / 1000.0,
+                      speed);
+        } else {
+            log::info("Voxel-Demo: Autopilot schwebt {:.0f} s", distance);
+        }
+    }
+    [[nodiscard]] bool flight_active() const noexcept {
+        return flight_.has_value();
+    }
+    // Ergebnis des letzten Flugs, leer, solange keiner beendet ist.
+    [[nodiscard]] const std::string& flight_report() const noexcept {
+        return flight_report_;
     }
 
     // --- Ablauf -------------------------------------------------------------------------------
@@ -134,7 +210,9 @@ public:
     // Bewegt die Kamera (Kreisbahn oder im Flugmodus nach input) und wendet den gehaltenen
     // Pinsel an (30-mal pro Sekunde).
     void update(f32 dt, rhi::Extent2D viewport, const app::FlyInput& input = {}) {
-        if (flying_) {
+        if (flight_) {
+            autopilot(dt);
+        } else if (flying_) {
             fly(dt, input);
         } else {
             if (rotating_) {
@@ -191,20 +269,22 @@ public:
         ++edits_;
     }
 
-    // Meshed geänderte Chunks neu (im Job-System). Liefert die Zeit in Millisekunden, wenn es
-    // etwas zu tun gab.
-    std::optional<f64> remesh_if_needed() {
-        if (!chunks_ready() || chunks().has_changes()) {
-            return remesh();
-        }
-        return std::nullopt;
-    }
-
-    f64 remesh() {
+    // Ein Schritt des Terrains, einmal pro Frame: Streaming um die Beobachter (Kamera und, auf
+    // der Kreisbahn, ihre Mitte), neue Netze im Job-System. Liefert die Zeit in Millisekunden.
+    f64 remesh(bool wait = false) {
         NGINE_PROFILE_ZONE("VoxelScene::remesh");
         const auto start = std::chrono::steady_clock::now();
-        const usize meshed = world::update_terrains(world_, jobs_);
+        // Weltlage der Kamera für ihren TerrainObserver.
+        static_cast<void>(world::update_transforms(world_));
+        const std::array center{origin_ + math::to_f64(center_)};
+        const std::span<const DVec3> extra =
+            flying_ ? std::span<const DVec3>{} : std::span<const DVec3>{center};
+        const usize meshed =
+            world::update_terrains(world_, jobs_, {.observers = extra, .wait = wait || wait_});
         const f64 ms = elapsed_ms(start);
+        if (flight_) {
+            flight_->update_ms.push_back(ms);
+        }
         if (meshed > 0) {
             ++mesh_count_;
             total_ms_ += ms;
@@ -219,19 +299,24 @@ public:
     }
     [[nodiscard]] std::string stats() const {
         const world::TerrainStats& s = data().stats;
+        const voxel::StreamStats& st = s.stream;
         std::string text = std::format(
-            "{} Chunks ({} einheitlich, {} KiB Samples, erzeugt in {:.1f} ms, {:.3f} ms pro "
-            "Chunk), "
-            "{} Netze mit {} Dreiecken, {} Änderungen; Meshing im Mittel {:.2f} ms, höchstens "
-            "{:.2f} ms ({} Läufe, {} Chunks)",
-            s.chunks, s.uniform_chunks, s.sample_bytes / 1024, s.generate_ms, s.generate_chunk_ms,
-            s.meshes, s.triangles, edits_,
+            "{} Chunks ({}; {} einheitlich, {:.1f} MiB Samples), {} Netze mit {} Dreiecken "
+            "({:.1f} MiB), Streaming: {} Übernahmen (zuletzt {:.1f} ms, höchstens {:.1f} ms), "
+            "{} in Arbeit, {} Chunks erzeugt ({:.2f} ms pro Chunk in Jobs); {} Änderungen; "
+            "Netze im Mittel {:.2f} ms, höchstens {:.2f} ms ({} Läufe, {} Netze)",
+            s.chunks, level_counts(st), s.uniform_chunks, mib(s.sample_bytes), s.meshes,
+            s.triangles, mib(s.mesh_bytes), st.commits, st.last_commit_ms, st.max_commit_ms,
+            st.queued + st.generating + st.generated, st.generated_total,
+            st.generate_ms_total / static_cast<f64>(std::max<u64>(st.generated_total, 1)), edits_,
             total_ms_ / static_cast<f64>(std::max<u64>(mesh_count_, 1)), max_ms_, mesh_count_,
             meshed_chunks_);
         if (renderer_) {
             const render::RenderStats& r = renderer_->stats();
-            text += std::format("; {} Draws ({} Chunks), {} Schatten-Draws", r.draws,
-                                r.terrain_chunks, r.shadow_draws);
+            text += std::format("; {} Draws ({} Chunks), {} Schatten-Draws, {:.1f} MiB Geometrie "
+                                "auf der GPU",
+                                r.draws, r.terrain_chunks, r.shadow_draws,
+                                mib(renderer_->geometry().stats().used));
         }
         return text;
     }
@@ -275,19 +360,21 @@ public:
     void add_passes(rhi::Device& /*device*/, render::RenderGraph& graph,
                     render::TextureHandle target) {
         NGINE_PROFILE_ZONE("VoxelScene::add_passes");
+        const auto start = std::chrono::steady_clock::now();
         static_cast<void>(world::update_transforms(world_));
         resources_->update();
         if (chunk_bounds_) {
             draw_chunk_bounds();
         }
         renderer_->add_passes(graph, world_, target);
+        // Beim Flug: Zeit im Hauptthread für die Pässe, darin das Hochladen neuer Netze.
+        if (flight_) {
+            flight_->passes_ms.push_back(elapsed_ms(start));
+            flight_->uploads = std::max(flight_->uploads, renderer_->stats().terrain_uploads);
+        }
     }
 
 private:
-    [[nodiscard]] bool chunks_ready() const {
-        const auto* state = terrain_.get<world::TerrainState>();
-        return state != nullptr && state->data;
-    }
     [[nodiscard]] voxel::ChunkStore& chunks() {
         return terrain_.get_mut<world::TerrainState>()->data->chunks;
     }
@@ -317,13 +404,69 @@ private:
         camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
     }
 
+    void autopilot(f32 dt) {
+        Flight& f = *flight_;
+        // Die ersten Frames laufen noch mit dem Wechsel in den Flug; sie zählen nicht.
+        if (++f.frames > 10) {
+            f.frame_ms.push_back(static_cast<f64>(dt) * 1000.0);
+        }
+        f.travelled = std::min(f.distance, f.travelled + static_cast<f64>(f.speed * dt));
+        const Vec3 heading = math::normalize(Vec3{1.0f, 0.0f, 0.35f});
+        eye_ = f.start + math::to_f64(heading) * f.travelled;
+        rotation_ = math::look_rotation(math::normalize(heading + Vec3{0.0f, -0.25f, 0.0f}),
+                                        Vec3{0, 1, 0});
+        camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
+        const world::TerrainStats& s = data().stats;
+        f.samples.add(mib(s.sample_bytes));
+        f.meshes.add(mib(s.mesh_bytes));
+        f.chunks.add(static_cast<f64>(s.chunks));
+        if (renderer_) {
+            f.gpu.add(mib(renderer_->geometry().stats().used));
+        }
+        f.seconds += static_cast<f64>(dt);
+        // Mit Geschwindigkeit 0 schwebt die Kamera distance Sekunden lang (Vergleich ohne Flug).
+        if (f.speed > 0.0f ? f.travelled < f.distance : f.seconds < f.distance) {
+            return;
+        }
+        const voxel::StreamStats& st = s.stream;
+        flight_report_ = std::format(
+            "{}: {:.1f} km in {:.1f} s ({:.0f} m/s), {} Frames; Frame-Zeit Median {:.2f} ms, "
+            "99. Perzentil {:.2f} ms, höchstens {:.2f} ms; {} Übernahmen (höchstens {:.1f} ms), {} "
+            "Chunks erzeugt; Chunks {:.0f} bis {:.0f}, Samples {:.1f} bis {:.1f} MiB, Netze {:.1f} "
+            "bis {:.1f} MiB, Geometrie auf der GPU {:.1f} bis {:.1f} MiB; update_terrains() 99. "
+            "Perzentil {:.2f} ms, höchstens {:.2f} ms; Pässe 99. Perzentil {:.2f} ms, höchstens "
+            "{:.2f} ms, bis {} Netze in einem Frame hochgeladen",
+            f.speed > 0.0f ? "Flug" : "Schweben", f.travelled / 1000.0, f.seconds,
+            f.travelled / std::max(f.seconds, 1e-3),
+            f.frame_ms.size(), percentile(f.frame_ms, 0.5), percentile(f.frame_ms, 0.99),
+            percentile(f.frame_ms, 1.0), st.commits - f.commits, st.max_commit_ms,
+            st.generated_total - f.generated, f.chunks.min, f.chunks.max, f.samples.min,
+            f.samples.max, f.meshes.min, f.meshes.max, renderer_ ? f.gpu.min : 0.0,
+            renderer_ ? f.gpu.max : 0.0, percentile(f.update_ms, 0.99),
+            percentile(f.update_ms, 1.0), percentile(f.passes_ms, 0.99),
+            percentile(f.passes_ms, 1.0), f.uploads);
+        log::info("{}", flight_report_);
+        flight_.reset();
+        const Vec3 forward = math::to_mat3(rotation_) * Vec3{0.0f, 0.0f, -1.0f};
+        fly_yaw_ = std::atan2(-forward.x, -forward.z);
+        fly_pitch_ = std::asin(std::clamp(forward.y, -1.0f, 1.0f));
+    }
+
     void draw_chunk_bounds() {
         render::DebugDraw& debug = renderer_->debug();
         const DVec3 base = terrain_.get<world::WorldTransform>()->position();
+        // Farbe nach Stufe: fein gelb, dann orange, rot, violett, blau, türkis.
+        constexpr std::array<Vec3, 6> colors{{{0.95f, 0.85f, 0.2f},
+                                              {0.95f, 0.55f, 0.15f},
+                                              {0.9f, 0.2f, 0.15f},
+                                              {0.7f, 0.2f, 0.8f},
+                                              {0.25f, 0.4f, 0.95f},
+                                              {0.2f, 0.85f, 0.85f}}};
         for (const auto& [coord, mesh] : data().meshes) {
             const DVec3 corner = base + voxel::chunk_position(coord);
             const f64 size = voxel::chunk_size * static_cast<f64>(1u << coord.level);
-            debug.aabb(corner, corner + DVec3{size, size, size}, {0.9f, 0.7f, 0.2f});
+            debug.aabb(corner, corner + DVec3{size, size, size},
+                       colors[std::min<usize>(coord.level, colors.size() - 1)]);
         }
     }
 
@@ -332,9 +475,30 @@ private:
         return math::to_f32((eye_ - origin_) * (1.0 / voxel::voxel_size));
     }
 
+    struct Flight {
+        f64 distance = 0.0;
+        f32 speed = 0.0f;
+        DVec3 start;
+        f64 travelled = 0.0;
+        f64 seconds = 0.0;
+        u64 frames = 0;
+        std::vector<f64> frame_ms;
+        u64 commits = 0;
+        u64 generated = 0;
+        Range samples, meshes, chunks, gpu;
+        // Zeit von update_terrains() und der Pässe des Renderers pro Frame, meiste Uploads in
+        // einem Frame.
+        std::vector<f64> update_ms;
+        std::vector<f64> passes_ms;
+        u32 uploads = 0;
+    };
+
+    // Das Job-System lebt länger als die Welt: Der Streamer des Terrains wartet beim Zerstören auf
+    // seine Jobs.
+    jobs::JobSystem jobs_;
     reflect::TypeRegistry types_;
     world::World world_;
-    jobs::JobSystem jobs_;
+    voxel::Generator generator_;
     std::unique_ptr<render::Renderer> renderer_;
     // Nach dem Renderer, damit er zuerst stirbt: Texturen geben ihren Platz im Renderer frei.
     std::unique_ptr<asset::ResourceManager> resources_;
@@ -351,6 +515,9 @@ private:
     f32 fly_yaw_ = 0.0f;
     f32 fly_pitch_ = 0.0f;
     bool chunk_bounds_ = false;
+    bool wait_ = false;
+    std::optional<Flight> flight_;
+    std::string flight_report_;
     DVec3 eye_;
     Quat rotation_ = math::quat_identity();
 
@@ -434,14 +601,93 @@ export DVec3 voxel_origin(bool far) {
     return far ? DVec3{1.0e7, 0.0, -1.0e7} : DVec3{0, 0, 0};
 }
 
-// Ohne GPU: Terrain erzeugen, frames Änderungen anwenden und jeweils neu meshen, Zeiten messen.
-export int run_voxel_demo_headless(u64 frames, u32 seed) {
-    log::info("Voxel-Demo ohne GPU: {} Änderungen, Startwert {}", frames, seed);
+namespace {
+
+// Streaming ohne GPU um mehrere Beobachter (R3.3), wie auf einem dedizierten Server mit Spielern:
+// erstes Laden, dann frames Frames zu 60 Hz, in denen drei Beobachter in verschiedene Richtungen
+// fliegen. Misst die Zeit von update_terrains() pro Frame und den Speicher.
+void benchmark_streaming(u32 seed, u64 frames, f32 view) {
+    // Das Job-System lebt länger als die Welt (der Streamer wartet beim Zerstören auf Jobs).
+    jobs::JobSystem jobs;
+    const reflect::TypeRegistry types = make_types();
+    world::World world{types};
+    world::Entity terrain = world.create("Terrain").set(demo_terrain(seed, view));
+    struct Player {
+        world::Entity entity;
+        DVec3 position;
+        DVec3 velocity;
+    };
+    constexpr f64 speed = 80.0;
+    std::array<Player, 3> players{{
+        {{}, {0.0, 90.0, 0.0}, {speed, 0.0, 0.0}},
+        {{}, {3000.0, 90.0, -1500.0}, {0.0, 0.0, speed}},
+        {{}, {-2500.0, 90.0, 2000.0}, {-speed * 0.6, 0.0, -speed * 0.8}},
+    }};
+    for (usize i = 0; i < players.size(); ++i) {
+        players[i].entity = world.create(std::format("Spieler {}", i + 1))
+                                .set(world::Transform{.position = players[i].position})
+                                .set(world::TerrainObserver{});
+    }
+    static_cast<void>(world::update_transforms(world));
+    auto start = std::chrono::steady_clock::now();
+    world::update_terrains(world, jobs, {.wait = true});
+    const world::TerrainData& data = *terrain.get<world::TerrainState>()->data;
+    log::info("Streaming um {} Beobachter ({} Threads): bis {:.0f} m geladen in {:.0f} ms, {} "
+              "Chunks ({}), {:.1f} MiB Samples, {} Netze mit {} Dreiecken ({:.1f} MiB)",
+              players.size(), jobs.worker_count() + 1, view, elapsed_ms(start), data.stats.chunks,
+              level_counts(data.stats.stream), mib(data.stats.sample_bytes), data.stats.meshes,
+              data.stats.triangles, mib(data.stats.mesh_bytes));
+
+    std::vector<f64> update_ms;
+    Range samples;
+    Range chunks;
+    const u64 commits = data.stats.stream.commits;
+    const u64 generated = data.stats.stream.generated_total;
+    constexpr auto frame = std::chrono::microseconds{16667};
+    auto next = std::chrono::steady_clock::now();
+    for (u64 i = 0; i < frames; ++i) {
+        for (Player& p : players) {
+            p.position = p.position + p.velocity * (1.0 / 60.0);
+            p.entity.set(world::Transform{.position = p.position});
+        }
+        static_cast<void>(world::update_transforms(world));
+        start = std::chrono::steady_clock::now();
+        world::update_terrains(world, jobs);
+        update_ms.push_back(elapsed_ms(start));
+        samples.add(mib(data.stats.sample_bytes));
+        chunks.add(static_cast<f64>(data.stats.chunks));
+        profile::frame_mark();
+        next += frame;
+        std::this_thread::sleep_until(next);
+    }
+    if (frames > 0) {
+        log::info("Streaming über {} Frames ({:.0f} m pro Beobachter): update_terrains() Median "
+                  "{:.2f} ms, 99. Perzentil {:.2f} ms, höchstens {:.2f} ms; {} Übernahmen "
+                  "(höchstens {:.1f} ms), {} Chunks erzeugt ({:.2f} ms pro Chunk in Jobs); Chunks "
+                  "{:.0f} bis {:.0f}, Samples {:.1f} bis {:.1f} MiB",
+                  frames, speed * static_cast<f64>(frames) / 60.0, percentile(update_ms, 0.5),
+                  percentile(update_ms, 0.99), percentile(update_ms, 1.0),
+                  data.stats.stream.commits - commits, data.stats.stream.max_commit_ms,
+                  data.stats.stream.generated_total - generated,
+                  data.stats.stream.generate_ms_total /
+                      static_cast<f64>(std::max<u64>(data.stats.stream.generated_total, 1)),
+                  chunks.min, chunks.max, samples.min, samples.max);
+    }
+}
+
+} // namespace
+
+// Ohne GPU: Erzeugen und Meshing messen, Streaming um mehrere Beobachter (R3.3), dann frames
+// Änderungen an der Mitte der Demo anwenden und jeweils neu meshen.
+export int run_voxel_demo_headless(u64 frames, u32 seed, f32 view) {
+    log::info("Voxel-Demo ohne GPU: {} Frames, Startwert {}, Sichtweite {:.0f} m", frames, seed,
+              view);
     benchmark_chunks(seed);
-    VoxelScene scene{voxel_origin(false), demo_terrain(seed)};
+    benchmark_streaming(seed, frames, view);
+    VoxelScene scene{voxel_origin(false), demo_terrain(seed, view)};
     for (u64 i = 0; i < frames; ++i) {
         scene.scripted_edit(i);
-        scene.remesh_if_needed();
+        scene.remesh();
         profile::frame_mark();
     }
     log::info("Voxel-Terrain: {}", scene.stats());
@@ -454,7 +700,8 @@ export int run_voxel_demo_headless(u64 frames, u32 seed) {
 
 // Offscreen auf der GPU zeichnen, ohne Fenster: Szene ändern, zeichnen und als Bild speichern.
 export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, bool baseline,
-                                    bool far, u32 seed, const asset::AssetDatabase* database) {
+                                    bool far, u32 seed, f32 view,
+                                    const asset::AssetDatabase* database) {
     auto device = rhi::vulkan::create_device({
         .application_name = "NGine Voxel-Demo",
 #ifdef NDEBUG
@@ -478,7 +725,9 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             log::fatal("{}", target.error());
             return 1;
         }
-        VoxelScene scene{voxel_origin(far), demo_terrain(seed)};
+        VoxelScene scene{voxel_origin(far), demo_terrain(seed, view)};
+        // Jedes Bild mit fertig geladenem Terrain, damit es nicht vom Tempo der Jobs abhängt.
+        scene.set_wait_for_terrain(true);
         if (auto result = scene.create_gpu(**device, rhi::Format::RGBA8Srgb, database); !result) {
             log::fatal("{}", result.error());
             return 1;
@@ -489,7 +738,7 @@ export int run_voxel_demo_offscreen(u64 frames, const std::string& image_path, b
             if (i < frames) {
                 scene.scripted_edit(i);
             }
-            scene.remesh_if_needed();
+            scene.remesh();
             scene.update(1.0f / 60.0f, extent);
             render::RenderGraph graph;
             const auto output = graph.import_texture(

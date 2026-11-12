@@ -3,11 +3,13 @@ module;
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 
 export module ngine.world:terrain;
 
 import ngine.core;
 import ngine.jobs;
+import ngine.math;
 import ngine.reflect;
 export import ngine.voxel;
 import :ecs;
@@ -29,7 +31,9 @@ enum class TerrainShape : u8 {
 // der Entity (Drehung und Skalierung zählen nicht, Chunks liegen achsenparallel) und reicht über
 // size_x × size_y × size_z Chunks zu je 16 m, in x und z um die Position zentriert. Seit R3.2
 // entstehen die Chunks aus dem Generator mit Startwert (ADR 0039); Höhen in Metern über der
-// Unterkante.
+// Unterkante. Seit R3.3 kann es endlos sein (streaming): Dann lädt es sich um die Beobachter
+// (TerrainObserver, Kamera des Editors) bis view_distance nach, in der Ferne in gröberen Stufen
+// (VOX-04, WORLD-08, ADR 0041); size_x und size_z gelten dann nicht.
 struct Terrain {
     i32 size_x = 8;
     i32 size_y = 4;
@@ -49,12 +53,27 @@ struct Terrain {
     f32 caves = 0.5f;
     // Unterhalb dieser Höhe liegt Sand an der Oberfläche.
     f32 sand_level = 14.0f;
+    // Endlos um die Beobachter laden statt size_x × size_z Chunks (R3.3).
+    bool streaming = false;
+    // Sichtweite in Metern (nur streaming).
+    f32 view_distance = 2000.0f;
+    // Feinheit der Stufen (nur streaming): Ein Chunk teilt sich in acht, solange ein Beobachter
+    // näher als detail × seine Breite ist.
+    f32 detail = 2.0f;
 
     friend bool operator==(const Terrain&, const Terrain&) noexcept = default;
 };
 
+// Eine Entity, um die endlose Terrains laden (WORLD-08, R3.3): die Kamera, später Spieler auf dem
+// Server. Zählt mit ihrer Weltlage.
+struct TerrainObserver {
+    bool active = true;
+};
+
 // Regeln des Generators für ein Terrain.
 [[nodiscard]] voxel::GeneratorDesc generator_desc(const Terrain& terrain) noexcept;
+// Streaming eines endlosen Terrains: Sichtweite und senkrechter Bereich in Voxeln.
+[[nodiscard]] voxel::StreamDesc stream_desc(const Terrain& terrain) noexcept;
 
 // Netz eines Chunks auf der CPU; version wächst mit jeder neuen Fassung.
 struct ChunkMesh {
@@ -76,8 +95,12 @@ struct TerrainStats {
     // Zeit für das letzte Erzeugen aller Chunks, insgesamt und pro Chunk.
     f64 generate_ms = 0.0;
     f64 generate_chunk_ms = 0.0;
-    // Speicher der Samples.
+    // Speicher der Samples und der Netze auf der CPU.
     usize sample_bytes = 0;
+    usize mesh_bytes = 0;
+    // Endlose Terrains (R3.3): Messwerte des Streamers.
+    bool streaming = false;
+    voxel::StreamStats stream;
 };
 
 // Laufzeitdaten eines Terrains: Chunks, Netze und Messwerte. Gehört zu TerrainState und wird
@@ -90,6 +113,8 @@ struct TerrainData {
     u64 id = 0;
     // Beschreibung, aus der die Chunks entstanden sind; ändert sich Terrain, entsteht alles neu.
     std::optional<Terrain> generated;
+    // Lädt endlose Terrains um die Beobachter (R3.3); leer bei fester Größe.
+    std::unique_ptr<voxel::Streamer> streamer;
     TerrainStats stats;
 };
 
@@ -107,12 +132,22 @@ struct TerrainState {
 // Erzeugt alle Chunks des Terrains neu aus dem Generator, parallel im Job-System.
 void generate_terrain(const Terrain& terrain, voxel::ChunkStore& chunks, jobs::JobSystem& jobs);
 
-// Hält alle Terrains der Welt aktuell: legt TerrainState an, erzeugt die Chunks neu, wenn sich
-// Terrain geändert hat, und meshed geänderte Chunks parallel im Job-System (VOX-02). Läuft wie
-// update_transforms() nach Schedule::run(). Liefert die Zahl der neu gemeshten Chunks.
-usize update_terrains(World& world, jobs::JobSystem& jobs);
+struct TerrainUpdate {
+    // Weitere Beobachter in Weltkoordinaten, z. B. die Kamera des Editors, die keine Entity ist.
+    std::span<const math::DVec3> observers;
+    // Warten, bis endlose Terrains zu den Beobachtern passen (Bilder, Tests, Server beim Start).
+    bool wait = false;
+};
 
-// Registriert Terrain, TerrainShape und TerrainState in der Reflection (aus register_types()).
+// Hält alle Terrains der Welt aktuell: legt TerrainState an, erzeugt die Chunks neu, wenn sich
+// Terrain geändert hat, und meshed geänderte Chunks parallel im Job-System (VOX-02). Endlose
+// Terrains laden sich um alle aktiven TerrainObserver und die Beobachter aus update; ohne
+// Beobachter um die Position des Terrains (R3.3). Läuft wie update_transforms() nach
+// Schedule::run(), einmal pro Frame. Liefert die Zahl der neu gemeshten Chunks.
+usize update_terrains(World& world, jobs::JobSystem& jobs, const TerrainUpdate& update = {});
+
+// Registriert Terrain, TerrainShape, TerrainObserver und TerrainState in der Reflection (aus
+// register_types()).
 void register_terrain_types(reflect::TypeRegistry& types);
 
 } // namespace ngine::world

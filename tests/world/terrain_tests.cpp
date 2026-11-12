@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <span>
 #include <string>
 
 import ngine.core;
@@ -156,4 +157,96 @@ TEST_CASE("Procedural terrains come from the generator with their seed", "[world
     CHECK(world::generator_desc(other).hills == other.height);
     other.shape = world::TerrainShape::Flat;
     CHECK(world::generator_desc(other).hills == 0.0f);
+}
+
+TEST_CASE("Endless terrains stream around observers in levels", "[world]") {
+    const auto types = make_types();
+    world::World world{types};
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    // Seit R3.3: endlos um die Beobachter, hier mit kurzer Sicht für einen schnellen Test.
+    world::Entity terrain = world.create("Terrain").set(world::Terrain{
+        .size_y = 4, .seed = 21, .streaming = true, .view_distance = 300.0f, .detail = 1.5f});
+    world::Entity eye = world.create("Kamera")
+                            .set(world::Transform{.position = {0.0, 30.0, 0.0}})
+                            .set(world::TerrainObserver{});
+    CHECK(eye.has<world::WorldTransform>());
+    static_cast<void>(world::update_transforms(world));
+    CHECK(world::update_terrains(world, jobs, {.wait = true}) > 0);
+
+    const world::TerrainData& data = *terrain.get<world::TerrainState>()->data;
+    REQUIRE(data.streamer);
+    CHECK(data.stats.streaming);
+    CHECK(data.stats.stream.leaves == data.streamer->layout().size());
+    CHECK(data.stats.stream.per_level[0] > 0);
+    CHECK(data.stats.stream.per_level[2] > 0);
+    CHECK(data.chunks.size() == data.streamer->layout().size());
+    CHECK(data.stats.meshes == data.meshes.size());
+    CHECK(data.stats.triangles > 0);
+    // Netze gibt es nur für Blätter der Auswahl, und nur nicht leere.
+    for (const auto& [coord, mesh] : data.meshes) {
+        CHECK(data.streamer->layout().contains(coord));
+        CHECK_FALSE(mesh.mesh.indices.empty());
+    }
+    // Stufe des Blatts an einer Stelle (Voxel relativ zum Terrain); -1 außerhalb der Sicht.
+    const auto level_at = [&](i64 x, i64 y, i64 z) {
+        const auto leaf = data.streamer->layout().leaf_of(x, y, z);
+        return leaf ? i32{leaf->level} : -1;
+    };
+    // Der Chunk unter dem Beobachter ist fein (Stufe 0).
+    CHECK(level_at(0, 60, 0) == 0);
+
+    // Beobachter 200 m weiter: Dort wird es fein, am alten Ort grob. Positionen relativ zum
+    // Terrain (in Voxeln) folgen der Lage der Entity.
+    eye.set(world::Transform{.position = {200.0, 30.0, 0.0}});
+    static_cast<void>(world::update_transforms(world));
+    CHECK(world::update_terrains(world, jobs, {.wait = true}) > 0);
+    CHECK(level_at(400, 60, 0) == 0);
+    CHECK(level_at(0, 60, 0) > 0);
+
+    // Ein Beobachter ohne Entity (Kamera des Editors); der inaktive zählt nicht mehr.
+    eye.set(world::TerrainObserver{.active = false});
+    const math::DVec3 editor{-100.0, 30.0, 50.0};
+    world::update_terrains(world, jobs, {.observers = std::span{&editor, 1}, .wait = true});
+    CHECK(level_at(-200, 60, 100) == 0);
+    CHECK(level_at(400, 60, 0) != 0);
+}
+
+TEST_CASE("Endless terrains without observers load around their position", "[world]") {
+    const auto types = make_types();
+    world::World world{types};
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    world::Entity terrain =
+        world.create("Terrain")
+            .set(world::Transform{.position = {1.0e6, 0.0, -2.0e6}})
+            .set(world::Terrain{.streaming = true, .view_distance = 200.0f});
+    static_cast<void>(world::update_transforms(world));
+    world::update_terrains(world, jobs, {.wait = true});
+    const world::TerrainData& data = *terrain.get<world::TerrainState>()->data;
+    REQUIRE(data.streamer);
+    CHECK(data.streamer->layout().leaf_of(0, 40, 0)->level == 0);
+    CHECK_FALSE(data.meshes.empty());
+
+    // Zurück zu fester Größe: Streamer weg, Chunks wie bisher.
+    world::Terrain fixed = *terrain.get<world::Terrain>();
+    fixed.streaming = false;
+    fixed.size_x = 2;
+    fixed.size_z = 2;
+    terrain.set(fixed);
+    world::update_terrains(world, jobs);
+    CHECK_FALSE(data.streamer);
+    CHECK(data.chunks.size() == 2u * 2u * 4u);
+}
+
+TEST_CASE("Scenes store terrain observers and streaming settings", "[world]") {
+    const auto types = make_types();
+    world::World world{types};
+    world.create("Terrain").set(
+        world::Terrain{.streaming = true, .view_distance = 1500.0f, .detail = 2.5f});
+    world.create("Kamera").set(world::TerrainObserver{});
+    const std::string text = world::save_scene(world);
+    CHECK(text.find("\"streaming\": true") != std::string::npos);
+    CHECK(text.find("TerrainObserver") != std::string::npos);
+    world::World loaded{types};
+    REQUIRE(world::load_scene(loaded, text));
+    CHECK(world::save_scene(loaded) == text);
 }

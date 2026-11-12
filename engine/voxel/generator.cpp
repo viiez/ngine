@@ -126,9 +126,11 @@ f64 Generator::height(i64 x, i64 z) const noexcept {
     return h;
 }
 
-Generator::Column Generator::column(f64 h, f64 h_x0, f64 h_x1, f64 h_z0, f64 h_z1) const noexcept {
-    const f64 gx = (h_x1 - h_x0) * 0.5;
-    const f64 gz = (h_z1 - h_z0) * 0.5;
+Generator::Column Generator::column(f64 h, f64 h_x0, f64 h_x1, f64 h_z0, f64 h_z1,
+                                    f64 step) const noexcept {
+    // Gefälle über die Nachbarn im Abstand step; Teilen durch 1 ist exakt (Stufe 0 bitgleich).
+    const f64 gx = (h_x1 - h_x0) * 0.5 / step;
+    const f64 gz = (h_z1 - h_z0) * 0.5 / step;
     const f64 norm = std::sqrt(1.0 + gx * gx + gz * gz);
     // 1 - Normale.y: 0 flach, ab rund 40 Grad Fels.
     const f64 steep = smoothstep(0.22, 0.36, 1.0 - 1.0 / norm);
@@ -139,10 +141,10 @@ bool Generator::needs_lattice() const noexcept {
     return overhangs_ > 0.0 || desc_.caves > 0.0f;
 }
 
-Generator::Lattice Generator::lattice_point(i64 lx, i64 ly, i64 lz) const noexcept {
-    const auto x = static_cast<f64>(lx * lattice);
-    const auto y = static_cast<f64>(ly * lattice);
-    const auto z = static_cast<f64>(lz * lattice);
+Generator::Lattice Generator::lattice_point(i64 lx, i64 ly, i64 lz, i64 step) const noexcept {
+    const auto x = static_cast<f64>(lx * lattice * step);
+    const auto y = static_cast<f64>(ly * lattice * step);
+    const auto z = static_cast<f64>(lz * lattice * step);
     Lattice result;
     if (overhangs_ > 0.0) {
         const f64 s = 24.0;
@@ -160,7 +162,8 @@ Generator::Lattice Generator::lattice_point(i64 lx, i64 ly, i64 lz) const noexce
     return result;
 }
 
-Sample Generator::evaluate(const Column& column, const Lattice& field, i64 y) const noexcept {
+Sample Generator::evaluate(const Column& column, const Lattice& field, i64 y,
+                           f64 step) const noexcept {
     const auto fy = static_cast<f64>(y);
     const f64 depth = column.h - fy;
     const f64 surface = depth / column.norm;
@@ -180,47 +183,59 @@ Sample Generator::evaluate(const Column& column, const Lattice& field, i64 y) co
         const f64 cave = min(tunnel, cavern) + max(0.0, 4.0 - fy) * 2.0;
         d = min(d, cave);
     }
-    const i8 density = quantize(static_cast<f32>(d));
+    // Dichte in Einheiten des Sample-Abstands (ADR 0021): grobe Stufen reichen so ebenso
+    // ±4 Samples weit.
+    const i8 density = quantize(static_cast<f32>(d / step));
     if (density <= 0) {
         return {density, air};
     }
+    // Schichten wachsen mit dem Abstand der Samples, sonst läge auf groben Stufen schon das erste
+    // Sample unter der Oberfläche in der Erde, und die Ferne wäre braun.
     Material material = rock;
-    if (surface > 0.0 && column.steep <= 0.5 && depth <= earth_depth_) {
+    if (surface > 0.0 && column.steep <= 0.5 && depth <= earth_depth_ * step) {
         if (column.h < sand_level_) {
             material = sand;
         } else {
-            material = depth < grass_depth_ ? grass : earth;
+            material = depth < grass_depth_ * step ? grass : earth;
         }
     }
     return {density, material};
 }
 
-Sample Generator::sample(i64 x, i64 y, i64 z) const {
-    const Column col = column(height(x, z), height(x - 1, z), height(x + 1, z), height(x, z - 1),
-                              height(x, z + 1));
+Sample Generator::sample(i64 x, i64 y, i64 z, u8 level) const {
+    const i64 step = i64{1} << level;
+    const auto fstep = static_cast<f64>(step);
+    const Column col = column(height(x, z), height(x - step, z), height(x + step, z),
+                              height(x, z - step), height(x, z + step), fstep);
     Lattice field;
     if (needs_lattice()) {
-        const i64 lx = floor_div(x, lattice);
-        const i64 ly = floor_div(y, lattice);
-        const i64 lz = floor_div(z, lattice);
+        // Gitter der 3D-Regeln mit Abstand lattice·step; Anteile wie in fill() über die Indizes
+        // der Samples gerechnet.
+        const i64 spacing = lattice * step;
+        const i64 lx = floor_div(x, spacing);
+        const i64 ly = floor_div(y, spacing);
+        const i64 lz = floor_div(z, spacing);
         std::array<Lattice, 8> corners;
         for (u32 c = 0; c < 8; ++c) {
-            corners[c] = lattice_point(lx + (c & 1u), ly + ((c >> 1) & 1u), lz + ((c >> 2) & 1u));
+            corners[c] = lattice_point(lx + (c & 1u), ly + ((c >> 1) & 1u), lz + ((c >> 2) & 1u),
+                                       step);
         }
-        const auto step = static_cast<f64>(lattice);
-        field = trilinear(corners, static_cast<f64>(x - lx * lattice) / step,
-                          static_cast<f64>(y - ly * lattice) / step,
-                          static_cast<f64>(z - lz * lattice) / step);
+        const auto cells = static_cast<f64>(lattice);
+        field = trilinear(corners, static_cast<f64>((x - lx * spacing) / step) / cells,
+                          static_cast<f64>((y - ly * spacing) / step) / cells,
+                          static_cast<f64>((z - lz * spacing) / step) / cells);
     }
-    return evaluate(col, field, y);
+    return evaluate(col, field, y, fstep);
 }
 
 void Generator::fill(ChunkCoord coord, Chunk& out) const {
     NGINE_PROFILE_ZONE("voxel::Generator::fill");
-    verify(coord.level == 0, "voxel::Generator::fill: nur Stufe 0");
-    const i64 ox = chunk_origin(coord.x);
-    const i64 oy = chunk_origin(coord.y);
-    const i64 oz = chunk_origin(coord.z);
+    // Abstand der Samples in Voxeln: 1 auf Stufe 0, 2ⁿ auf Stufe n (R3.3).
+    const i64 step = i64{1} << coord.level;
+    const auto fstep = static_cast<f64>(step);
+    const i64 ox = chunk_origin(coord.x, coord.level);
+    const i64 oy = chunk_origin(coord.y, coord.level);
+    const i64 oz = chunk_origin(coord.z, coord.level);
     constexpr i64 n = chunk_voxels;
 
     // Höhen mit einem Rand von einer Säule für das Gefälle, dann die Säulen.
@@ -228,7 +243,8 @@ void Generator::fill(ChunkCoord coord, Chunk& out) const {
     std::vector<f64> heights(static_cast<usize>(hn * hn));
     for (i64 z = 0; z < hn; ++z) {
         for (i64 x = 0; x < hn; ++x) {
-            heights[static_cast<usize>(z * hn + x)] = height(ox + x - 1, oz + z - 1);
+            heights[static_cast<usize>(z * hn + x)] =
+                height(ox + (x - 1) * step, oz + (z - 1) * step);
         }
     }
     const auto h_at = [&](i64 x, i64 z) {
@@ -240,8 +256,8 @@ void Generator::fill(ChunkCoord coord, Chunk& out) const {
     f64 norm_max = 1.0;
     for (i64 z = 0; z < n; ++z) {
         for (i64 x = 0; x < n; ++x) {
-            const Column col =
-                column(h_at(x, z), h_at(x - 1, z), h_at(x + 1, z), h_at(x, z - 1), h_at(x, z + 1));
+            const Column col = column(h_at(x, z), h_at(x - 1, z), h_at(x + 1, z), h_at(x, z - 1),
+                                      h_at(x, z + 1), fstep);
             columns[static_cast<usize>(z * n + x)] = col;
             h_min = min(h_min, col.h);
             h_max = max(h_max, col.h);
@@ -251,41 +267,44 @@ void Generator::fill(ChunkCoord coord, Chunk& out) const {
 
     // Ganz über der Oberfläche: Luft. Der Abstand ist dort höchstens (h_max - y) / norm_max,
     // Überhänge heben ihn um höchstens overhangs_, Höhlen senken ihn nur.
-    const f64 margin = static_cast<f64>(max_distance) + 0.1;
+    // Rand in Voxeln: max_distance Samples zu je step Voxeln.
+    const f64 margin = (static_cast<f64>(max_distance) + 0.1) * fstep;
     if ((h_max - static_cast<f64>(oy)) / norm_max + overhangs_ <= -margin) {
         out.fill({-127, air});
         return;
     }
     // Ganz darunter und ohne Höhlen: Fels.
     if (desc_.caves <= 0.0f) {
-        const f64 depth = h_min - static_cast<f64>(oy + n - 1);
-        if (depth / norm_max - overhangs_ >= margin && depth > earth_depth_) {
+        const f64 depth = h_min - static_cast<f64>(oy + (n - 1) * step);
+        if (depth / norm_max - overhangs_ >= margin && depth > earth_depth_ * fstep) {
             out.fill({127, rock});
             return;
         }
     }
 
-    // 3D-Regeln an den Gitterpunkten im Chunk (9³ bei 32 Voxeln und Abstand 4).
+    // 3D-Regeln an den Gitterpunkten im Chunk (9³ bei 32 Samples und Abstand 4 Samples, also
+    // lattice·step Voxeln).
     constexpr i64 ln = n / lattice + 1;
     std::vector<Lattice> grid;
     const bool lattice_on = needs_lattice();
     if (lattice_on) {
         grid.resize(static_cast<usize>(ln * ln * ln));
-        const i64 lx0 = floor_div(ox, lattice);
-        const i64 ly0 = floor_div(oy, lattice);
-        const i64 lz0 = floor_div(oz, lattice);
+        const i64 spacing = lattice * step;
+        const i64 lx0 = floor_div(ox, spacing);
+        const i64 ly0 = floor_div(oy, spacing);
+        const i64 lz0 = floor_div(oz, spacing);
         for (i64 z = 0; z < ln; ++z) {
             for (i64 y = 0; y < ln; ++y) {
                 for (i64 x = 0; x < ln; ++x) {
                     grid[static_cast<usize>((z * ln + y) * ln + x)] =
-                        lattice_point(lx0 + x, ly0 + y, lz0 + z);
+                        lattice_point(lx0 + x, ly0 + y, lz0 + z, step);
                 }
             }
         }
     }
 
     std::span<Sample> samples = out.expand();
-    const auto step = static_cast<f64>(lattice);
+    const auto cells = static_cast<f64>(lattice);
     for (i64 z = 0; z < n; ++z) {
         for (i64 y = 0; y < n; ++y) {
             for (i64 x = 0; x < n; ++x) {
@@ -301,13 +320,13 @@ void Generator::fill(ChunkCoord coord, Chunk& out) const {
                         const i64 gz = cz + ((c >> 2) & 1u);
                         corners[c] = grid[static_cast<usize>((gz * ln + gy) * ln + gx)];
                     }
-                    field = trilinear(corners, static_cast<f64>(x - cx * lattice) / step,
-                                      static_cast<f64>(y - cy * lattice) / step,
-                                      static_cast<f64>(z - cz * lattice) / step);
+                    field = trilinear(corners, static_cast<f64>(x - cx * lattice) / cells,
+                                      static_cast<f64>(y - cy * lattice) / cells,
+                                      static_cast<f64>(z - cz * lattice) / cells);
                 }
                 samples[Chunk::index(static_cast<u32>(x), static_cast<u32>(y),
                                      static_cast<u32>(z))] =
-                    evaluate(columns[static_cast<usize>(z * n + x)], field, oy + y);
+                    evaluate(columns[static_cast<usize>(z * n + x)], field, oy + y * step, fstep);
             }
         }
     }
@@ -321,7 +340,6 @@ void generate_chunks(jobs::JobSystem& jobs, ChunkStore& store, std::span<const C
     std::vector<Chunk*> chunks;
     chunks.reserve(coords.size());
     for (const ChunkCoord coord : coords) {
-        verify(coord.level == 0, "voxel::generate_chunks: nur Stufe 0");
         chunks.push_back(&store.get_or_create(coord));
     }
     jobs.parallel_for(coords.size(), 1, [&](usize begin, usize end) {

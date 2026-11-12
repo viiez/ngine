@@ -7,6 +7,8 @@
 //   :edit     Pinsel zum Abtragen, Auftragen und Glätten, Strahltest, über Chunk-Grenzen
 //   :noise    deterministisches Simplex-Rauschen, fBm, Gratrauschen (R3.2)
 //   :generator prozedurale Grundwelt aus Regeln: Hügel, Felswände, Höhlen, Überhänge (R3.2)
+//   :lod      Baum der Chunks in Stufen um Beobachter, Netze mit Nähten zwischen Stufen (R3.3)
+//   :streaming Laden, Erzeugen und Entladen um Beobachter mit Budget, Übernahme ohne Risse (R3.3)
 export module ngine.voxel;
 
 // Positionen sind math::Vec3; wer das Voxel-Modul nutzt, rechnet mit den Funktionen von ngine.math.
@@ -19,3 +21,5 @@ export import :meshing;
 export import :edit;
 export import :noise;
 export import :generator;
+export import :lod;
+export import :streaming;

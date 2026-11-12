@@ -207,6 +207,10 @@ World::World(const reflect::TypeRegistry& types) : impl_{std::make_unique<Impl>(
     if (types.find<Terrain>() != nullptr) {
         require(component<Terrain>(), component<Transform>());
     }
+    // Beobachter zählen mit ihrer Weltlage (R3.3).
+    if (types.find<TerrainObserver>() != nullptr) {
+        require(component<TerrainObserver>(), component<Transform>());
+    }
 }
 
 World::~World() {
