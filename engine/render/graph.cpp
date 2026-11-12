@@ -35,6 +35,7 @@ std::string_view state_name(ResourceState state) {
     case ResourceState::TransferDst: return "TransferDst";
     case ResourceState::Present: return "Present";
     case ResourceState::HostRead: return "HostRead";
+    case ResourceState::IndirectRead: return "IndirectRead";
     }
     return "?";
 }
