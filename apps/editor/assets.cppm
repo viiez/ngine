@@ -212,7 +212,12 @@ public:
             ui::same_line();
             if (cooking_) {
                 const cook::CookProgress progress = cooking_->progress();
-                ui::text(std::format("Kocht {} von {}", progress.finished, progress.total));
+                const f32 fraction = progress.total == 0 ? 0.0f
+                                                         : static_cast<f32>(progress.finished) /
+                                                               static_cast<f32>(progress.total);
+                ui::progress_bar(fraction,
+                                 std::format("Kocht {} von {}", progress.finished, progress.total),
+                                 180.0f);
                 ui::same_line();
                 if (ui::button("Abbrechen")) {
                     cooking_->cancel();
@@ -223,7 +228,14 @@ public:
                 }
                 if (ui::is_item_hovered()) {
                     ui::set_tooltip("Modelle, deren Cache veraltet ist, im Hintergrund neu kochen "
-                                    "(glTF und Texturen zu gekochtem Format mit KTX2)");
+                                    "(glTF und Texturen zu gekochtem Format mit KTX2); aktuelle "
+                                    "kocht „Assets > Alles neu kochen“");
+                }
+                // Ergebnis des letzten Kochens, damit man sieht, dass es lief, auch wenn alles
+                // schon aktuell war und es nach einem Frame fertig ist.
+                if (!last_cook_.empty()) {
+                    ui::same_line();
+                    ui::text_disabled(last_cook_);
                 }
             }
         }
@@ -277,7 +289,9 @@ public:
             return;
         }
         if (jobs == nullptr) {
-            log_report(cook::cook_all(database, cache, {}, force));
+            const cook::CookReport report = cook::cook_all(database, cache, {}, force);
+            log_report(report);
+            last_cook_ = summary(report);
             return;
         }
         cooking_ = std::make_unique<cook::BackgroundCook>(*jobs, database, cache,
@@ -290,18 +304,26 @@ public:
     // Einmal pro Frame: meldet das Ende eines Kochens.
     void poll() {
         if (cooking_ && cooking_->done()) {
-            log_report(cooking_->report());
+            const cook::CookReport report = cooking_->report();
+            log_report(report);
+            last_cook_ = summary(report);
             cooking_.reset();
         }
     }
 
 private:
+    static std::string summary(const cook::CookReport& report) {
+        return std::format(
+            "Zuletzt gekocht: {} neu, {} schon aktuell, {} fehlgeschlagen ({:.1f} s)",
+            report.cooked, report.current, report.failed, report.seconds);
+    }
     static void log_report(const cook::CookReport& report) {
         log::info("Kochen: {} gekocht, {} aktuell, {} fehlgeschlagen in {:.1f} s", report.cooked,
                   report.current, report.failed, report.seconds);
     }
 
     std::unique_ptr<cook::BackgroundCook> cooking_;
+    std::string last_cook_;
     std::string filter_;
     asset::AssetId selected_ = 0;
 };

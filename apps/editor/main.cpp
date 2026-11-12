@@ -356,7 +356,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                             .play = play,
                             .quit = [&] { running = false; },
                             .extra_menus = {},
-                            .new_terrain = [&] { editor::insert_terrain(document, selection); }};
+                            .new_terrain = [&] { editor::insert_terrain(document, selection); },
+                            .terrain_brush = &terrain_tools.active};
         targets.extra_menus = [&] {
             const edit::EntityId selected = selection.current();
             const u64 entity = document.entity_of(selected);
@@ -394,6 +395,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         // Fenster des Editors; dünn, die Logik liegt in Engine und Szene.
         const auto draw_ui = [&] {
+            targets.terrain_selected = TerrainTools::selected_terrain(document, selection) != 0;
             menu.draw_menu_bar(targets);
             ui::dockspace(default_layout());
 
@@ -538,7 +540,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text_disabled("Linksklick ins Bild wählt aus");
                     ui::text_disabled("W/E/R: Verschieben, Drehen, Skalieren");
                     ui::text_disabled("Strg beim Ziehen: Raster, F5: Spielen");
-                    ui::text_disabled("Terrain auswählen: Pinsel in der Werkzeugleiste");
+                    ui::text_disabled(
+                        "Terrain-Pinsel: Terrain auswählen, dann „Pinsel“ über dem Viewport "
+                        "oder Werkzeug > Terrain-Pinsel");
                 }
                 ui::end_window();
             }
