@@ -43,6 +43,8 @@ SlangStage to_slang(rhi::ShaderStage stage) {
     case rhi::ShaderStage::Vertex: return SLANG_STAGE_VERTEX;
     case rhi::ShaderStage::Fragment: return SLANG_STAGE_FRAGMENT;
     case rhi::ShaderStage::Compute: return SLANG_STAGE_COMPUTE;
+    case rhi::ShaderStage::Task: return SLANG_STAGE_AMPLIFICATION;
+    case rhi::ShaderStage::Mesh: return SLANG_STAGE_MESH;
     }
     return SLANG_STAGE_NONE;
 }

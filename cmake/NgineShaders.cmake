@@ -7,7 +7,8 @@ if(NOT NGINE_SLANGC)
     message(FATAL_ERROR "slangc nicht gefunden. Über vcpkg (shader-slang) installieren oder NGINE_SLANGC setzen.")
 endif()
 
-# ngine_compile_shader(<target> SOURCE <datei.slang> ENTRY <name> STAGE <vertex|fragment|compute>
+# ngine_compile_shader(<target> SOURCE <datei.slang> ENTRY <name>
+#                      STAGE <vertex|fragment|compute|mesh|amplification>
 #                      NAME <name> [DEPENDS <eingebundene Dateien>...])
 # Erzeugt <name>.spv und <name>.spv.inc im Build-Verzeichnis von <target> und hängt
 # die .inc-Datei an das Ziel, damit sie vor dem Kompilieren entsteht. DEPENDS nennt Dateien, die

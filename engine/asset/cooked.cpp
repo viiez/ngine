@@ -19,6 +19,7 @@ module ngine.asset;
 
 import ngine.core;
 import ngine.math;
+import ngine.meshlet;
 import ngine.filesystem;
 import ngine.profile;
 import ngine.serialize;
@@ -33,6 +34,7 @@ using serialize::BinaryWriter;
 // Eckpunkte gehen als rohe Bytes in die Datei; das Format ist Little Endian wie jede Zielplattform.
 static_assert(std::endian::native == std::endian::little);
 static_assert(sizeof(Vertex) == 48 && std::is_trivially_copyable_v<Vertex>);
+static_assert(sizeof(meshlet::Meshlet) == 44 && std::is_trivially_copyable_v<meshlet::Meshlet>);
 
 constexpr u32 cooked_magic = 0x444D474Eu; // „NGMD“
 
@@ -82,6 +84,7 @@ void write_model(BinaryWriter& w, const Model& model) {
             w.write(primitive.generated_tangents);
             write_raw(w, primitive.vertices);
             write_raw(w, primitive.indices);
+            write_raw(w, primitive.meshlets);
         }
     }
     w.write(static_cast<u32>(model.materials.size()));
@@ -226,6 +229,7 @@ Model read_model(Input& in) {
             primitive.generated_tangents = in.get<bool>();
             primitive.vertices = in.raw<Vertex>();
             primitive.indices = in.raw<u32>();
+            primitive.meshlets = in.raw<meshlet::Meshlet>();
         }
     }
     model.materials.resize(in.count(16));
@@ -274,6 +278,10 @@ Result<void> validate(const CookedModel& cooked) {
                 if (index >= primitive.vertices.size()) {
                     return std::unexpected(std::string{"Index außerhalb der Eckpunkte"});
                 }
+            }
+            if (!primitive.meshlets.empty() &&
+                !meshlet::valid(primitive.meshlets, primitive.indices)) {
+                return std::unexpected(std::string{"Meshlets passen nicht zu den Indizes"});
             }
         }
     }

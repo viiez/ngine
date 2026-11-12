@@ -47,6 +47,6 @@ target_sources(ngine_asset
 # ngine.cook.
 target_include_directories(ngine_asset SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 target_link_libraries(ngine_asset
-    PUBLIC ngine::core ngine::math ngine::jobs
+    PUBLIC ngine::core ngine::math ngine::meshlet ngine::jobs
     PRIVATE ngine::filesystem ngine::profile ngine::serialize fastgltf::fastgltf ngine_ktx)
 ngine_set_compiler_options(ngine_asset)

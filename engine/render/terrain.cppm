@@ -56,12 +56,16 @@ static_assert(sizeof(GpuTerrainMaterial) == 48);
 struct TerrainChunkGpu {
     GeometryRange vertices;
     GeometryRange indices;
+    // Meshlets des Netzes (pack_meshlets(), R3.5).
+    GeometryRange meshlets;
     // Fassung des Netzes (world::ChunkMesh::version), die hochgeladen ist.
     u64 version = 0;
     u64 vertex_address = 0;
     const rhi::Buffer* index_buffer = nullptr;
     u32 first_index = 0;
     u32 index_count = 0;
+    u64 meshlet_address = 0;
+    u32 meshlet_count = 0;
     // Materialpalette des Netzes (voxel::Mesh::palette), vier Materialnummern je Wort.
     std::array<u32, 2> palette{};
 };

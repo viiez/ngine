@@ -17,6 +17,7 @@ import ngine.core;
 import ngine.math;
 import ngine.rhi;
 import ngine.asset;
+import ngine.meshlet;
 
 namespace ngine::render {
 
@@ -176,20 +177,36 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::Upl
     GpuMesh mesh;
     std::vector<asset::Vertex> vertices;
     std::vector<u32> indices;
+    // Meshlets je Teilnetz: übernommen oder auf der Kopie der Indizes gebaut (R3.5).
+    std::vector<std::vector<meshlet::Meshlet>> meshlets(submeshes.size());
     math::Vec3 low{std::numeric_limits<f32>::max(), std::numeric_limits<f32>::max(),
                    std::numeric_limits<f32>::max()};
     math::Vec3 high = -low;
-    for (const SubmeshData& submesh : submeshes) {
+    u32 meshlet_total = 0;
+    for (usize s = 0; s < submeshes.size(); ++s) {
+        const SubmeshData& submesh = submeshes[s];
         const auto base = static_cast<u32>(vertices.size());
-        mesh.submeshes.push_back({.first_index = static_cast<u32>(indices.size()),
-                                  .index_count = static_cast<u32>(submesh.indices.size()),
-                                  .material = submesh.material});
+        const auto first = static_cast<u32>(indices.size());
         for (const u32 index : submesh.indices) {
             if (index >= submesh.vertices.size()) {
                 return std::unexpected("MeshStore: Index außerhalb der Eckpunkte");
             }
+        }
+        std::vector<u32> local(submesh.indices.begin(), submesh.indices.end());
+        if (!submesh.meshlets.empty() && meshlet::valid(submesh.meshlets, local)) {
+            meshlets[s].assign(submesh.meshlets.begin(), submesh.meshlets.end());
+        } else {
+            meshlets[s] = meshlet::build(meshlet::positions_of(submesh.vertices), local);
+        }
+        for (const u32 index : local) {
             indices.push_back(base + index);
         }
+        mesh.submeshes.push_back({.first_index = first,
+                                  .index_count = static_cast<u32>(local.size()),
+                                  .material = submesh.material,
+                                  .first_meshlet = meshlet_total,
+                                  .meshlet_count = static_cast<u32>(meshlets[s].size())});
+        meshlet_total += static_cast<u32>(meshlets[s].size());
         for (const asset::Vertex& vertex : submesh.vertices) {
             low = math::min(low, vertex.position);
             high = math::max(high, vertex.position);
@@ -201,8 +218,17 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::Upl
         mesh.bounds_max = high;
     }
     if (!indices.empty()) {
+        std::vector<MeshletPart> parts;
+        for (usize s = 0; s < submeshes.size(); ++s) {
+            const Submesh& submesh = mesh.submeshes[s];
+            parts.push_back(
+                {.meshlets = meshlets[s],
+                 .indices = std::span{indices}.subspan(submesh.first_index, submesh.index_count)});
+        }
+        const std::vector<u32> packed = pack_meshlets(parts);
         const auto vertex_bytes = std::as_bytes(std::span{vertices});
         const auto index_bytes = std::as_bytes(std::span{indices});
+        const auto meshlet_bytes = std::as_bytes(std::span{packed});
         auto vertex_range = geometry_->allocate(vertex_bytes.size());
         if (!vertex_range) {
             return std::unexpected(vertex_range.error());
@@ -212,17 +238,27 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::Upl
             geometry_->free(*vertex_range);
             return std::unexpected(index_range.error());
         }
+        auto meshlet_range = geometry_->allocate(meshlet_bytes.size());
+        if (!meshlet_range) {
+            geometry_->free(*vertex_range);
+            geometry_->free(*index_range);
+            return std::unexpected(meshlet_range.error());
+        }
         if (ticket != nullptr) {
             *ticket = rhi::later(*ticket, geometry_->upload_async(*vertex_range, vertex_bytes));
             *ticket = rhi::later(*ticket, geometry_->upload_async(*index_range, index_bytes));
+            *ticket = rhi::later(*ticket, geometry_->upload_async(*meshlet_range, meshlet_bytes));
         } else {
             geometry_->upload(*vertex_range, vertex_bytes);
             geometry_->upload(*index_range, index_bytes);
+            geometry_->upload(*meshlet_range, meshlet_bytes);
         }
         mesh.vertices = *vertex_range;
         mesh.indices = *index_range;
+        mesh.meshlet_data = *meshlet_range;
         mesh.vertex_address = geometry_->address(*vertex_range);
         mesh.index_buffer = &geometry_->buffer(*index_range);
+        mesh.meshlet_address = geometry_->address(*meshlet_range);
         const auto first = static_cast<u32>(index_range->offset / sizeof(u32));
         for (Submesh& submesh : mesh.submeshes) {
             submesh.first_index += first;
@@ -245,6 +281,7 @@ void MeshStore::remove(u32 index) {
     // Die Bereiche werden wiederverwendet, wenn die GPU sie nicht mehr braucht.
     geometry_->free(meshes_[index].vertices);
     geometry_->free(meshes_[index].indices);
+    geometry_->free(meshes_[index].meshlet_data);
     meshes_[index] = GpuMesh{};
     free_.push_back(index);
 }

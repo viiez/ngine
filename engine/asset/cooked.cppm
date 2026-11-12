@@ -92,7 +92,8 @@ struct CookedModel {
 
 // Version des Formats; ändert sich, wenn sich das Format oder das Kochen ändert. Ältere Dateien im
 // Cache gelten dann als veraltet.
-inline constexpr u32 cooked_model_version = 1;
+// 2: Meshlets je Teilnetz (R3.5).
+inline constexpr u32 cooked_model_version = 2;
 
 [[nodiscard]] std::vector<std::byte> write_cooked_model(const CookedModel& model);
 // Liest ein gekochtes Modell; kaputte Daten und andere Versionen liefern einen Fehler.

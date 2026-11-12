@@ -30,7 +30,8 @@ target_sources(ngine_voxel
 
 # Läuft ohne GPU: Der Server braucht Dichtefeld und Bearbeitung, nur das Zeichnen nicht. Seit
 # R3.1 laufen Füllen und Meshing vieler Chunks im Job-System.
-target_link_libraries(ngine_voxel PUBLIC ngine::core ngine::math ngine::jobs PRIVATE ngine::profile)
+target_link_libraries(ngine_voxel PUBLIC ngine::core ngine::math ngine::meshlet ngine::jobs
+    PRIVATE ngine::profile)
 ngine_set_compiler_options(ngine_voxel)
 # Der Generator muss auf allen Plattformen bitgleich rechnen (R3.2, ADR 0039): keine
 # zusammengezogenen Multiplikationen und Additionen (FMA). MSVC zieht unter seiner Vorgabe

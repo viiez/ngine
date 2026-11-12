@@ -11,7 +11,7 @@ module;
 // glTF-Modelle werden zu gekochten Modellen mit Tangenten nach MikkTSpace (TD-21), ihre Bilder zu
 // KTX2 mit Basis Universal. Nur Editor, Werkzeug (ngine_cook) und Tests linken dieses Modul; Spiel
 // und Server lesen nur, was im Cache liegt. KTX-Software steckt in ktx_encode.cpp, MikkTSpace in
-// tangents_mikktspace.cpp.
+// tangents_mikktspace.cpp, meshoptimizer in meshlets_meshoptimizer.cpp.
 export module ngine.cook;
 
 import ngine.core;
@@ -27,6 +27,10 @@ using Result = std::expected<T, std::string>;
 // an denen Dreiecke verschiedene Tangenten brauchen (UV-Nähte, Spiegelungen), werden geteilt;
 // Indizes zeigen danach auf die neuen Eckpunkte. Normalen und Texturkoordinaten müssen stimmen.
 void generate_tangents(asset::Primitive& primitive);
+
+// Meshlets mit meshoptimizer (R3.5, ADR 0043): ordnet die Dreiecke für den Cache der Eckpunkte
+// und teilt sie in Meshlets im Format von ngine.meshlet; indices ist danach umsortiert.
+void build_meshlets(asset::Primitive& primitive);
 
 // Wie Bilder zu KTX2 werden.
 struct TextureSettings {

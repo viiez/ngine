@@ -16,6 +16,7 @@ target_sources(ngine_render
             materials.cppm
             geometry.cppm
             meshes.cppm
+            culling.cppm
             terrain.cppm
             renderer.cppm
             renderer_detail.cppm
@@ -25,6 +26,7 @@ target_sources(ngine_render
         graph.cpp
         stores.cpp
         geometry.cpp
+        culling.cpp
         terrain.cpp
         lights.cpp
         shadows.cpp
@@ -41,5 +43,6 @@ target_sources(ngine_render
 # Ressourcen-Schicht für Modelle.
 target_link_libraries(ngine_render
     PUBLIC ngine::core ngine::math ngine::rhi ngine::reflect ngine::world ngine::asset
+           ngine::meshlet
     PRIVATE ngine::profile ngine::shaders)
 ngine_set_compiler_options(ngine_render)

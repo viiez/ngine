@@ -9,6 +9,7 @@
     "flecs",
     "glm",
     "ktx",
+    "meshoptimizer",
     "mikktspace",
     {
       "name": "imgui",

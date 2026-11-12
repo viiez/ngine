@@ -93,6 +93,9 @@ void for_each_required_feature(FeatureChain& chain, Visitor&& visit) {
     visit("Dynamic Rendering", chain.v13.dynamicRendering);
     visit("Synchronization2", chain.v13.synchronization2);
     visit("Maintenance4", chain.v13.maintenance4);
+    // GPU-getriebenes Zeichnen (R3.5, ADR 0043): Compute-Shader schreiben Befehle und ihre Anzahl.
+    visit("Multi Draw Indirect", chain.root.features.multiDrawIndirect);
+    visit("Draw Indirect Count", chain.v12.drawIndirectCount);
 }
 
 std::vector<std::string> device_extensions(VkPhysicalDevice device) {

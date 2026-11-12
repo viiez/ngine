@@ -236,6 +236,7 @@ std::expected<void, std::string> VulkanDevice::init(const DeviceDesc& desc) {
     }
     context_.physical_device = physical_device_.handle;
     context_.max_anisotropy = physical_device_.capabilities.max_anisotropy;
+    context_.mesh_shader = physical_device_.capabilities.features.mesh_shader;
     context_.device = device_;
     context_.allocator = allocator_;
     context_.bindless.init(physical_device_.handle, device_);

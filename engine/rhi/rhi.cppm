@@ -37,7 +37,8 @@ enum class Format : u8 {
     BC7Unorm,
     BC7Srgb,
 };
-enum class ShaderStage : u8 { Vertex, Fragment, Compute };
+// Task und Mesh nur mit Features::mesh_shader (R3.5).
+enum class ShaderStage : u8 { Vertex, Fragment, Compute, Task, Mesh };
 enum class DeviceType : u8 { Other, Integrated, Discrete, Virtual, Cpu };
 
 [[nodiscard]] constexpr bool is_compressed(Format format) noexcept {
@@ -90,6 +91,8 @@ enum class ResourceState : u8 {
     // Für die CPU lesbar, nachdem die GPU fertig ist (Puffer mit MemoryUsage::CpuRead). Nur als
     // Endzustand.
     HostRead,
+    // Befehle und Zähler für indirektes Zeichnen (Puffer mit BufferUsage::Indirect, R3.5).
+    IndirectRead,
 };
 
 [[nodiscard]] constexpr bool is_write(ResourceState state) noexcept {
@@ -313,6 +316,8 @@ enum class BufferUsage : u8 {
     Storage = 1,
     // Zusätzlich als Indexpuffer mit 32-Bit-Indizes.
     Index = 2,
+    // Zusätzlich als Quelle indirekter Befehle und ihrer Anzahl (R3.5).
+    Indirect = 4,
 };
 
 [[nodiscard]] constexpr BufferUsage operator|(BufferUsage a, BufferUsage b) noexcept {
@@ -338,6 +343,17 @@ struct BufferDesc {
     BufferUsage usage = BufferUsage::Storage;
     MemoryUsage memory = MemoryUsage::CpuWrite;
 };
+
+// Ein Befehl für CommandList::draw_indexed_indirect_count(), wie die GPU ihn liest (20 Bytes,
+// entspricht VkDrawIndexedIndirectCommand).
+struct DrawIndexedCommand {
+    u32 index_count = 0;
+    u32 instance_count = 0;
+    u32 first_index = 0;
+    i32 vertex_offset = 0;
+    u32 first_instance = 0;
+};
+static_assert(sizeof(DrawIndexedCommand) == 20);
 
 // GPU-Puffer. Shader lesen ihn über device_address().
 class Buffer : public Resource {
@@ -379,8 +395,13 @@ enum class BlendMode : u8 {
 // sondern liest der Shader selbst aus Puffern (ADR 0022). Alle Pipelines teilen ein Layout: den
 // bindlosen Descriptor-Satz (Satz 0, siehe bindless.slang) und max_push_constant_size Bytes Push
 // Constants für alle Stufen.
+//
+// Mit Mesh Shader (nur mit Features::mesh_shader, R3.5) entfällt der Vertex-Shader: Ein optionaler
+// Task-Shader startet Arbeitsgruppen des Mesh-Shaders, der Dreiecke selbst ausgibt.
 struct GraphicsPipelineDesc {
     const Shader* vertex = nullptr;
+    const Shader* task = nullptr;
+    const Shader* mesh = nullptr;
     // Darf nur bei einer Pipeline ohne Farbziel fehlen (nur Tiefe, z. B. Schattenkarten).
     const Shader* fragment = nullptr;
     // Ohne Farbformat schreibt die Pipeline nur Tiefe; dann braucht sie ein Tiefenformat.
@@ -460,7 +481,27 @@ public:
     virtual void push_constants(std::span<const std::byte> data) = 0;
     virtual void bind_index_buffer(const Buffer& buffer) = 0;
     virtual void draw(u32 vertex_count, u32 instance_count = 1) = 0;
-    virtual void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0) = 0;
+    // first_instance kommt im Shader als Nummer der Instanz an (SV_VulkanInstanceID bei
+    // instance_count 1); der Renderer findet darüber die Daten eines Draws (R3.5).
+    virtual void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0,
+                              u32 first_instance = 0) = 0;
+    // Zeichnet bis zu max_draws Befehle (DrawIndexedCommand) ab offset in commands; wie viele,
+    // steht als u32 bei count_offset in count, geschrieben von der GPU (R3.5). Beide Puffer
+    // brauchen BufferUsage::Indirect und sind im Zustand IndirectRead; der Indexpuffer ist
+    // gebunden.
+    virtual void draw_indexed_indirect_count(const Buffer& commands, u64 offset,
+                                             const Buffer& count, u64 count_offset,
+                                             u32 max_draws) = 0;
+    // Startet Arbeitsgruppen des Task-Shaders (bzw. des Mesh-Shaders ohne Task-Shader). Nur mit
+    // Features::mesh_shader und gebundener Mesh-Pipeline (R3.5).
+    virtual void draw_mesh_tasks(u32 groups_x, u32 groups_y = 1, u32 groups_z = 1) = 0;
+    // Füllt size Bytes ab offset (beide durch 4 teilbar) mit value. Der Puffer ist im Zustand
+    // TransferDst; außerhalb von begin_rendering().
+    virtual void fill_buffer(const Buffer& buffer, u64 offset, u64 size, u32 value) = 0;
+    // Kopiert size Bytes zwischen Puffern; source im Zustand TransferSrc, target in TransferDst;
+    // außerhalb von begin_rendering().
+    virtual void copy_buffer(const Buffer& source, u64 source_offset, const Buffer& target,
+                             u64 target_offset, u64 size) = 0;
     // Kopiert ein Rechteck einer Textur (Mip-Stufe 0) Zeile für Zeile ohne Abstand ab offset in
     // einen Puffer. Die Textur muss im Zustand TransferSrc sein, der Puffer in TransferDst; nur
     // Farbformate, außerhalb von begin_rendering().

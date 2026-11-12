@@ -1,5 +1,6 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <cmath>
 #include <cstddef>
@@ -453,4 +454,93 @@ TEST_CASE("Renderer loads cooked models from the cache with and without BC7",
         CHECK(device->validation_errors() == 0);
     }
     static_cast<void>(filesystem::remove(cache_dir));
+}
+
+TEST_CASE("Renderer culls meshlets hidden inside a cave", "[render][gpu]") {
+    // Die Kamera steht in einer geschlossenen Kiste (doppelseitig, also von innen sichtbar). Vor
+    // ihr, hinter der Wand, liegt eine Kugel im Stumpf: Das Hi-Z des letzten Frames verwirft sie,
+    // und die zweite Phase bestätigt es (R3.5). Mit und ohne Mesh Shader.
+    const bool baseline = GENERATE(false, true);
+    auto created = rhi::vulkan::create_device({.application_name = "NGine Tests",
+                                               .enable_validation = true,
+                                               .disabled_features = {.mesh_shader = baseline}});
+    if (!created) {
+        if (gpu_required()) {
+            FAIL("Kein nutzbares Vulkan-Gerät: " + created.error());
+        }
+        SKIP("Kein nutzbares Vulkan-Gerät: " + created.error());
+    }
+    const std::unique_ptr<rhi::Device> device = *std::move(created);
+    constexpr u32 size = 64;
+    auto target = device->create_texture(
+        {.extent = {size, size},
+         .format = rhi::Format::RGBA8Unorm,
+         .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::TransferSrc});
+    REQUIRE(target);
+    auto renderer = render::Renderer::create(*device, rhi::Format::RGBA8Unorm);
+    REQUIRE(renderer);
+    render::Renderer& r = **renderer;
+
+    const asset::Primitive box = asset::make_box({5.0f, 5.0f, 5.0f});
+    const asset::Primitive sphere = asset::make_sphere(2.0f, 64, 32);
+    const u32 wall =
+        r.materials().add({.base_color = {0.5f, 0.5f, 0.5f, 1.0f}, .double_sided = true});
+    const u32 red = r.materials().add({.base_color = {0.8f, 0.1f, 0.1f, 1.0f}});
+    const std::vector<render::SubmeshData> box_data{
+        {.vertices = box.vertices, .indices = box.indices, .material = wall}};
+    const std::vector<render::SubmeshData> sphere_data{
+        {.vertices = sphere.vertices, .indices = sphere.indices, .material = red}};
+    const auto box_mesh = r.meshes().add(box_data);
+    const auto sphere_mesh = r.meshes().add(sphere_data);
+    REQUIRE(box_mesh);
+    REQUIRE(sphere_mesh);
+    asset::ResourceManager resources;
+    const asset::AssetRef box_ref = as_asset(r, resources, *box_mesh, "test.hoehle");
+    const asset::AssetRef sphere_ref = as_asset(r, resources, *sphere_mesh, "test.kugel");
+
+    const auto types = make_types();
+    world::World world{types};
+    world.create("Höhle").set(world::Transform{}).set(render::MeshRenderer{.mesh = box_ref});
+    world.create("Kugel")
+        .set(world::Transform{.position = {0.0, 0.0, -20.0}})
+        .set(render::MeshRenderer{.mesh = sphere_ref});
+    world.create("Kamera")
+        .set(world::Transform{.position = {0.0, 0.0, 2.0}})
+        .set(render::Camera{.fov_y = math::radians(60.0f)});
+    world::update_transforms(world);
+
+    render::TexturePool pool{*device};
+    // Statistik kommt einige Frames später zurück (wie die Auswahl).
+    for (u32 frame = 0; frame < device->frames_in_flight() + 4; ++frame) {
+        render::RenderGraph graph;
+        const auto output = graph.import_texture("Ziel", **target, rhi::ResourceState::Undefined,
+                                                 rhi::ResourceState::TransferSrc);
+        r.add_passes(graph, world, output);
+        device->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+        pool.end_frame();
+    }
+    const render::RenderStats& stats = r.stats();
+    INFO("Meshlets " << stats.meshlets << ", gezeichnet " << stats.meshlets_drawn << ", Stumpf "
+                     << stats.culled_frustum << ", Rückseiten " << stats.culled_backface
+                     << ", verdeckt " << stats.culled_occluded);
+    CHECK(stats.mesh_shaders == (!baseline && device->capabilities().features.mesh_shader));
+    CHECK(stats.draws == 2);
+    CHECK(stats.meshlets > 4);
+    CHECK(stats.meshlets_drawn > 0);
+    // Alle Meshlets der Kugel liegen hinter der Wand.
+    CHECK(stats.culled_occluded > 0);
+    CHECK(stats.meshlets_drawn < stats.meshlets);
+
+    // Ohne Prüfung auf Verdeckung zeichnet die GPU die Kugel wieder.
+    r.occlusion_culling = false;
+    for (u32 frame = 0; frame < device->frames_in_flight() + 2; ++frame) {
+        render::RenderGraph graph;
+        const auto output = graph.import_texture("Ziel", **target, rhi::ResourceState::Undefined,
+                                                 rhi::ResourceState::TransferSrc);
+        r.add_passes(graph, world, output);
+        device->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+        pool.end_frame();
+    }
+    CHECK(r.stats().culled_occluded == 0);
+    CHECK(device->validation_errors() == 0);
 }

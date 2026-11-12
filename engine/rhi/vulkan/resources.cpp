@@ -191,12 +191,16 @@ Result<std::unique_ptr<Buffer>> create_buffer(DeviceContext& context, const Buff
     if (desc.size == 0) {
         return std::unexpected("Puffer mit Größe 0");
     }
-    // Jeder Puffer kann Ziel einer Kopie sein (upload()); das kostet nichts.
+    // Jeder Puffer kann Quelle und Ziel einer Kopie sein (upload(), copy_buffer()); das kostet
+    // nichts.
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                               VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                               VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if (has(desc.usage, BufferUsage::Index)) {
         usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+    if (has(desc.usage, BufferUsage::Indirect)) {
+        usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     }
     // Puffer im GPU-Speicher sind Ziele von Uploads und gehören mit Transfer-Queue beiden
     // Familien (TD-17).
@@ -306,33 +310,36 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
                                                   const GraphicsPipelineDesc& desc) {
     const VkFormat color_format = to_vk(desc.color_format);
     const bool with_color = color_format != VK_FORMAT_UNDEFINED;
-    if (desc.vertex == nullptr || (with_color && desc.fragment == nullptr)) {
-        return std::unexpected("Pipeline braucht Vertex- und Fragment-Shader");
+    const bool with_mesh = desc.mesh != nullptr;
+    if ((desc.vertex == nullptr) == !with_mesh || (with_color && desc.fragment == nullptr)) {
+        return std::unexpected(
+            "Pipeline braucht einen Vertex- oder einen Mesh-Shader und einen Fragment-Shader");
+    }
+    if ((with_mesh || desc.task != nullptr) && !context.mesh_shader) {
+        return std::unexpected("Mesh-Shader-Pipeline ohne die Stufe Mesh Shader");
     }
     if (!with_color && desc.depth_format == Format::Unknown) {
         return std::unexpected("Pipeline braucht ein Farb- oder Tiefenformat");
     }
 
-    const auto& vertex = static_cast<const VulkanShader&>(*desc.vertex);
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{
-        VkPipelineShaderStageCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_VERTEX_BIT,
-            .module = vertex.module(),
-            .pName = vertex.entry_point().c_str(),
-        },
-        {},
-    };
-    u32 stage_count = 1;
-    if (desc.fragment != nullptr) {
-        const auto& fragment = static_cast<const VulkanShader&>(*desc.fragment);
+    std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
+    u32 stage_count = 0;
+    const auto add_stage = [&](const Shader* shader, VkShaderStageFlagBits stage) {
+        if (shader == nullptr) {
+            return;
+        }
+        const auto& vulkan_shader = static_cast<const VulkanShader&>(*shader);
         stages[stage_count++] = VkPipelineShaderStageCreateInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .module = fragment.module(),
-            .pName = fragment.entry_point().c_str(),
+            .stage = stage,
+            .module = vulkan_shader.module(),
+            .pName = vulkan_shader.entry_point().c_str(),
         };
-    }
+    };
+    add_stage(desc.vertex, VK_SHADER_STAGE_VERTEX_BIT);
+    add_stage(desc.task, VK_SHADER_STAGE_TASK_BIT_EXT);
+    add_stage(desc.mesh, VK_SHADER_STAGE_MESH_BIT_EXT);
+    add_stage(desc.fragment, VK_SHADER_STAGE_FRAGMENT_BIT);
 
     const VkPipelineVertexInputStateCreateInfo vertex_input{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -414,8 +421,9 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
         .pNext = &rendering,
         .stageCount = stage_count,
         .pStages = stages.data(),
-        .pVertexInputState = &vertex_input,
-        .pInputAssemblyState = &input_assembly,
+        // Mesh Shader geben Dreiecke selbst aus; ohne Vertex-Eingabe und Topologie.
+        .pVertexInputState = with_mesh ? nullptr : &vertex_input,
+        .pInputAssemblyState = with_mesh ? nullptr : &input_assembly,
         .pViewportState = &viewport,
         .pRasterizationState = &rasterization,
         .pMultisampleState = &multisample,

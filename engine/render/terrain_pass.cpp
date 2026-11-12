@@ -6,8 +6,8 @@ module;
 #include <unordered_map>
 #include <vector>
 
-// Terrain im Renderer (TD-36): Chunks der Terrains als Draws, ihre Materialtabelle mit Texturen
-// aus dem Ressourcen-Manager (R3.2) und das Zeichnen der Chunks in allen Passes.
+// Terrain im Renderer (TD-36): Chunks der Terrains als Instanzen (R3.5) und ihre Materialtabelle
+// mit Texturen aus dem Ressourcen-Manager (R3.2).
 module ngine.render;
 
 import ngine.core;
@@ -34,8 +34,7 @@ std::vector<TerrainMaterial> default_terrain_materials() {
     };
 }
 
-void RendererCore::collect_terrain(world::World& world, math::DVec3 origin, bool shadows_on,
-                                   const std::array<Cascade, cascade_count>& cascades) {
+void RendererCore::collect_terrain(world::World& world, math::DVec3 origin) {
     world.each<const world::WorldTransform, const world::TerrainState>(
         [&](world::Entity entity, const world::WorldTransform& transform,
             const world::TerrainState& state) {
@@ -48,45 +47,44 @@ void RendererCore::collect_terrain(world::World& world, math::DVec3 origin, bool
             const math::DVec3 base = transform.position();
             const auto id = static_cast<u32>(entity.id());
             for (const auto& [coord, chunk] : chunks) {
-                if (!chunk.vertices.valid()) {
+                if (!chunk.vertices.valid() || chunk.meshlet_count == 0) {
                     continue;
                 }
                 const auto scale =
                     static_cast<f32>(voxel::voxel_size * static_cast<f64>(1u << coord.level));
                 const math::DVec3 local = voxel::chunk_position(coord);
                 const Vec3 corner = math::to_f32(base + local - origin);
-                detail::TerrainDraw draw{.model = {Vec4{scale, 0.0f, 0.0f, corner.x},
-                                                   Vec4{0.0f, scale, 0.0f, corner.y},
-                                                   Vec4{0.0f, 0.0f, scale, corner.z}},
-                                         .offset = math::extend(math::to_f32(local), scale),
-                                         .vertices = chunk.vertex_address,
-                                         .index_buffer = chunk.index_buffer,
-                                         .first_index = chunk.first_index,
-                                         .index_count = chunk.index_count,
-                                         .id = id,
-                                         .palette = chunk.palette};
-                const auto index = static_cast<u32>(terrain_draws.size());
-                terrain_draws.push_back(draw);
-                if (shadows_on) {
-                    // Hüllkugel des Chunks samt Randzellen.
-                    const f32 half = static_cast<f32>(voxel::chunk_voxels) * 0.5f * scale;
-                    const Vec3 center = corner + Vec3{half, half, half};
-                    const f32 radius = (half + scale) * 1.7321f;
-                    for (u32 i = 0; i < cascade_count; ++i) {
-                        if (cascades[i].may_cast(center, radius)) {
-                            terrain_shadow_draws[i].push_back(index);
-                        }
-                    }
-                }
+                // Hüllkugel des Chunks samt Randzellen.
+                const f32 half = static_cast<f32>(voxel::chunk_voxels) * 0.5f * scale;
+                GpuInstance instance{
+                    .model = {Vec4{scale, 0.0f, 0.0f, corner.x}, Vec4{0.0f, scale, 0.0f, corner.y},
+                              Vec4{0.0f, 0.0f, scale, corner.z}},
+                    .sphere =
+                        math::extend(corner + Vec3{half, half, half}, (half + scale) * 1.7321f),
+                    .offset = math::extend(math::to_f32(local), scale),
+                    .vertices = chunk.vertex_address,
+                    .meshlets = chunk.meshlet_address,
+                    .words = chunk.meshlet_address,
+                    .meshlet_count = chunk.meshlet_count,
+                    .id = id,
+                    .palette = {chunk.palette[0], chunk.palette[1]},
+                    .first_index = chunk.first_index,
+                };
+                instances.push_back(instance);
+                instance_keys.push_back({.category = detail::Category::Terrain,
+                                         .block = chunk.indices.block,
+                                         .index_buffer = chunk.index_buffer});
+                ++stats.terrain_chunks;
+                ++stats.draws;
+                stats.triangles += chunk.index_count / 3;
             }
         });
     terrain_meshes.collect(frame_number);
-    stats.terrain_chunks = static_cast<u32>(terrain_draws.size());
 }
 
-u64 RendererCore::write_terrain_materials(usize slot) {
+u64 RendererCore::write_terrain_materials(usize slot, bool any_terrain) {
     rhi::Buffer& buffer = *terrain_material_buffers[slot];
-    if (terrain_draws.empty()) {
+    if (!any_terrain) {
         return buffer.device_address();
     }
     // Index einer Textur, sobald sie geladen und hochgeladen ist; beginnt sonst das Laden.
@@ -118,28 +116,6 @@ u64 RendererCore::write_terrain_materials(usize slot) {
         buffer.write(0, std::as_bytes(std::span{table}));
     }
     return buffer.device_address();
-}
-
-void RendererCore::draw_terrain(rhi::CommandList& commands,
-                                std::span<const detail::TerrainDraw> draws, u64 frame_address,
-                                u64 materials_address, u32 cascade) {
-    const rhi::Buffer* indices = nullptr;
-    for (const detail::TerrainDraw& draw : draws) {
-        if (indices != draw.index_buffer) {
-            indices = draw.index_buffer;
-            commands.bind_index_buffer(*indices);
-        }
-        const TerrainPush push{.model = {draw.model[0], draw.model[1], draw.model[2]},
-                               .offset = draw.offset,
-                               .vertices = draw.vertices,
-                               .frame = frame_address,
-                               .materials = materials_address,
-                               .cascade = cascade,
-                               .id = draw.id,
-                               .palette = {draw.palette[0], draw.palette[1]}};
-        commands.push_constants(std::as_bytes(std::span{&push, 1}));
-        commands.draw_indexed(draw.index_count, 1, draw.first_index);
-    }
 }
 
 } // namespace ngine::render

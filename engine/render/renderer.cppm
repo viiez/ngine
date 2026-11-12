@@ -56,39 +56,6 @@ struct GpuFrame {
 };
 static_assert(sizeof(GpuFrame) == 448);
 
-// Push Constants eines Draws, wie pbr.slang sie liest.
-struct DrawPush {
-    math::Vec4 model[3];
-    u64 vertices = 0;
-    u64 frame = 0;
-    u64 materials = 0;
-    u32 material = 0;
-    // Nur für Schatten: die Kaskade, in die gezeichnet wird.
-    u32 cascade = 0;
-};
-static_assert(sizeof(DrawPush) <= rhi::max_push_constant_size);
-
-// Push Constants eines Chunks des Terrains, wie terrain.slang sie liest (R3.1, seit R3.2 mit
-// Materialien).
-struct TerrainPush {
-    math::Vec4 model[3];
-    // Ecke des Chunks relativ zum Terrain in Metern (xyz) und Meter pro Voxel (w): Lage für die
-    // triplanaren Texturen, die so am Terrain haften und nicht an der Kamera.
-    math::Vec4 offset;
-    u64 vertices = 0;
-    u64 frame = 0;
-    // Materialtabelle (GpuTerrainMaterial).
-    u64 materials = 0;
-    // Nur für Schatten: die Kaskade, in die gezeichnet wird.
-    u32 cascade = 0;
-    // Nur für den ID-Puffer: Kennung der Entity.
-    u32 id = 0;
-    // Materialpalette des Chunks: Materialnummern der acht Plätze, vier je Wort.
-    u32 palette[2] = {};
-};
-static_assert(sizeof(TerrainPush) == 104);
-static_assert(sizeof(TerrainPush) <= rhi::max_push_constant_size);
-
 // Kamera, wie sie der Renderer in einem Frame benutzt.
 struct CameraView {
     math::DVec3 position;
@@ -113,9 +80,10 @@ struct PickResult {
 };
 
 struct RenderStats {
+    // Netze (Instanzen), die der Vorwärts-Pass bekommt, und ihre Dreiecke, bevor die GPU prüft.
     u32 draws = 0;
     u32 triangles = 0;
-    // Draws in die Schattenkarten, über alle Kaskaden.
+    // Draw-Aufrufe in die Schattenkarten, über alle Kaskaden.
     u32 shadow_draws = 0;
     u32 lights = 0;
     u32 debug_lines = 0;
@@ -125,6 +93,18 @@ struct RenderStats {
     // in diesem Frame hochgeladen wurde.
     u32 terrain_chunks = 0;
     u32 terrain_uploads = 0;
+    // GPU-getriebenes Zeichnen (R3.5): Pfad mit Mesh Shadern, Instanzen im Instanzpuffer (auch
+    // Schatten und durchsichtige) und Meshlets aller Gruppen der Kamera.
+    bool mesh_shaders = false;
+    u32 instances = 0;
+    u32 meshlets = 0;
+    // Was die GPU für die Kamera gezählt hat, einige Frames alt: gezeichnete Meshlets und ihre
+    // Dreiecke, aussortiert am Stumpf, am Normalenkegel und durch Verdeckung (Hi-Z).
+    u32 meshlets_drawn = 0;
+    u32 triangles_drawn = 0;
+    u32 culled_frustum = 0;
+    u32 culled_backface = 0;
+    u32 culled_occluded = 0;
 };
 
 // Liefert SPIR-V für einen Einstiegspunkt einer Shader-Datei (z. B. „pbr.slang“), für Hot Reload
@@ -139,7 +119,9 @@ class GpuModel;
 // aus alle MeshRenderer und Terrains (seit R3.1, world::TerrainState), vorwärts mit PBR in ein
 // HDR-Ziel, danach Tone Mapping in das Ziel.
 // Vorher zeichnen vier Pässe die Schattenkarten der Sonne. Undurchsichtige Materialien kommen vor
-// durchsichtigen; durchsichtige werden nicht sortiert (TD-20) und werfen keine Schatten.
+// durchsichtigen; durchsichtige werden von hinten nach vorn sortiert und werfen keine Schatten.
+// Seit R3.5 GPU-getrieben (REND-10, REND-13, ADR 0043): Jedes Netz ist eine Instanz aus Meshlets,
+// die die GPU gegen Stumpf, Normalenkegel und Hi-Z prüft, mit Mesh Shadern oder indirekten Draws.
 class Renderer {
 public:
     // target_format: Format des Ziels, in das add_passes() zeichnet (meist der Backbuffer).
@@ -178,6 +160,10 @@ public:
     ShadowSettings shadows;
     // Färbt die Kaskaden der Schatten zur Prüfung ein.
     bool show_cascades = false;
+    // Mesh Shader nutzen, wenn die GPU sie kann; sonst indirekte Draws (Rückfallpfad).
+    bool use_mesh_shaders = true;
+    // Verdeckte Meshlets über das Hi-Z aussortieren (zwei Phasen im Vorwärts-Pass).
+    bool occlusion_culling = true;
     // Kamera statt der ersten aktiven Kamera der Welt, z. B. die Kamera des Editors, die nicht
     // zur Szene gehört (R2.2).
     std::optional<CameraView> camera_override;

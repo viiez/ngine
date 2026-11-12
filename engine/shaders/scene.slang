@@ -1,4 +1,4 @@
-// Gemeinsame Daten der Szenen-Shader (pbr.slang, shadow.slang, debug.slang): Eckpunkte,
+// Gemeinsame Daten der Szenen-Shader (pbr.slang, shadow.slang, id.slang, terrain.slang, debug.slang): Eckpunkte,
 // Materialien, Lichter und die Daten des Frames, wie der Renderer sie in Puffer schreibt. Alle
 // Strukturen bestehen aus float4/uint4 oder sind so ausgerichtet, dass die Ausrichtungsregeln
 // keine Rolle spielen.
@@ -76,17 +76,15 @@ struct Frame
     uint2 reserved;
 };
 
-// Wie render::DrawPush.
-struct DrawPush
+// Wie render::GpuTerrainMaterial (48 Bytes).
+struct TerrainMaterial
 {
-    // Zeilen der affinen Matrix von Objekt- in kamerarelative Weltkoordinaten
-    float4 model[3];
-    Vertex* vertices;
-    Frame* frame;
-    Material* materials;
-    uint material;
-    // Nur für Schatten: die Kaskade, in die gezeichnet wird
-    uint cascade;
+    // xyz: Farbe (linear, Faktor auf die Textur), w: Roughness
+    float4 color;
+    // x: Meter pro Wiederholung, y: Stärke der Normalen
+    float4 params;
+    // x: Grundfarbe, y: Normalen, z: Sampler, w: frei
+    uint4 textures;
 };
 
 float3 transform_point(float4 rows[3], float3 position)

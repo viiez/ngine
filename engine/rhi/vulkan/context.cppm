@@ -257,6 +257,8 @@ struct DeviceContext {
     BindlessHeap bindless;
     // Grenze für anisotrope Filterung; 1, wenn die GPU sie nicht kann.
     f32 max_anisotropy = 1.0f;
+    // Task- und Mesh-Shader sind eingeschaltet (R3.5).
+    bool mesh_shader = false;
     // Mit eigener Transfer-Queue (TD-17): beide Familien. Puffer im GPU-Speicher und Texturen mit
     // TransferDst gehören dann beiden Familien gleichzeitig (VK_SHARING_MODE_CONCURRENT), damit
     // keine Übergaben zwischen den Queues nötig sind.

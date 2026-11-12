@@ -299,24 +299,51 @@ void RenderGraph::execute(rhi::CommandList& commands, TexturePool& pool, GpuProf
         verify(result.has_value(), result ? std::string{} : result.error());
     }
 
-    // Transiente Texturen aus dem Vorrat holen, mit den Verwendungen aus dem Plan.
+    // Transiente Texturen kommen erst vor ihrem ersten Pass aus dem Vorrat und gehen nach ihrem
+    // letzten zurück; so teilen sich Texturen mit getrennter Lebensdauer eine (TD-16).
+    std::vector<std::vector<u32>> first_use(passes_.size());
+    std::vector<std::vector<u32>> last_use(passes_.size());
     for (u32 t = 0; t < textures_.size(); ++t) {
-        TextureEntry& entry = textures_[t];
-        if (entry.imported || !plan_.lifetimes[t].used()) {
+        if (textures_[t].imported || !plan_.lifetimes[t].used()) {
             continue;
         }
-        entry.texture = &pool.acquire(
-            {.extent = entry.desc.extent, .format = entry.desc.format, .usage = plan_.usages[t]});
+        first_use[plan_.lifetimes[t].first].push_back(t);
+        last_use[plan_.lifetimes[t].last].push_back(t);
     }
+    std::vector<ResourceState> state(textures_.size(), ResourceState::Undefined);
 
     PassContext context{commands, *this};
     for (const PlannedPass& planned : plan_.passes) {
         if (profiler != nullptr) {
             profiler->begin_zone(commands, passes_[planned.pass].name);
         }
-        record_barriers(commands, planned.barriers);
+        std::vector<PlannedBarrier> barriers = planned.barriers;
+        for (const u32 t : first_use[planned.pass]) {
+            TextureEntry& entry = textures_[t];
+            ResourceState previous = ResourceState::Undefined;
+            entry.texture = &pool.acquire({.extent = entry.desc.extent,
+                                           .format = entry.desc.format,
+                                           .usage = plan_.usages[t]},
+                                          &previous);
+            // Benutzte ein früherer Pass die Textur, wartet die erste Barriere auf ihn.
+            for (PlannedBarrier& barrier : barriers) {
+                if (barrier.resource == ResourceRef{ResourceKind::Texture, t} &&
+                    barrier.before == ResourceState::Undefined) {
+                    barrier.before = previous;
+                }
+            }
+        }
+        for (const PlannedBarrier& barrier : barriers) {
+            if (barrier.resource.kind == ResourceKind::Texture) {
+                state[barrier.resource.index] = barrier.after;
+            }
+        }
+        record_barriers(commands, barriers);
         if (const Execute& execute = passes_[planned.pass].execute) {
             execute(context);
+        }
+        for (const u32 t : last_use[planned.pass]) {
+            pool.release(*textures_[t].texture, state[t]);
         }
         if (profiler != nullptr) {
             profiler->end_zone(commands);
