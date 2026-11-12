@@ -125,13 +125,13 @@ RendererCore::add_forward_passes(RenderGraph& graph, const FrameInfo& frame,
             commands.draw_indexed(draw.index_count, 1, draw.first_index, draw.instance);
         }
         if (line_count > 0) {
-            const detail::DebugPush lines{.lines = frame.lines_address,
+            const detail::DebugPush line_push{.lines = frame.lines_address,
                                           .frame = frame.frame_address,
                                           .viewport = {static_cast<f32>(frame.extent.width),
                                                        static_cast<f32>(frame.extent.height)},
                                           .width = debug.width};
             commands.bind_pipeline(*debug_lines);
-            commands.push_constants(std::as_bytes(std::span{&lines, 1}));
+            commands.push_constants(std::as_bytes(std::span{&line_push, 1}));
             commands.draw(line_count * 6);
         }
     };
