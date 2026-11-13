@@ -659,6 +659,10 @@ void register_types(reflect::TypeRegistry& types) {
         // Ohne Felder: wird nur berechnet, nie gespeichert oder bearbeitet.
         types.add<WorldTransform>("WorldTransform").transient();
     }
+    if (types.find<Interpolated>() == nullptr) {
+        // Ohne Felder: Gespeichert wird nur, dass die Entity interpoliert wird (R4.1).
+        types.add<Interpolated>("Interpolated");
+    }
     register_prefab_types(types);
     register_terrain_types(types);
 }

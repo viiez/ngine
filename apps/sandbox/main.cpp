@@ -3,7 +3,9 @@
 // Ohne Demo-Option zeigt die Sandbox ein Raster aus Kugeln mit steigendem Metallic- (nach oben)
 // und Roughness-Wert (nach rechts) auf einem Boden mit Säulen, Sonne, Schatten und acht
 // kreisenden Punktlichtern, oder mit --model ein glTF-Modell. Freie Kamera: rechte Maustaste
-// halten und Maus bewegen, W/A/S/D fliegen, E/Q hoch und runter, Shift schneller. F1 schaltet
+// halten und Maus bewegen, W/A/S/D fliegen, E/Q hoch und runter, Shift schneller; mit dem Gamepad
+// linker Stick fliegen, rechter Stick drehen, Schultertasten hoch und runter, rechter Trigger
+// schneller (Belegung in assets/eingabe/standard.input, neu geladen beim Speichern). F1 schaltet
 // Debug-Zeichnen um, F2 färbt die Kaskaden der Schatten ein.
 //
 // Optionen:
@@ -11,7 +13,8 @@
 //   --image <pfad>  ohne Fenster offscreen zeichnen und als PPM-Bild speichern (mit Kugelraster,
 //                   Modell oder --voxel-demo)
 //   --debug-draw    Debug-Zeichnen von Anfang an (Hüllquader, Lichter, Achsenkreuz)
-//   --headless      ohne Fenster und GPU starten (wie später der dedizierte Server)
+//   --headless      ohne Fenster und GPU starten (wie später der dedizierte Server): rechnet die
+//                   Welt der Szenen-Demo über die Spielschleife (60 Bilder, mit --frames mehr)
 //   --frames <n>    nach n Frames beenden (für automatische Tests)
 //   --no-vsync      ohne vertikale Synchronisation präsentieren
 //   --baseline      optionale GPU-Stufen (Mesh Shader, Raytracing) abschalten, um die
@@ -64,6 +67,8 @@ import sandbox.voxel_demo;
 import sandbox.model_demo;
 import app.model_scene;
 import app.paths;
+import app.input_bindings;
+import ngine.input;
 import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
@@ -270,7 +275,9 @@ int run_windowed(const Options& options) {
         ngine::render::GpuProfiler gpu_profiler{**device};
         ngine::u64 frame_count = 0;
         bool running = true;
-        app::FlyInput fly;
+        // Eingabe als Aktionen (R4.1); die Belegung lädt neu, wenn sich die Datei ändert.
+        app::InputBindings bindings;
+        ngine::input::ActionState actions{bindings.load()};
         bool looking = false;
         auto last_time = std::chrono::steady_clock::now();
         auto last_report = last_time;
@@ -281,11 +288,11 @@ int run_windowed(const Options& options) {
             const auto now = std::chrono::steady_clock::now();
             const auto dt = std::chrono::duration<float>(now - last_time).count();
             last_time = now;
+            actions.end_frame(dt);
+            const app::FlyInput fly = app::fly_input(actions);
             if (voxels) {
                 const auto extent = window->framebuffer_size();
                 voxels->update(dt, {extent.width, extent.height}, fly);
-                fly.look_x = 0.0f;
-                fly.look_y = 0.0f;
                 // Automatische Änderungen, wenn die Laufzeit begrenzt ist (CI).
                 if (options.frames && frame_count % 10 == 0) {
                     voxels->scripted_edit(frame_count / 10);
@@ -297,8 +304,6 @@ int run_windowed(const Options& options) {
                 }
             } else {
                 scene->update(dt, fly);
-                fly.look_x = 0.0f;
-                fly.look_y = 0.0f;
             }
             if (now - last_report > std::chrono::seconds{3}) {
                 ngine::log::info("{}", voxels ? "Voxel-Terrain: " + voxels->stats()
@@ -338,19 +343,13 @@ int run_windowed(const Options& options) {
         while (running) {
             namespace event = ngine::platform::event;
             using ngine::platform::Key;
-            const auto set_key = [&](Key key, bool down) {
-                switch (key) {
-                case Key::W: fly.forward = down; break;
-                case Key::S: fly.back = down; break;
-                case Key::A: fly.left = down; break;
-                case Key::D: fly.right = down; break;
-                case Key::E: fly.up = down; break;
-                case Key::Q: fly.down = down; break;
-                case Key::Shift: fly.fast = down; break;
-                default: break;
-                }
-            };
+            bindings.poll(actions);
+            actions.begin_frame();
             for (const auto& e : window->poll_events()) {
+                // Mausbewegung zählt für die Kamera nur beim Drehen; alles andere immer.
+                if (looking || !std::holds_alternative<event::MouseMoved>(e)) {
+                    actions.handle(e);
+                }
                 std::visit(
                     [&](const auto& ev) {
                         using T = std::decay_t<decltype(ev)>;
@@ -375,16 +374,13 @@ int run_windowed(const Options& options) {
                             } else if (ev.key == Key::F2 && scene) {
                                 scene->toggle_cascades();
                             }
-                            set_key(ev.key, true);
-                        } else if constexpr (std::is_same_v<T, event::KeyReleased>) {
-                            set_key(ev.key, false);
+                        } else if constexpr (std::is_same_v<T, event::GamepadAdded>) {
+                            ngine::log::info("Gamepad angesteckt: {}", ev.name);
+                        } else if constexpr (std::is_same_v<T, event::GamepadRemoved>) {
+                            ngine::log::info("Gamepad abgezogen");
                         } else if constexpr (std::is_same_v<T, event::MouseMoved>) {
                             if (voxels) {
                                 voxels->set_cursor(ev.x, ev.y);
-                            }
-                            if (looking) {
-                                fly.look_x += ev.dx;
-                                fly.look_y += ev.dy;
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
                             const bool look_button =
@@ -489,7 +485,7 @@ int main(int argc, char** argv) {
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
     } else if (options.headless) {
-        ngine::log::info("Modus: ohne Fenster (Server)");
+        exit_code = sandbox::run_headless(options.frames.value_or(60));
     } else {
 #if NGINE_WITH_WINDOW
         exit_code = run_windowed(options);

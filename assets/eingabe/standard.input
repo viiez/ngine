@@ -1,0 +1,57 @@
+{
+  "actions": [
+    {
+      "name": "move",
+      "kind": "Axis2",
+      "dead_zone": 0.2,
+      "limit": 1.0,
+      "bindings": [
+        { "source": "Key.W", "component": "Y", "scale": 1.0 },
+        { "source": "Key.S", "component": "Y", "scale": -1.0 },
+        { "source": "Key.D", "component": "X", "scale": 1.0 },
+        { "source": "Key.A", "component": "X", "scale": -1.0 },
+        { "source": "Gamepad.LeftX", "component": "X" },
+        { "source": "Gamepad.LeftY", "component": "Y" }
+      ]
+    },
+    {
+      "name": "look",
+      "kind": "Axis2",
+      "dead_zone": 0.2,
+      "bindings": [
+        { "source": "Mouse.X", "component": "X" },
+        { "source": "Mouse.Y", "component": "Y" },
+        { "source": "Gamepad.RightX", "component": "X", "scale": 900.0, "per_second": true },
+        { "source": "Gamepad.RightY", "component": "Y", "scale": -900.0, "per_second": true }
+      ]
+    },
+    {
+      "name": "up_down",
+      "kind": "Axis",
+      "limit": 1.0,
+      "bindings": [
+        { "source": "Key.E" },
+        { "source": "Key.Q", "scale": -1.0 },
+        { "source": "Gamepad.RightShoulder" },
+        { "source": "Gamepad.LeftShoulder", "scale": -1.0 }
+      ]
+    },
+    {
+      "name": "fast",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Key.Shift" },
+        { "source": "Gamepad.RightTrigger" },
+        { "source": "Gamepad.LeftStick" }
+      ]
+    },
+    {
+      "name": "jump",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Key.Space" },
+        { "source": "Gamepad.South" }
+      ]
+    }
+  ]
+}

@@ -52,3 +52,4 @@ betroffene Code einreichen.
 | [0041](0041-lod-octree-surface-nets-streaming.md) | LOD als ausgeglichener Baum von Chunks, Surface Nets über Stufengrenzen, Streaming mit Übernahme in einem Schritt | angenommen |
 | [0042](0042-terrain-deltas-region-files.md) | Terrain-Änderungen als Deltas pro Chunk der Stufe 0, kodiert als Lauflängen, gespeichert in Regionen-Dateien neben der Szene | angenommen |
 | [0043](0043-gpu-driven-meshlets.md) | GPU-getriebenes Zeichnen: Meshlets, Culling gegen Stumpf, Kegel und Hi-Z in zwei Phasen, Mesh Shader mit Rückfallpfad über indirekte Draws | angenommen |
+| [0044](0044-game-loop-phases-fixed-step-commands.md) | Spielschleife mit Phasen, festem Zeitschritt, Interpolation nur für `Interpolated` und Befehlspuffer in fester Reihenfolge | angenommen |

@@ -73,8 +73,10 @@ import ngine.rhi.vulkan;
 import ngine.world;
 import ngine.editor_ui;
 import app.model_scene;
+import app.input_bindings;
 import app.paths;
 import app.prefabs;
+import ngine.input;
 import ngine.cook;
 import editor.prefab_tools;
 import ngine.asset;
@@ -333,7 +335,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         render::TexturePool pool{**device};
         render::GpuProfiler gpu_profiler{**device};
-        app::FlyInput fly;
+        // Eingabe als Aktionen (R4.1): Tastatur und Maus nur beim Fliegen, das Gamepad immer.
+        app::InputBindings bindings{database ? std::optional{database->root()} : std::nullopt};
+        input::ActionState actions{bindings.load()};
         Panels panels;
         FrameTimes times;
         bool running = true;
@@ -466,6 +470,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     }
                     if (ui::is_window_focused() && !ui::is_any_item_active()) {
                         tools.handle_keys();
+                        terrain_tools.handle_keys(document, selection);
                         if (ui::is_key_pressed(ui::Key::Delete)) {
                             EditorMenu::delete_selected(targets);
                         }
@@ -590,8 +595,15 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
             // Spielen: Systeme der Szene laufen lassen. Danach Weltlagen und Hilfslinien samt
             // Texten in der Welt, damit die UI die Texte dieses Frames zeichnet.
-            if (document.playing() && !play.paused) {
+            if (document.playing()) {
+                world::Simulation& simulation = (*scene)->simulation();
+                simulation.set_paused(play.paused);
+                if (std::exchange(play.step_requested, false)) {
+                    simulation.step();
+                }
                 (*scene)->simulate(dt);
+            } else {
+                (*scene)->simulation().reset_clock();
             }
             transforms_updated = world::update_transforms(document.world());
             render::DebugDraw& debug = (*scene)->renderer().debug();
@@ -620,9 +632,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             }
             window->set_text_input(context.wants_text_input());
 
-            (*scene)->update(dt, looking ? fly : app::FlyInput{});
-            fly.look_x = 0.0f;
-            fly.look_y = 0.0f;
+            actions.end_frame(dt);
+            (*scene)->update(dt, app::fly_input(actions));
 
             if (auto frame = (*device)->begin_frame()) {
                 gpu_profiler.begin_frame(*frame);
@@ -655,22 +666,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             run_frame();
         });
 
-        const auto set_fly_key = [&](platform::Key key, bool down) {
-            using platform::Key;
-            switch (key) {
-            case Key::W: fly.forward = down; break;
-            case Key::S: fly.back = down; break;
-            case Key::A: fly.left = down; break;
-            case Key::D: fly.right = down; break;
-            case Key::E: fly.up = down; break;
-            case Key::Q: fly.down = down; break;
-            case Key::Shift: fly.fast = down; break;
-            default: break;
-            }
-        };
         const auto stop_looking = [&] {
             looking = false;
-            fly = {};
+            actions.release_all();
             window->set_relative_mouse(false);
         };
 
@@ -693,7 +691,22 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         }
         while (running) {
             namespace event = platform::event;
+            bindings.poll(actions);
+            actions.begin_frame();
             for (const platform::Event& e : window->poll_events()) {
+                // Beim Fliegen gehören Tastatur und Maus der Kamera; Loslassen, Fokus und Gamepad
+                // zählen immer.
+                const bool always = std::holds_alternative<event::KeyReleased>(e) ||
+                                    std::holds_alternative<event::MouseButtonReleased>(e) ||
+                                    std::holds_alternative<event::FocusChanged>(e) ||
+                                    std::holds_alternative<event::GamepadAdded>(e) ||
+                                    std::holds_alternative<event::GamepadRemoved>(e) ||
+                                    std::holds_alternative<event::GamepadButtonPressed>(e) ||
+                                    std::holds_alternative<event::GamepadButtonReleased>(e) ||
+                                    std::holds_alternative<event::GamepadAxisMoved>(e);
+                if (looking || always) {
+                    actions.handle(e);
+                }
                 std::visit(
                     [&](const auto& ev) {
                         using T = std::decay_t<decltype(ev)>;
@@ -704,10 +717,6 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                         } else if constexpr (std::is_same_v<T, event::KeyPressed> ||
                                              std::is_same_v<T, event::KeyReleased>) {
                             constexpr bool down = std::is_same_v<T, event::KeyPressed>;
-                            // Beim Fliegen gehören die Tasten der Kamera, Loslassen immer.
-                            if (looking || !down) {
-                                set_fly_key(ev.key, down);
-                            }
                             if (looking && down && ev.key == platform::Key::Escape) {
                                 stop_looking();
                             }
@@ -717,10 +726,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseMoved>) {
-                            if (looking) {
-                                fly.look_x += ev.dx;
-                                fly.look_y += ev.dy;
-                            } else {
+                            if (!looking) {
                                 context.add_mouse_position(ev.x, ev.y);
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {

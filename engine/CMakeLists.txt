@@ -20,7 +20,6 @@ add_subdirectory(render)
 add_subdirectory(shaders)
 add_subdirectory(shader_compiler)
 add_subdirectory(editor_ui)
-
-if(NGINE_WITH_WINDOW)
-    add_subdirectory(platform)
-endif()
+# Ohne NGINE_WITH_WINDOW nur die Typen der Ereignisse, ohne SDL3 (R4.1).
+add_subdirectory(platform)
+add_subdirectory(input)

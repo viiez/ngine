@@ -209,6 +209,27 @@ struct HierarchyVisitor {
     void (*visit)(void* context, u32 count, const void* own, void* out, const void* parent);
 };
 
+// Zeit der Simulation (WORLD-10), ein Wert der Welt, den Systeme über World::time() lesen. Die
+// Spielschleife (Simulation) setzt sie vor jeder Phase; ohne Simulation bleibt sie bei null.
+struct Time {
+    // Zeitschritt der laufenden Phase in Sekunden: in Phase::Fixed der feste Schritt, sonst die
+    // Bildzeit mal Zeitlupe (0 in der Pause).
+    f32 delta = 0.0f;
+    // Bildzeit ohne Zeitlupe und Pause, z. B. für eine freie Kamera, die auch in der Pause fliegt.
+    f32 real_delta = 0.0f;
+    // Länge eines festen Schritts.
+    f32 fixed_delta = 1.0f / 60.0f;
+    // Anteil zwischen den letzten beiden festen Schritten (0 bis 1), mit dem gezeichnet wird.
+    f32 alpha = 0.0f;
+    // Zahl der gerechneten festen Schritte; im laufenden Schritt schon mitgezählt.
+    u64 tick = 0;
+    // Zahl der Bilder (Simulation::advance()).
+    u64 frame = 0;
+    // Simulierte Zeit in Sekunden: tick mal fixed_delta.
+    f64 elapsed = 0.0;
+    bool paused = false;
+};
+
 // Die Welt besitzt alle Entities und ihre Komponenten. Komponenten sind Structs, die in der
 // Reflection registriert sind (siehe ADR 0018); die Welt meldet sie beim ersten Gebrauch bei flecs
 // an. Eine Welt gehört einem Thread; nur Systeme (Schedule) arbeiten parallel auf ihren Daten.
@@ -304,6 +325,15 @@ public:
         return running_systems_;
     }
 
+    // Zeit der Simulation. Systeme lesen sie, auch parallel; setzen darf sie nur die Spielschleife
+    // zwischen den Phasen.
+    [[nodiscard]] const Time& time() const noexcept {
+        return time_;
+    }
+    void set_time(const Time& time) noexcept {
+        time_ = time;
+    }
+
 private:
     friend class detail::QueryBase;
     friend class Schedule;
@@ -313,6 +343,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     const reflect::TypeRegistry* types_;
+    Time time_;
     bool running_systems_ = false;
 };
 

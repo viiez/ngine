@@ -40,7 +40,7 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | PLAT-01 | Fenster | Fenster über SDL3, Wayland und X11 unter Linux | A2 | fertig |
-| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen; bisher Tasten nach Scancode (Buchstaben, Ziffern, F1 bis F12, Navigation, Umschalttasten) mit Loslassen, Texteingabe, Fokus, Maus (Bewegung, relativer Modus, Tasten, Rad, Zeigerform), Zwischenablage | A2 / D1 / R1.3 / R2.1 | in Arbeit |
+| PLAT-02 | Eingabe | Tastatur, Maus, Gamepad, Abbildung auf Aktionen: Tasten nach Scancode (Buchstaben, Ziffern, F1 bis F12, Navigation, Umschalttasten, Klammern, Satzzeichen) mit Loslassen, Texteingabe, Fokus, Maus (Bewegung, relativer Modus, Tasten, Rad, Zeigerform), Zwischenablage; seit R4.1 Gamepads nach dem Xbox-Schema und `ngine.input` mit benannten Aktionen, toter Zone, Belegung als Datei mit Neuladen und Flanken für die feste Simulation | A2 / D1 / R1.3 / R2.1 / R4.1 | fertig |
 | PLAT-03 | Headless-Start | Engine läuft ohne Fenster und GPU (Server, Tests); Build ohne SDL3 mit `NGINE_WITH_WINDOW=OFF` | A1 / A2 | fertig |
 | PLAT-04 | Dateisystem | Dateien lesen und atomar schreiben, Benutzerordner, UTF-8-Pfade (`ngine.filesystem`, auch ohne Fenster) | A4 | fertig |
 | PLAT-05 | Virtuelles Dateisystem | Archive, Mounts, einheitliche Pfade | R2 | Idee |
@@ -79,8 +79,8 @@ eine Komponente.
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern: Positionen in 64 Bit, gezeichnet relativ zur Kamera ([ADR 0012](adr/0012-64bit-world-coordinates.md)); `--far` zeigt es | R1.1 | fertig |
 | WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming; R3.3: Baum von Chunks in Stufen, ausgeglichen, um mehrere Beobachter ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | fertig |
 | WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen; R3.3: Terrain lädt um `TerrainObserver` im Job-System mit Budget, Übernahme in einem Schritt, Speicher begrenzt; Renderer lädt neue Netze mit Budget pro Frame und tauscht sie auf einmal; R3.4: Änderungen überleben Entladen und Neuladen | R3 | fertig |
-| WORLD-09 | Befehlspuffer | Strukturänderungen aus Systemen heraus sammeln und nach dem Schedule ausführen | R4 | geplant |
-| WORLD-10 | Phasen für Systeme | Systeme in Phasen (Eingabe, Simulation, Rendering) und mit expliziter Reihenfolge | R4 | geplant |
+| WORLD-09 | Befehlspuffer | Strukturänderungen aus Systemen heraus sammeln und nach dem Schedule in fester Reihenfolge ausführen (`Commands`, [ADR 0044](adr/0044-game-loop-phases-fixed-step-commands.md)) | R4.1 | fertig |
+| WORLD-10 | Phasen für Systeme | Systeme in Phasen (feste Simulation, Bild, Nachbereitung) und mit expliziter Reihenfolge, Spielschleife mit festem Zeitschritt und Interpolation (`Simulation`, [ADR 0044](adr/0044-game-loop-phases-fixed-step-commands.md)) | R4.1 | fertig |
 
 ## Voxel-Terrain
 

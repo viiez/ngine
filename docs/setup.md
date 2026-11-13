@@ -393,6 +393,25 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    `--client <IP des Servers>`. Die Firewall muss UDP-Port 27020 durchlassen (Linux z. B.
    `sudo ufw allow 27020/udp`; Windows fragt beim ersten Start).
 
+## R4.1 testen: Spielschleife und Eingabe
+
+1. **Tests:** `ctest` meldet auch `[input]`, `[commands]` und `[simulation]` als bestanden.
+2. **Ohne Fenster:** `ngine_sandbox --headless --frames 600` rechnet die Welt der Szenen-Demo über
+   die Spielschleife und meldet am Ende „600 feste Schritte (10.00 s simuliert)“.
+3. **Gleich schnell bei jeder Bildrate:** `ngine_sandbox` einmal mit VSync (60 oder 144 Hz) und einmal
+   mit `--no-vsync` starten. Die acht Lichter kreisen gleich schnell und gleiten ohne Ruckeln.
+4. **Gamepad:** Ein Gamepad anstecken (Xbox, PlayStation oder ein anderes, das SDL3 kennt); im Log
+   steht „Gamepad angesteckt: …“. Linker Stick fliegt, rechter dreht, Schultertasten hoch und
+   runter, rechter Trigger schneller. Tastatur und Maus fliegen wie bisher.
+5. **Belegung im laufenden Betrieb:** `assets/eingabe/standard.input` ändern, z. B. bei `move` den
+   Eintrag `Key.W` durch `Key.Up` ersetzen, und speichern. Im Log steht „Eingabe: Belegung neu
+   geladen“, die Pfeiltaste fliegt sofort vorwärts.
+6. **Editor:** Spielen (F5), „Pause“ ankreuzen, „Schritt“ drücken: Die Lichter rücken genau einen
+   Schritt weiter. Stoppen stellt die Welt wieder her.
+7. **Kürzel der Pinsel:** Im Editor ein Terrain einfügen und auswählen, ins Bild klicken. B schaltet
+   den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
+   ändern den Radius.
+
 Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
 sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf
 `build/<preset>/vcpkg_installed/<triplet>/share/vulkan/explicit_layer.d` setzen (unter Windows auf

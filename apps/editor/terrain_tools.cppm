@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <format>
@@ -29,9 +30,11 @@ struct ModeEntry {
 };
 
 constexpr std::array modes{
-    ModeEntry{voxel::BrushMode::Remove, "Abtragen"}, ModeEntry{voxel::BrushMode::Add, "Auftragen"},
-    ModeEntry{voxel::BrushMode::Smooth, "Glätten"},  ModeEntry{voxel::BrushMode::Flatten, "Ebnen"},
-    ModeEntry{voxel::BrushMode::Paint, "Bemalen"},
+    ModeEntry{voxel::BrushMode::Remove, "Abtragen (1)"},
+    ModeEntry{voxel::BrushMode::Add, "Auftragen (2)"},
+    ModeEntry{voxel::BrushMode::Smooth, "Glätten (3)"},
+    ModeEntry{voxel::BrushMode::Flatten, "Ebnen (4)"},
+    ModeEntry{voxel::BrushMode::Paint, "Bemalen (5)"},
 };
 
 ui::UiColor mode_color(voxel::BrushMode mode) {
@@ -50,6 +53,10 @@ const std::array<std::string, 4>& material_names() {
     static const std::array<std::string, 4> names{"Gras", "Fels", "Erde", "Sand"};
     return names;
 }
+
+// Grenzen des Pinselradius in Metern.
+constexpr f32 min_radius = 0.5f;
+constexpr f32 max_radius = 32.0f;
 
 export class TerrainTools {
 public:
@@ -73,7 +80,7 @@ public:
             return;
         }
         ui::begin_disabled(document.playing());
-        ui::checkbox("Pinsel", active);
+        ui::checkbox("Pinsel (B)", active);
         edit::TerrainBrushSettings& settings = tool.settings;
         for (const ModeEntry& entry : modes) {
             ui::same_line();
@@ -83,11 +90,11 @@ public:
             }
         }
         ui::same_line(24.0f);
-        constexpr f64 min_radius = 0.5;
-        constexpr f64 max_radius = 32.0;
+        constexpr f64 min = min_radius;
+        constexpr f64 max = max_radius;
         ui::set_next_item_width(90.0f);
-        ui::drag_scalars("Radius", ui::DataType::F32, &settings.radius, 1, 0.05f, &min_radius,
-                         &max_radius, "%.1f m");
+        ui::drag_scalars("Radius", ui::DataType::F32, &settings.radius, 1, 0.05f, &min, &max,
+                         "%.1f m");
         if (settings.mode == voxel::BrushMode::Smooth ||
             settings.mode == voxel::BrushMode::Flatten) {
             constexpr f64 min_strength = 0.0;
@@ -108,6 +115,34 @@ public:
             }
         }
         ui::end_disabled();
+    }
+
+    // Kürzel (TD-42): B schaltet den Pinsel, 1 bis 5 wählen den Modus, [ und ] ändern den Radius.
+    // Nur mit ausgewähltem Terrain, nicht beim Spielen und nicht mit Strg.
+    void handle_keys(edit::SceneDocument& document, const edit::Selection& selection) {
+        if (selected_terrain(document, selection) == 0 || document.playing() ||
+            ui::is_key_down(ui::Key::Ctrl)) {
+            return;
+        }
+        if (ui::is_key_pressed(ui::Key::B)) {
+            active = !active;
+        }
+        constexpr std::array keys{ui::Key::Num1, ui::Key::Num2, ui::Key::Num3, ui::Key::Num4,
+                                  ui::Key::Num5};
+        static_assert(keys.size() == modes.size());
+        for (usize i = 0; i < keys.size(); ++i) {
+            if (ui::is_key_pressed(keys[i])) {
+                tool.settings.mode = modes[i].mode;
+                active = true;
+            }
+        }
+        // Pro Druck ein Achtel größer oder kleiner, wie beim Ziehen am Feld begrenzt.
+        if (ui::is_key_pressed(ui::Key::RightBracket)) {
+            tool.settings.radius = std::min(tool.settings.radius * 1.125f, max_radius);
+        }
+        if (ui::is_key_pressed(ui::Key::LeftBracket)) {
+            tool.settings.radius = std::max(tool.settings.radius / 1.125f, min_radius);
+        }
     }
 
     // Direkt nach dem Bild des Viewports: Vorschau unter der Maus, Pinselstrich mit gedrückter

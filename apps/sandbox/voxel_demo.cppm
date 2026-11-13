@@ -404,11 +404,13 @@ private:
                     math::angle_axis(fly_pitch_, {1.0f, 0.0f, 0.0f});
         const Vec3 forward = rotation_ * Vec3{0.0f, 0.0f, -1.0f};
         const Vec3 right = rotation_ * Vec3{1.0f, 0.0f, 0.0f};
-        Vec3 move = forward * (static_cast<f32>(input.forward) - static_cast<f32>(input.back)) +
-                    right * (static_cast<f32>(input.right) - static_cast<f32>(input.left));
-        move.y += static_cast<f32>(input.up) - static_cast<f32>(input.down);
+        Vec3 move = forward * input.forward + right * input.right;
+        move.y += input.up;
+        if (math::length(move) > 1.0f) {
+            move = math::normalize(move);
+        }
         const f32 speed = input.fast ? 40.0f : 10.0f;
-        eye_ = eye_ + math::to_f64(math::normalize(move) * (speed * dt));
+        eye_ = eye_ + math::to_f64(move * (speed * dt));
         camera_.set(world::Transform{.position = eye_, .rotation = rotation_});
     }
 
