@@ -3,9 +3,11 @@
 // trägt jeder Eckpunkt Gewichte für die acht Plätze der Materialpalette seines Chunks; sie
 // verlaufen über das Dreieck, und der Fragment-Shader mischt die Materialien danach. Jedes
 // Material wird triplanar aufgetragen: Grundfarbe und Normalen aus drei Projektionen, gewichtet
-// nach der Normale. Dazu Einstiege für die Schattenkarten und den ID-Puffer des Editors.
+// nach der Normale. Dazu Einstiege für die Schattenkarten und den ID-Puffer des Editors. Seit R3.5
+// ist jeder Chunk eine Instanz mit Meshlets (driven.slang), gezeichnet über Mesh Shader oder
+// indirekte Draws.
 
-#include "scene.slang"
+#include "driven.slang"
 
 // Wie voxel::Vertex (32 Bytes): Position in Voxeln relativ zur Ecke des Chunks, Gewichte der
 // Palettenplätze 0–3 (je 8 Bit), Normale nach außen, Gewichte der Plätze 4–7.
@@ -17,37 +19,10 @@ struct TerrainVertex
     uint weights_high;
 };
 
-// Wie render::GpuTerrainMaterial (48 Bytes).
-struct TerrainMaterial
-{
-    // xyz: Farbe (linear, Faktor auf die Textur), w: Roughness
-    float4 color;
-    // x: Meter pro Wiederholung, y: Stärke der Normalen
-    float4 params;
-    // x: Grundfarbe, y: Normalen, z: Sampler, w: frei
-    uint4 textures;
-};
-
-// Wie render::TerrainPush (104 Bytes).
-struct TerrainPush
-{
-    // Zeilen der affinen Matrix vom Chunk (Voxel) in kamerarelative Weltkoordinaten (Meter)
-    float4 model[3];
-    // xyz: Ecke des Chunks relativ zum Terrain in Metern, w: Meter pro Voxel
-    float4 offset;
-    TerrainVertex* vertices;
-    Frame* frame;
-    TerrainMaterial* materials;
-    // Nur für Schatten: die Kaskade, in die gezeichnet wird
-    uint cascade;
-    // Nur für den ID-Puffer: Kennung der Entity
-    uint id;
-    // Materialnummern der acht Palettenplätze, vier je Wort
-    uint2 palette;
-};
-
 [[vk::push_constant]]
-ConstantBuffer<TerrainPush> push;
+ConstantBuffer<DrivenPushT<TerrainVertex>> push;
+
+typealias Instance = InstanceT<TerrainVertex>;
 
 #include "lighting.slang"
 
@@ -61,6 +36,20 @@ struct VertexOutput
     // Gewichte der Palettenplätze, interpoliert
     float4 weights_low : COLOR0;
     float4 weights_high : COLOR1;
+    nointerpolation uint instance : INSTANCE0;
+};
+
+// Nur Position: Schattenkarten.
+struct DepthOutput
+{
+    float4 position : SV_Position;
+};
+
+// Position und Kennung: ID-Puffer.
+struct IdOutput
+{
+    float4 position : SV_Position;
+    nointerpolation uint id : INSTANCE0;
 };
 
 float4 unpack_weights(uint packed)
@@ -69,18 +58,18 @@ float4 unpack_weights(uint packed)
                   float(packed >> 24)) * (1.0 / 255.0);
 }
 
-uint palette_material(uint slot)
+uint palette_material(uint2 palette, uint slot)
 {
-    let word = slot < 4 ? push.palette.x : push.palette.y;
+    let word = slot < 4 ? palette.x : palette.y;
     return (word >> ((slot % 4) * 8)) & 0xFF;
 }
 
-float3 world_normal(float3 n)
+float3 world_normal(float4 model[3], float3 n)
 {
     // Spalten des linearen Teils; gleichmäßig skaliert, also genügt die Adjunkte.
-    let c0 = float3(push.model[0].x, push.model[1].x, push.model[2].x);
-    let c1 = float3(push.model[0].y, push.model[1].y, push.model[2].y);
-    let c2 = float3(push.model[0].z, push.model[1].z, push.model[2].z);
+    let c0 = float3(model[0].x, model[1].x, model[2].x);
+    let c1 = float3(model[0].y, model[1].y, model[2].y);
+    let c2 = float3(model[0].z, model[1].z, model[2].z);
     return cross(c1, c2) * n.x + cross(c2, c0) * n.y + cross(c0, c1) * n.z;
 }
 
@@ -89,6 +78,41 @@ float4 to_clip(float3 world)
     let w = float4(world, 1.0);
     let vp = push.frame.view_projection;
     return float4(dot(vp[0], w), dot(vp[1], w), dot(vp[2], w), dot(vp[3], w));
+}
+
+VertexOutput shade_vertex(Instance instance, uint instance_index, uint vertex_index)
+{
+    let v = instance.vertices[vertex_index];
+    let world = transform_point(instance.model, v.position);
+    VertexOutput output;
+    output.position = to_clip(world);
+    output.world = world;
+    output.local = instance.offset.xyz + v.position * instance.offset.w;
+    output.normal = world_normal(instance.model, v.normal);
+    output.weights_low = unpack_weights(v.weights_low);
+    output.weights_high = unpack_weights(v.weights_high);
+    output.instance = instance_index;
+    return output;
+}
+
+DepthOutput shadow_vertex(Instance instance, uint vertex_index)
+{
+    let v = instance.vertices[vertex_index];
+    let p = float4(transform_point(instance.model, v.position), 1.0);
+    let base = push.cascade * 3;
+    let rows = push.frame.cascade_rows;
+    DepthOutput output;
+    output.position = float4(dot(rows[base], p), dot(rows[base + 1], p), dot(rows[base + 2], p), 1.0);
+    return output;
+}
+
+IdOutput id_vertex(Instance instance, uint vertex_index)
+{
+    let v = instance.vertices[vertex_index];
+    IdOutput output;
+    output.position = to_clip(transform_point(instance.model, v.position));
+    output.id = instance.id;
+    return output;
 }
 
 // Ergebnis eines Materials an einem Punkt.
@@ -144,25 +168,40 @@ Surface sample_material(TerrainMaterial m, float3 p, float3 n, float3 blend)
     return s;
 }
 
+// --- Vorwärts ---------------------------------------------------------------------------------
+
 [shader("vertex")]
-VertexOutput vertex_main(uint vertex_id : SV_VertexID)
+VertexOutput vertex_main(uint vertex_id : SV_VertexID, uint instance : SV_VulkanInstanceID)
 {
-    let v = push.vertices[vertex_id];
-    let world = transform_point(push.model, v.position);
-    VertexOutput output;
-    output.position = to_clip(world);
-    output.world = world;
-    output.local = push.offset.xyz + v.position * push.offset.w;
-    output.normal = world_normal(v.normal);
-    output.weights_low = unpack_weights(v.weights_low);
-    output.weights_high = unpack_weights(v.weights_high);
-    return output;
+    return shade_vertex(push.instances[instance], instance, vertex_id);
+}
+
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(32, 1, 1)]
+void mesh_main(uint thread : SV_GroupThreadID, uint group : SV_GroupID, in payload Payload task,
+               out vertices VertexOutput vertices[64], out indices uint3 triangles[124])
+{
+    let instance = push.instances[task.instance];
+    let m = instance.meshlets[task.meshlets[group]];
+    let vertex_count = meshlet_vertex_count(m);
+    let triangle_count = meshlet_triangle_count(m);
+    SetMeshOutputCounts(vertex_count, triangle_count);
+    for (uint i = thread; i < vertex_count; i += mesh_threads)
+    {
+        vertices[i] = shade_vertex(instance, task.instance, instance.words[m.vertex_offset + i]);
+    }
+    for (uint i = thread; i < triangle_count; i += mesh_threads)
+    {
+        triangles[i] = unpack_triangle(instance.words[m.triangle_offset + i]);
+    }
 }
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) : SV_Target
 {
     let n = normalize(input.normal);
+    let palette = push.instances[input.instance].palette;
     // Gewichte der drei Projektionen: scharf zur Hauptachse hin, Summe 1.
     var blend = pow(abs(n), float3(4.0));
     blend /= max(blend.x + blend.y + blend.z, 1e-5);
@@ -184,7 +223,8 @@ float4 fragment_main(VertexOutput input) : SV_Target
         {
             continue;
         }
-        let s = sample_material(push.materials[palette_material(slot)], input.local, n, blend);
+        let s = sample_material(push.terrain_materials[palette_material(palette, slot)], input.local,
+                                n, blend);
         albedo += s.albedo * w;
         normal += s.normal * w;
         roughness += s.roughness * w;
@@ -204,27 +244,66 @@ float4 fragment_main(VertexOutput input) : SV_Target
     return float4(color, 1.0);
 }
 
-// Schattenkarten: nur Tiefe aus der Sicht der Kaskade, ohne Fragment-Shader.
+// --- Schattenkarten: nur Tiefe aus der Sicht der Kaskade, ohne Fragment-Shader ---------------
+
 [shader("vertex")]
-float4 shadow_vertex_main(uint vertex_id : SV_VertexID) : SV_Position
+DepthOutput shadow_vertex_main(uint vertex_id : SV_VertexID, uint instance : SV_VulkanInstanceID)
 {
-    let v = push.vertices[vertex_id];
-    let p = float4(transform_point(push.model, v.position), 1.0);
-    let base = push.cascade * 3;
-    let rows = push.frame.cascade_rows;
-    return float4(dot(rows[base], p), dot(rows[base + 1], p), dot(rows[base + 2], p), 1.0);
+    return shadow_vertex(push.instances[instance], vertex_id);
 }
 
-// ID-Puffer für die Auswahl im Editor.
-[shader("vertex")]
-float4 id_vertex_main(uint vertex_id : SV_VertexID) : SV_Position
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(32, 1, 1)]
+void shadow_mesh_main(uint thread : SV_GroupThreadID, uint group : SV_GroupID, in payload Payload task,
+                      out vertices DepthOutput vertices[64], out indices uint3 triangles[124])
 {
-    let v = push.vertices[vertex_id];
-    return to_clip(transform_point(push.model, v.position));
+    let instance = push.instances[task.instance];
+    let m = instance.meshlets[task.meshlets[group]];
+    let vertex_count = meshlet_vertex_count(m);
+    let triangle_count = meshlet_triangle_count(m);
+    SetMeshOutputCounts(vertex_count, triangle_count);
+    for (uint i = thread; i < vertex_count; i += mesh_threads)
+    {
+        vertices[i] = shadow_vertex(instance, instance.words[m.vertex_offset + i]);
+    }
+    for (uint i = thread; i < triangle_count; i += mesh_threads)
+    {
+        triangles[i] = unpack_triangle(instance.words[m.triangle_offset + i]);
+    }
+}
+
+// --- ID-Puffer für die Auswahl im Editor -----------------------------------------------------
+
+[shader("vertex")]
+IdOutput id_vertex_main(uint vertex_id : SV_VertexID, uint instance : SV_VulkanInstanceID)
+{
+    return id_vertex(push.instances[instance], vertex_id);
+}
+
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(32, 1, 1)]
+void id_mesh_main(uint thread : SV_GroupThreadID, uint group : SV_GroupID, in payload Payload task,
+                  out vertices IdOutput vertices[64], out indices uint3 triangles[124])
+{
+    let instance = push.instances[task.instance];
+    let m = instance.meshlets[task.meshlets[group]];
+    let vertex_count = meshlet_vertex_count(m);
+    let triangle_count = meshlet_triangle_count(m);
+    SetMeshOutputCounts(vertex_count, triangle_count);
+    for (uint i = thread; i < vertex_count; i += mesh_threads)
+    {
+        vertices[i] = id_vertex(instance, instance.words[m.vertex_offset + i]);
+    }
+    for (uint i = thread; i < triangle_count; i += mesh_threads)
+    {
+        triangles[i] = unpack_triangle(instance.words[m.triangle_offset + i]);
+    }
 }
 
 [shader("fragment")]
-uint id_fragment_main() : SV_Target
+uint id_fragment_main(IdOutput input) : SV_Target
 {
-    return push.id;
+    return input.id;
 }

@@ -102,6 +102,42 @@ constexpr u32 gradient_compute[] = {
 #include "gradient_compute.spv.inc"
 };
 
+constexpr u32 pbr_mesh[] = {
+#include "pbr_mesh.spv.inc"
+};
+
+constexpr u32 shadow_mesh[] = {
+#include "shadow_mesh.spv.inc"
+};
+
+constexpr u32 id_mesh[] = {
+#include "id_mesh.spv.inc"
+};
+
+constexpr u32 terrain_mesh[] = {
+#include "terrain_mesh.spv.inc"
+};
+
+constexpr u32 terrain_shadow_mesh[] = {
+#include "terrain_shadow_mesh.spv.inc"
+};
+
+constexpr u32 terrain_id_mesh[] = {
+#include "terrain_id_mesh.spv.inc"
+};
+
+constexpr u32 cull_task[] = {
+#include "cull_task.spv.inc"
+};
+
+constexpr u32 cull_compute[] = {
+#include "cull_compute.spv.inc"
+};
+
+constexpr u32 hiz_compute[] = {
+#include "hiz_compute.spv.inc"
+};
+
 } // namespace ngine::shaders::detail
 
 export namespace ngine::shaders {
@@ -134,9 +170,9 @@ rhi::ShaderDesc fullscreen_fragment() {
     return {rhi::ShaderStage::Fragment, detail::fullscreen_fragment, "fragment_main"};
 }
 
-// PBR-Materialien im Vorwärts-Pass (pbr.slang). Push Constants wie render::DrawPush: Modellmatrix
-// in drei Zeilen (48 Bytes), Adressen der Eckpunkte, des Frames und der Materialien (je 8) und
-// der Index des Materials (4); der Frame wie render::GpuFrame.
+// PBR-Materialien im Vorwärts-Pass (pbr.slang). Seit R3.5 GPU-getrieben (driven.slang): Push
+// Constants wie render::detail::DrivenPush, die Instanz kommt als erste Instanz des Draws
+// (Rückfallpfad) bzw. über den Task-Shader (pbr_mesh()); der Frame wie render::GpuFrame.
 rhi::ShaderDesc pbr_vertex() {
     return {rhi::ShaderStage::Vertex, detail::pbr_vertex, "vertex_main"};
 }
@@ -145,8 +181,8 @@ rhi::ShaderDesc pbr_fragment() {
     return {rhi::ShaderStage::Fragment, detail::pbr_fragment, "fragment_main"};
 }
 
-// Schattenkarten der Sonne (shadow.slang): nur Tiefe. Push Constants wie render::DrawPush mit der
-// Kaskade im letzten Feld. Den Fragment-Shader brauchen nur Materialien mit Alpha-Maske.
+// Schattenkarten der Sonne (shadow.slang): nur Tiefe. Push Constants wie render::detail::DrivenPush
+// mit der Kaskade. Den Fragment-Shader brauchen nur Materialien mit Alpha-Maske.
 rhi::ShaderDesc shadow_vertex() {
     return {rhi::ShaderStage::Vertex, detail::shadow_vertex, "vertex_main"};
 }
@@ -165,9 +201,8 @@ rhi::ShaderDesc debug_fragment() {
     return {rhi::ShaderStage::Fragment, detail::debug_fragment, "fragment_main"};
 }
 
-// ID-Puffer für die Auswahl im Editor (id.slang): schreibt eine Kennung pro Draw in ein
-// R32Uint-Ziel. Push Constants: Modellmatrix in drei Zeilen (48 Bytes), Adressen der Eckpunkte und
-// des Frames (je 8), Kennung (u32).
+// ID-Puffer für die Auswahl im Editor (id.slang): schreibt die Kennung der Instanz in ein
+// R32Uint-Ziel. Push Constants wie render::detail::DrivenPush (R3.5).
 rhi::ShaderDesc id_vertex() {
     return {rhi::ShaderStage::Vertex, detail::id_vertex, "vertex_main"};
 }
@@ -177,8 +212,7 @@ rhi::ShaderDesc id_fragment() {
 }
 
 // Voxel-Terrain (terrain.slang, R3.1): Netze aus voxel::Vertex mit Beleuchtung wie pbr.slang,
-// dazu Schattenkarten und ID-Puffer. Push Constants wie render::TerrainPush: Modellmatrix in drei
-// Zeilen (48 Bytes), Adressen der Eckpunkte und des Frames (je 8), Kaskade und Kennung (je u32).
+// dazu Schattenkarten und ID-Puffer. Push Constants wie render::detail::DrivenPush (R3.5).
 rhi::ShaderDesc terrain_vertex() {
     return {rhi::ShaderStage::Vertex, detail::terrain_vertex, "vertex_main"};
 }
@@ -221,6 +255,48 @@ rhi::ShaderDesc ui_fragment() {
 // Storage-Textur, Breite, Höhe (je u32) und Blauanteil (f32).
 rhi::ShaderDesc gradient_compute() {
     return {rhi::ShaderStage::Compute, detail::gradient_compute, "compute_main"};
+}
+
+// Mesh Shader der Szene (R3.5, driven.slang): je ein Meshlet pro Arbeitsgruppe, ausgewählt von
+// cull_task(). Gleiche Ausgabe wie der Vertex-Shader derselben Datei.
+rhi::ShaderDesc pbr_mesh() {
+    return {rhi::ShaderStage::Mesh, detail::pbr_mesh, "mesh_main"};
+}
+
+rhi::ShaderDesc shadow_mesh() {
+    return {rhi::ShaderStage::Mesh, detail::shadow_mesh, "mesh_main"};
+}
+
+rhi::ShaderDesc id_mesh() {
+    return {rhi::ShaderStage::Mesh, detail::id_mesh, "mesh_main"};
+}
+
+rhi::ShaderDesc terrain_mesh() {
+    return {rhi::ShaderStage::Mesh, detail::terrain_mesh, "mesh_main"};
+}
+
+rhi::ShaderDesc terrain_shadow_mesh() {
+    return {rhi::ShaderStage::Mesh, detail::terrain_shadow_mesh, "shadow_mesh_main"};
+}
+
+rhi::ShaderDesc terrain_id_mesh() {
+    return {rhi::ShaderStage::Mesh, detail::terrain_id_mesh, "id_mesh_main"};
+}
+
+// Prüfen der Meshlets (cull.slang, R3.5): Task-Shader für den Mesh-Shader-Pfad, Compute-Shader
+// für den Rückfallpfad mit indirekten Draws. Gruppen zu 32 Meshlets.
+rhi::ShaderDesc cull_task() {
+    return {rhi::ShaderStage::Task, detail::cull_task, "cull_task"};
+}
+
+rhi::ShaderDesc cull_compute() {
+    return {rhi::ShaderStage::Compute, detail::cull_compute, "cull_compute"};
+}
+
+// Hi-Z (hiz.slang, R3.5): eine Stufe der Tiefenpyramide aus der Tiefe oder der Stufe davor,
+// Gruppen zu 8×8. Push Constants wie render::detail::HizPush.
+rhi::ShaderDesc hiz_compute() {
+    return {rhi::ShaderStage::Compute, detail::hiz_compute, "compute_main"};
 }
 
 } // namespace ngine::shaders

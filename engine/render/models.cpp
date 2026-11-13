@@ -245,7 +245,10 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
                 primitive.material && *primitive.material < instance.materials.size()
                     ? instance.materials[*primitive.material]
                     : 0;
-            submeshes.push_back({primitive.vertices, primitive.indices, material});
+            submeshes.push_back({.vertices = primitive.vertices,
+                                 .indices = primitive.indices,
+                                 .material = material,
+                                 .meshlets = primitive.meshlets});
         }
         auto index = renderer.meshes().add(submeshes, textures != nullptr ? &ticket : nullptr);
         if (!index) {
@@ -334,6 +337,8 @@ void register_loaders(asset::ResourceManager& resources, Renderer& renderer, Mod
             ++loads_source;
             Prepared prepared{.model = *std::move(model), .textures = {}};
             prepared.textures = prepare_textures(prepared.model);
+            // Meshlets im Hintergrund statt beim Hochladen (gekochte Modelle haben sie schon).
+            asset::ensure_meshlets(prepared.model);
             return prepared;
         },
         [&renderer](Prepared& prepared) -> asset::Result<GpuModel> {

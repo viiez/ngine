@@ -68,6 +68,8 @@ Result<asset::CookedModel> cook_model(std::string_view source, const CookSetting
             if (primitive.generated_tangents) {
                 generate_tangents(primitive);
             }
+            // Nach den Tangenten: MikkTSpace kann Eckpunkte teilen und Indizes ändern.
+            build_meshlets(primitive);
         }
     }
 

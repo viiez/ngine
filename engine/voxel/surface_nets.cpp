@@ -15,6 +15,7 @@ module ngine.voxel;
 
 import ngine.core;
 import ngine.math;
+import ngine.meshlet;
 import ngine.profile;
 
 namespace ngine::voxel {
@@ -61,6 +62,13 @@ u32 palette_slot(Mesh& mesh, Material material) {
     }
     mesh.palette[mesh.palette_count] = material;
     return mesh.palette_count++;
+}
+
+// Teilt das fertige Netz in Meshlets (R3.5) und sortiert dafür seine Dreiecke um.
+void build_meshlets(Mesh& mesh) {
+    mesh.meshlets =
+        meshlet::build(meshlet::positions_of(std::span<const Vertex>{mesh.vertices}), mesh.indices);
+    mesh.local = meshlet::local_data(mesh.meshlets, mesh.indices);
 }
 
 // Gewichte auf 8 Bit pro Platz mit der Summe 255; der Rest der Rundung geht an den größten Platz.
@@ -231,6 +239,7 @@ void Mesher::build_range(const Grid& grid, Mesh& out, u32 cell_min, u32 cell_max
             }
         }
     }
+    build_meshlets(out);
 }
 
 // --- LOD (R3.3, ADR 0041) -------------------------------------------------------------------
@@ -925,6 +934,7 @@ void LodMesher::build(const LodLayout& layout, const ChunkSource& source, ChunkC
     NGINE_PROFILE_ZONE("voxel::LodMesher::build");
     impl_->prepare(layout, source, leaf);
     impl_->build(out);
+    build_meshlets(out);
 }
 
 } // namespace ngine::voxel

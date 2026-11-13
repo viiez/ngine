@@ -11,7 +11,8 @@ module;
 // execute() zeichnet den Plan in eine CommandList auf.
 //
 // Grenzen dieser Fassung: eine Queue, Reihenfolge wie deklariert, transiente Ressourcen nur als
-// Texturen und ohne geteilten Speicher (Aliasing).
+// Texturen. Texturen mit getrennter Lebensdauer teilen sich seit R3.5 eine Textur des Vorrats
+// (TD-16), aber keinen Speicher zwischen verschiedenen Formaten (kein Aliasing, ADR 0043).
 export module ngine.render:graph;
 
 import ngine.core;
@@ -154,7 +155,8 @@ public:
     }
 
     // Plant bei Bedarf und zeichnet alle Passes mit ihren Barrieren auf. Transiente Texturen
-    // kommen aus pool; der Aufrufer ruft pool.end_frame(), wenn der Frame aufgezeichnet ist. Mit
+    // kommen vor ihrem ersten Pass aus pool und gehen nach ihrem letzten zurück; der Aufrufer ruft
+    // pool.end_frame(), wenn der Frame aufgezeichnet ist. Mit
     // profiler bekommt jeder Pass eine GPU-Zone.
     void execute(rhi::CommandList& commands, TexturePool& pool, GpuProfiler* profiler = nullptr);
 

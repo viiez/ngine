@@ -6,6 +6,7 @@ module;
 export module ngine.voxel:mesh;
 
 import ngine.core;
+export import ngine.meshlet;
 import :grid;
 
 export namespace ngine::voxel {
@@ -40,6 +41,10 @@ struct Mesh {
     std::vector<u32> indices;
     std::array<Material, palette_size> palette{};
     u32 palette_count = 0;
+    // Meshlets über die Dreiecke (R3.5, ADR 0043); indices ist danach umsortiert.
+    std::vector<meshlet::Meshlet> meshlets;
+    // Lokale Daten der Meshlets für den Mesh-Shader, im Job gerechnet statt beim Hochladen.
+    meshlet::LocalData local;
 
     [[nodiscard]] usize triangle_count() const noexcept {
         return indices.size() / 3;
@@ -49,6 +54,8 @@ struct Mesh {
         indices.clear();
         palette = {};
         palette_count = 0;
+        meshlets.clear();
+        local = {};
     }
     // Material mit dem größten Gewicht an einem Eckpunkt.
     [[nodiscard]] Material dominant(const Vertex& vertex) const noexcept {

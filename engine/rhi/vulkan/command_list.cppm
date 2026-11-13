@@ -199,8 +199,54 @@ public:
         vkCmdDraw(cmd_, vertex_count, instance_count, 0, 0);
     }
 
-    void draw_indexed(u32 index_count, u32 instance_count, u32 first_index) override {
-        vkCmdDrawIndexed(cmd_, index_count, instance_count, first_index, 0, 0);
+    void draw_indexed(u32 index_count, u32 instance_count, u32 first_index,
+                      u32 first_instance) override {
+        vkCmdDrawIndexed(cmd_, index_count, instance_count, first_index, 0, first_instance);
+    }
+
+    void draw_indexed_indirect_count(const Buffer& commands, u64 offset, const Buffer& count,
+                                     u64 count_offset, u32 max_draws) override {
+        if (max_draws == 0) {
+            return;
+        }
+        verify(offset % 4 == 0 && count_offset % 4 == 0,
+               "draw_indexed_indirect_count: Versatz nicht durch 4 teilbar");
+        verify(offset + u64{max_draws} * sizeof(DrawIndexedCommand) <= commands.size(),
+               "draw_indexed_indirect_count: Puffer der Befehle zu klein");
+        vkCmdDrawIndexedIndirectCount(cmd_, static_cast<const VulkanBuffer&>(commands).handle(),
+                                      offset, static_cast<const VulkanBuffer&>(count).handle(),
+                                      count_offset, max_draws, sizeof(DrawIndexedCommand));
+    }
+
+    void draw_mesh_tasks(u32 groups_x, u32 groups_y, u32 groups_z) override {
+        if (groups_x == 0 || groups_y == 0 || groups_z == 0) {
+            return;
+        }
+        verify(vkCmdDrawMeshTasksEXT != nullptr, "draw_mesh_tasks ohne Mesh Shader");
+        vkCmdDrawMeshTasksEXT(cmd_, groups_x, groups_y, groups_z);
+    }
+
+    void fill_buffer(const Buffer& buffer, u64 offset, u64 size, u32 value) override {
+        verify(offset % 4 == 0 && size % 4 == 0 && offset + size <= buffer.size(),
+               "fill_buffer: ungültiger Bereich");
+        if (size == 0) {
+            return;
+        }
+        vkCmdFillBuffer(cmd_, static_cast<const VulkanBuffer&>(buffer).handle(), offset, size,
+                        value);
+    }
+
+    void copy_buffer(const Buffer& source, u64 source_offset, const Buffer& target,
+                     u64 target_offset, u64 size) override {
+        verify(source_offset + size <= source.size() && target_offset + size <= target.size(),
+               "copy_buffer: Bereich außerhalb der Puffer");
+        if (size == 0) {
+            return;
+        }
+        const VkBufferCopy region{
+            .srcOffset = source_offset, .dstOffset = target_offset, .size = size};
+        vkCmdCopyBuffer(cmd_, static_cast<const VulkanBuffer&>(source).handle(),
+                        static_cast<const VulkanBuffer&>(target).handle(), 1, &region);
     }
 
     void copy_texture_to_buffer(const Texture& texture, const Rect& region, const Buffer& buffer,

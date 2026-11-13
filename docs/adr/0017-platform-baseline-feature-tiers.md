@@ -44,7 +44,9 @@ aktuellen GPU funktionieren und sich auf einem frischen Ubuntu ohne Umwege bauen
   Indexing, Update After Bind), Buffer Device Address, Timeline Semaphores, Scalar Block Layout und
   Draw Parameters. Seit R1.2 dazu für den bindlosen Satz mit Storage-Texturen: Update After Bind
   und Non-Uniform Indexing auch für Storage-Texturen, Update Unused While Pending sowie Lesen und
-  Schreiben von Storage-Texturen ohne Format ([ADR 0026](0026-render-graph-bindless.md)). Fehlt
+  Schreiben von Storage-Texturen ohne Format ([ADR 0026](0026-render-graph-bindless.md)). Seit
+  R3.5 Multi Draw Indirect und Draw Indirect Count für den Rückfallpfad des GPU-getriebenen
+  Zeichnens ([ADR 0043](0043-gpu-driven-meshlets.md)). Fehlt
   etwas, startet die Engine nicht und nennt pro GPU, was fehlt.
 - **Optionale Feature-Stufen:** werden beim Start erkannt und nur eingeschaltet, wenn die GPU sie kann.
   Fürs Erste genau zwei:

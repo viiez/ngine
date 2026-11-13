@@ -9,6 +9,7 @@
 import ngine.core;
 import ngine.math;
 import ngine.voxel;
+import ngine.meshlet;
 
 using namespace ngine;
 using namespace ngine::math;
@@ -125,6 +126,14 @@ TEST_CASE("Surface Nets erzeugen eine geschlossene Kugel", "[voxel]") {
         closed = closed && count == 1 && edges.contains({edge.second, edge.first});
     }
     CHECK(closed);
+
+    // Meshlets und ihre lokalen Daten rechnet der Mesher mit (R3.5).
+    REQUIRE_FALSE(mesh.meshlets.empty());
+    CHECK(meshlet::valid(mesh.meshlets, mesh.indices));
+    const meshlet::LocalData local = meshlet::local_data(mesh.meshlets, mesh.indices);
+    CHECK(mesh.local.vertices == local.vertices);
+    CHECK(mesh.local.triangles == local.triangles);
+    CHECK(mesh.local.vertex_offsets == local.vertex_offsets);
 }
 
 TEST_CASE("Der Mesher verwendet seinen Speicher wieder", "[voxel]") {

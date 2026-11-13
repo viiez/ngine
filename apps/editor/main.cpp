@@ -507,8 +507,14 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                     times.average_ms > 0.0f ? 1000.0f / times.average_ms : 0.0f));
                     ui::text(std::format("Viewport: {} x {}", extent.width, extent.height));
                     ui::separator();
-                    ui::text(std::format("Draws: {}", stats.draws));
-                    ui::text(std::format("Dreiecke: {}", stats.triangles));
+                    ui::text(std::format("Instanzen: {} ({} Meshlets, {} Dreiecke)", stats.draws,
+                                         stats.meshlets, stats.triangles));
+                    ui::text(std::format("Gezeichnet: {} Meshlets, {} Dreiecke ({})",
+                                         stats.meshlets_drawn, stats.triangles_drawn,
+                                         stats.mesh_shaders ? "Mesh Shader" : "indirekt"));
+                    ui::text(std::format("Aussortiert: {} Stumpf, {} Rückseiten, {} verdeckt",
+                                         stats.culled_frustum, stats.culled_backface,
+                                         stats.culled_occluded));
                     ui::text(std::format("Schatten-Draws: {}", stats.shadow_draws));
                     ui::text(std::format("Lichter: {}", stats.lights));
                     ui::text(std::format("Wartet auf Modelle: {}", stats.waiting));

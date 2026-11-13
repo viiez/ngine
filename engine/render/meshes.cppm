@@ -10,16 +10,19 @@ import ngine.core;
 import ngine.math;
 import ngine.rhi;
 import ngine.asset;
+import ngine.meshlet;
 import :geometry;
 
 export namespace ngine::render {
 
 // Ein Teilnetz zum Hochladen: Eckpunkte, Indizes relativ zu diesen Eckpunkten, Material aus dem
-// MaterialStore.
+// MaterialStore. Seit R3.5 mit Meshlets (ngine.meshlet), zu denen die Indizes umsortiert sind;
+// fehlen sie oder passen nicht, baut add() sie auf einer Kopie der Indizes.
 struct SubmeshData {
     std::span<const asset::Vertex> vertices;
     std::span<const u32> indices;
     u32 material = 0;
+    std::span<const meshlet::Meshlet> meshlets;
 };
 
 struct Submesh {
@@ -27,6 +30,9 @@ struct Submesh {
     u32 first_index = 0;
     u32 index_count = 0;
     u32 material = 0;
+    // Meshlets des Teilnetzes in den Meshlet-Daten des Netzes.
+    u32 first_meshlet = 0;
+    u32 meshlet_count = 0;
 };
 
 // Mesh auf der GPU: alle Teilnetze als je ein Bereich für Eckpunkte und Indizes in den
@@ -36,9 +42,12 @@ struct Submesh {
 struct GpuMesh {
     GeometryRange vertices;
     GeometryRange indices;
+    // Meshlets aller Teilnetze mit ihren lokalen Daten (pack_meshlets(), R3.5).
+    GeometryRange meshlet_data;
     // Adresse des ersten Eckpunkts und Puffer der Indizes; 0 bzw. nullptr ohne Dreiecke.
     u64 vertex_address = 0;
     const rhi::Buffer* index_buffer = nullptr;
+    u64 meshlet_address = 0;
     std::vector<Submesh> submeshes;
     // Achsenparallele Hülle in Objektkoordinaten.
     math::Vec3 bounds_min{0.0f, 0.0f, 0.0f};

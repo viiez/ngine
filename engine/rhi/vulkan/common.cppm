@@ -118,10 +118,11 @@ struct StateInfo {
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
-// Alle Shader-Stufen, in denen Ressourcen gelesen oder geschrieben werden können.
-inline constexpr VkPipelineStageFlags2 shader_stages = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
-                                                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+// Alle Shader-Stufen, in denen Ressourcen gelesen oder geschrieben werden können. ALL_GRAPHICS
+// schließt Task- und Mesh-Shader ein, wenn sie eingeschaltet sind (R3.5), und ist auch ohne sie
+// gültig.
+inline constexpr VkPipelineStageFlags2 shader_stages =
+    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
 StateInfo state_info(ResourceState state) {
     switch (state) {
@@ -172,6 +173,9 @@ StateInfo state_info(ResourceState state) {
     case ResourceState::HostRead:
         // Macht Schreibzugriffe der GPU für die CPU sichtbar; die CPU wartet über die Timeline.
         return {VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED};
+    case ResourceState::IndirectRead:
+        return {VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED};
     }
     return {};
 }

@@ -10,6 +10,7 @@ export module ngine.asset:model;
 
 import ngine.core;
 import ngine.math;
+export import ngine.meshlet;
 import :image;
 
 export namespace ngine::asset {
@@ -32,6 +33,10 @@ struct Primitive {
     // Die Datei hatte keine Tangenten; sie sind einfach erzeugt (generate_tangents()). Beim
     // Kochen ersetzt MikkTSpace sie und setzt das zurück (TD-21).
     bool generated_tangents = false;
+    // Meshlets über die Dreiecke (R3.5, ADR 0043); indices ist dann nach Meshlets umsortiert. Leer
+    // heißt: noch nicht aufgeteilt (ensure_meshlets()). Gekochte Modelle bringen sie aus
+    // meshoptimizer mit.
+    std::vector<meshlet::Meshlet> meshlets;
 };
 
 struct Mesh {
@@ -103,6 +108,10 @@ struct Model {
     // alle Knoten ohne Elternteil).
     std::vector<u32> roots;
 };
+
+// Teilt alle Teilnetze ohne Meshlets mit dem eigenen Verfahren (meshlet::build()) auf. Braucht
+// keine GPU und läuft beim Laden im Hintergrund.
+void ensure_meshlets(Model& model);
 
 // Lädt eine glTF-2.0-Datei (.gltf mit eingebetteten oder externen Puffern, .glb) samt Bildern.
 // Fehlerhafte Dateien liefern eine Meldung mit Pfad und Ursache, nie einen Absturz. Was nicht

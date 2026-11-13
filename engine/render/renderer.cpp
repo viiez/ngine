@@ -6,6 +6,7 @@ module;
 #include <array>
 #include <cstddef>
 #include <expected>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <span>
@@ -34,6 +35,7 @@ namespace {
 using math::Mat4;
 using math::Vec3;
 using math::Vec4;
+using rhi::ResourceState;
 
 // Pipeline-Variante je Material: durchsichtig oder nicht, doppelseitig oder nicht.
 usize variant(const Material& material) {
@@ -116,8 +118,7 @@ rhi::Result<rhi::Buffer*> RendererCore::line_buffer(usize slot, usize count) {
     return buffer.get();
 }
 
-void RendererCore::collect_meshes(world::World& world, math::DVec3 origin, bool shadows_on,
-                                  const std::array<Cascade, cascade_count>& cascades) {
+void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
     world.each<const world::WorldTransform, const MeshRenderer>(
         [&](world::Entity entity, const world::WorldTransform& transform,
             const MeshRenderer& renderer) {
@@ -132,45 +133,52 @@ void RendererCore::collect_meshes(world::World& world, math::DVec3 origin, bool 
             const std::optional<u32> override_material = material(renderer.material);
             const auto id = static_cast<u32>(entity.id());
             const Mat4 rows = math::transpose(transform.value.relative_to(origin));
-            const std::array<Vec4, 3> model_rows{rows[0], rows[1], rows[2]};
-            std::array<bool, cascade_count> casts{};
-            if (shadows_on) {
-                const auto [center, radius] = bounding_sphere(*found, transform.value, origin);
-                for (u32 i = 0; i < cascade_count; ++i) {
-                    casts[i] = cascades[i].may_cast(center, radius);
-                }
-            }
+            const auto [center, radius] = bounding_sphere(*found, transform.value, origin);
             for (const Submesh& submesh : found->submeshes) {
+                if (submesh.meshlet_count == 0) {
+                    continue;
+                }
                 u32 index = override_material.value_or(submesh.material);
                 if (index >= materials.size()) {
                     index = 0;
                 }
                 const Material& properties = materials.get(index);
-                draws.push_back({.model = model_rows,
-                                 .mesh = found,
-                                 .first_index = submesh.first_index,
-                                 .index_count = submesh.index_count,
-                                 .material = index,
-                                 .pipeline = variant(properties),
-                                 .id = id});
-                if (properties.alpha_mode == AlphaMode::Blend) {
-                    continue;
+                const bool blend = properties.alpha_mode == AlphaMode::Blend;
+                const bool masked = properties.alpha_mode == AlphaMode::Mask;
+                const auto category =
+                    properties.double_sided
+                        ? (masked ? detail::Category::MaskedDoubleSided
+                                  : detail::Category::OpaqueDoubleSided)
+                        : (masked ? detail::Category::Masked : detail::Category::Opaque);
+                const auto instance_index = static_cast<u32>(instances.size());
+                instances.push_back(
+                    {.model = {rows[0], rows[1], rows[2]},
+                     .sphere = math::extend(center, radius),
+                     .vertices = found->vertex_address,
+                     .meshlets = found->meshlet_address,
+                     .words = found->meshlet_address,
+                     .first_meshlet = submesh.first_meshlet,
+                     .meshlet_count = submesh.meshlet_count,
+                     .material = index,
+                     .id = id,
+                     .first_index = submesh.first_index,
+                     .flags = properties.double_sided ? instance_double_sided : 0u});
+                instance_keys.push_back({.category = category,
+                                         .block = found->indices.block,
+                                         .index_buffer = found->index_buffer,
+                                         .blend = blend});
+                if (blend) {
+                    blend_draws.push_back({.instance = instance_index,
+                                           .index_buffer = found->index_buffer,
+                                           .first_index = submesh.first_index,
+                                           .index_count = submesh.index_count,
+                                           .pipeline = variant(properties),
+                                           .distance = math::length(center)});
                 }
-                for (u32 i = 0; i < cascade_count; ++i) {
-                    if (casts[i]) {
-                        shadow_draws[i].push_back(
-                            {.model = model_rows,
-                             .mesh = found,
-                             .first_index = submesh.first_index,
-                             .index_count = submesh.index_count,
-                             .material = index,
-                             .masked = properties.alpha_mode == AlphaMode::Mask});
-                    }
-                }
+                ++stats.draws;
+                stats.triangles += submesh.index_count / 3;
             }
         });
-    std::ranges::stable_partition(draws,
-                                  [](const detail::Draw& draw) { return draw.pipeline < 2; });
 }
 
 // --- Renderer -------------------------------------------------------------------------------
@@ -234,6 +242,7 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
         }
         impl->pick_buffers.push_back(*std::move(pick));
         impl->pick_pending.emplace_back();
+        impl->driven.emplace_back();
     }
     return std::unique_ptr<Renderer>{new Renderer{std::move(impl)}};
 }
@@ -343,6 +352,13 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
         r.pick_answer = id;
         r.pick_pending[slot].reset();
     }
+    // Statistik der GPU aus demselben Platz.
+    r.read_driven_stats(slot);
+    r.stats.meshlets_drawn = r.gpu_stats[4];
+    r.stats.triangles_drawn = r.gpu_stats[5];
+    r.stats.culled_frustum = r.gpu_stats[1];
+    r.stats.culled_backface = r.gpu_stats[2];
+    r.stats.culled_occluded = r.gpu_stats[3];
 
     const std::optional<CameraView> camera = camera_override ? camera_override : find_camera(world);
     const math::DVec3 origin = camera ? camera->position : math::DVec3{};
@@ -409,20 +425,17 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     }
     r.materials.flush();
 
-    // Draws sammeln, undurchsichtige zuerst; dazu die Werfer jeder Kaskade.
-    r.draws.clear();
-    for (auto& list : r.shadow_draws) {
-        list.clear();
-    }
-    r.terrain_draws.clear();
-    for (auto& list : r.terrain_shadow_draws) {
-        list.clear();
-    }
+    // Instanzen sammeln und zu Gruppen von Meshlets ordnen (R3.5).
+    r.instances.clear();
+    r.instance_keys.clear();
+    r.blend_draws.clear();
     if (camera) {
-        r.collect_meshes(world, origin, shadows_on, cascades);
-        r.collect_terrain(world, origin, shadows_on, cascades);
+        r.collect_terrain(world, origin);
+        r.collect_meshes(world, origin);
     }
-    const u64 terrain_materials = r.write_terrain_materials(slot);
+    r.build_groups();
+    r.stats.instances = static_cast<u32>(r.instances.size());
+    const u64 terrain_materials = r.write_terrain_materials(slot, r.stats.terrain_chunks > 0);
 
     // Debug-Linien relativ zur Kamera; die Liste gilt nur für diesen Frame.
     r.line_count = 0;
@@ -443,6 +456,50 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     r.stats.debug_lines = r.line_count;
     r.debug.clear();
 
+    // Pfad und Hi-Z dieses Frames.
+    const bool mesh_shaders = use_mesh_shaders && r.mesh_capable();
+    r.stats.mesh_shaders = mesh_shaders;
+    const bool occlusion = camera.has_value() && occlusion_culling && r.ensure_hiz(extent);
+    const Mat4 camera_matrix = camera ? view_projection(*camera, aspect) : Mat4{};
+    const bool previous_hiz = occlusion && r.previous_valid;
+    const u32 hiz_current = r.hiz_next;
+    const u32 hiz_previous = 1 - hiz_current;
+    const u32 hiz_levels = occlusion ? static_cast<u32>(r.hiz_sets[hiz_current].levels.size()) : 0;
+
+    // Sichten: Kamera (zwei Phasen), Kaskaden, ID-Puffer.
+    std::array<GpuView, detail::job_count> views{};
+    const auto fill_view = [&](GpuView& view, const Mat4& matrix, u32 flags) {
+        const std::array<Vec4, 6> planes = frustum_planes(matrix);
+        std::ranges::copy(planes, std::begin(view.planes));
+        const Mat4 rows = math::transpose(matrix);
+        for (u32 i = 0; i < 4; ++i) {
+            view.view_projection[i] = rows[i];
+        }
+        view.params[0] = flags;
+    };
+    fill_view(views[0], camera_matrix, view_cone | (previous_hiz ? view_previous_hiz : 0u));
+    if (occlusion) {
+        const Mat4 previous_rows = math::transpose(r.previous_view_projection);
+        for (u32 i = 0; i < 4; ++i) {
+            views[0].previous_view_projection[i] = previous_rows[i];
+        }
+        views[0].previous_offset = math::extend(math::to_f32(origin - r.previous_origin), 0.0f);
+        for (u32 level = 0; level < hiz_levels; ++level) {
+            views[0].hiz_current[level] = r.hiz_sets[hiz_current].levels[level]->sampled_index();
+            views[0].hiz_previous[level] = r.hiz_sets[hiz_previous].levels[level]->sampled_index();
+        }
+        views[0].params[1] = hiz_levels;
+        views[0].params[2] = r.hiz_size.width;
+        views[0].params[3] = r.hiz_size.height;
+    }
+    views[1] = views[0];
+    views[1].params[0] |= view_phase_two;
+    for (u32 i = 0; i < cascade_count; ++i) {
+        fill_view(views[2 + i], cascades[i].view_projection, 0);
+    }
+    fill_view(views[6], camera_matrix, view_cone);
+    const bool driven_ok = r.write_driven(slot, views, mesh_shaders);
+
     const detail::FrameInfo frame{.frame_buffer = &frame_buffer,
                                   .frame_address = frame_buffer.device_address(),
                                   .shadows_on = shadows_on,
@@ -450,9 +507,77 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
                                   .extent = extent,
                                   .lines_address = lines_address,
                                   .sky_color = lighting.sky_color,
-                                  .exposure = camera ? camera->camera.exposure : 1.0f};
-    const auto shadow_maps = r.add_shadow_passes(graph, frame, terrain_materials);
-    const TextureHandle hdr = r.add_forward_pass(graph, frame, shadow_maps, terrain_materials);
+                                  .exposure = camera ? camera->camera.exposure : 1.0f,
+                                  .terrain_materials = terrain_materials,
+                                  .driven = &r.driven[slot],
+                                  .mesh_shaders = mesh_shaders,
+                                  .occlusion = occlusion && driven_ok,
+                                  .hiz_current = hiz_current,
+                                  .hiz_extent = r.hiz_size,
+                                  .hiz_levels = hiz_levels};
+    if (!driven_ok) {
+        // Ohne Puffer nichts zeichnen; Himmel und Linien bleiben.
+        r.groups.clear();
+        r.regions.clear();
+        r.category_groups = {};
+        r.blend_draws.clear();
+    }
+
+    // Puffer und Hi-Z im Graph. Die Stufen des Hi-Z leben über Frames; nach dem ersten Bau sind
+    // sie im Zustand ShaderRead.
+    RendererCore::DrivenHandles handles;
+    detail::DrivenBuffers& buffers = r.driven[slot];
+    const bool have_buffers = buffers.counters != nullptr;
+    if (have_buffers) {
+        handles.counters = graph.import_buffer("Zähler", *buffers.counters,
+                                               ResourceState::Undefined, ResourceState::Undefined);
+        if (!mesh_shaders) {
+            handles.commands = graph.import_buffer(
+                "Befehle", *buffers.commands, ResourceState::Undefined, ResourceState::Undefined);
+        }
+    }
+    if (frame.occlusion) {
+        const auto import_set = [&](detail::HizSet& set, std::vector<TextureHandle>& handles_out) {
+            const ResourceState initial =
+                set.valid ? ResourceState::ShaderRead : ResourceState::Undefined;
+            for (const auto& level : set.levels) {
+                handles_out.push_back(
+                    graph.import_texture("Hi-Z", *level, initial, ResourceState::ShaderRead));
+            }
+        };
+        import_set(r.hiz_sets[hiz_current], handles.hiz_current);
+        if (previous_hiz) {
+            import_set(r.hiz_sets[hiz_previous], handles.hiz_previous);
+        }
+    }
+
+    std::array<TextureHandle, cascade_count> shadow_maps{};
+    TextureHandle hdr;
+    if (have_buffers && driven_ok) {
+        r.add_clear_pass(graph, frame, handles.counters);
+        if (!mesh_shaders) {
+            std::vector<detail::Job> jobs{detail::Job::Forward};
+            if (shadows_on) {
+                jobs.insert(jobs.end(), {detail::Job::Shadow0, detail::Job::Shadow1,
+                                         detail::Job::Shadow2, detail::Job::Shadow3});
+            }
+            if (r.pick_requested) {
+                jobs.push_back(detail::Job::Pick);
+            }
+            r.add_cull_pass(graph, "Prüfen", frame, jobs, handles.commands, handles.counters,
+                            handles.hiz_previous);
+        }
+        shadow_maps = r.add_shadow_passes(graph, frame, handles);
+        hdr = r.add_forward_passes(graph, frame, shadow_maps, handles);
+    } else {
+        const detail::FrameInfo empty_frame = [&] {
+            detail::FrameInfo copy = frame;
+            copy.shadows_on = false;
+            copy.occlusion = false;
+            return copy;
+        }();
+        hdr = r.add_forward_passes(graph, empty_frame, shadow_maps, handles);
+    }
     r.add_tonemap_pass(graph, frame, hdr, target);
 
     // Auswahl per Klick: ID-Puffer in Größe des Ziels und ein Pixel davon in den Puffer dieses
@@ -460,12 +585,27 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     if (r.pick_requested) {
         const detail::PickRequest request = *r.pick_requested;
         r.pick_requested.reset();
-        if (!camera || request.x >= extent.width || request.y >= extent.height) {
+        if (!camera || request.x >= extent.width || request.y >= extent.height || !have_buffers ||
+            !driven_ok) {
             r.pick_answered = request;
             r.pick_answer = 0;
         } else {
-            r.add_pick_passes(graph, slot, request, frame, terrain_materials);
+            r.add_pick_passes(graph, slot, request, frame, handles);
         }
+    }
+    if (have_buffers && driven_ok) {
+        r.add_stats_pass(graph, frame, handles.counters);
+    }
+
+    // Hi-Z dieses Frames gilt im nächsten als das des letzten.
+    if (frame.occlusion) {
+        r.hiz_sets[hiz_current].valid = true;
+        r.hiz_next = hiz_previous;
+        r.previous_view_projection = camera_matrix;
+        r.previous_origin = origin;
+        r.previous_valid = true;
+    } else {
+        r.previous_valid = false;
     }
 }
 

@@ -7,15 +7,43 @@ module;
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 module ngine.render;
 
 import ngine.core;
 import ngine.rhi;
 import ngine.voxel;
+import ngine.meshlet;
 import ngine.world;
 
 namespace ngine::render {
+
+namespace {
+
+// Passen Meshlets und lokale Daten aus dem Mesher zum Netz? Nur Größen und Reihenfolge, in
+// O(Meshlets): Der Mesher baut beides aus denselben Indizes (voxel::Mesh::local).
+bool from_mesher(const voxel::Mesh& mesh) {
+    const meshlet::LocalData& local = mesh.local;
+    if (mesh.meshlets.empty() || local.vertex_offsets.size() != mesh.meshlets.size() ||
+        local.triangles.size() * 3 != mesh.indices.size()) {
+        return false;
+    }
+    u32 next_triangle = 0;
+    for (usize i = 0; i < mesh.meshlets.size(); ++i) {
+        const meshlet::Meshlet& m = mesh.meshlets[i];
+        const usize vertex_end = usize{local.vertex_offsets[i]} + m.vertex_count;
+        if (m.first_triangle != next_triangle || m.triangle_count == 0 ||
+            m.triangle_count > meshlet::max_triangles || m.vertex_count > meshlet::max_vertices ||
+            vertex_end > local.vertices.size()) {
+            return false;
+        }
+        next_triangle += m.triangle_count;
+    }
+    return usize{next_triangle} == local.triangles.size();
+}
+
+} // namespace
 
 TerrainMeshes::~TerrainMeshes() {
     for (auto& [id, entry] : terrains_) {
@@ -31,6 +59,7 @@ TerrainMeshes::~TerrainMeshes() {
 void TerrainMeshes::release(TerrainChunkGpu& chunk) {
     geometry_->free(chunk.vertices);
     geometry_->free(chunk.indices);
+    geometry_->free(chunk.meshlets);
     chunk = {};
 }
 
@@ -39,8 +68,26 @@ bool TerrainMeshes::upload(const world::ChunkMesh& mesh, TerrainChunkGpu& chunk)
     if (mesh.mesh.indices.empty()) {
         return true;
     }
+    // Netze aus dem Mesher haben Meshlets und ihre lokalen Daten, im Job gerechnet (R3.5); der
+    // Hauptthread prüft nur, ob sie zusammenpassen. Sonst hier auf einer Kopie bauen.
+    std::span<const u32> index_data = mesh.mesh.indices;
+    std::span<const meshlet::Meshlet> meshlet_data = mesh.mesh.meshlets;
+    const meshlet::LocalData* local = &mesh.mesh.local;
+    std::vector<u32> own_indices;
+    std::vector<meshlet::Meshlet> own_meshlets;
+    if (!from_mesher(mesh.mesh)) {
+        own_indices.assign(index_data.begin(), index_data.end());
+        own_meshlets = meshlet::build(
+            meshlet::positions_of(std::span<const voxel::Vertex>{mesh.mesh.vertices}), own_indices);
+        index_data = own_indices;
+        meshlet_data = own_meshlets;
+        local = nullptr;
+    }
+    const MeshletPart part{.meshlets = meshlet_data, .indices = index_data, .local = local};
+    const std::vector<u32> packed = pack_meshlets(std::span{&part, 1});
     const auto vertices = std::as_bytes(std::span{mesh.mesh.vertices});
-    const auto indices = std::as_bytes(std::span{mesh.mesh.indices});
+    const auto indices = std::as_bytes(index_data);
+    const auto meshlets = std::as_bytes(std::span{packed});
     auto vertex_range = geometry_->allocate(vertices.size());
     if (!vertex_range) {
         log::error("Terrain: {}", vertex_range.error());
@@ -52,15 +99,26 @@ bool TerrainMeshes::upload(const world::ChunkMesh& mesh, TerrainChunkGpu& chunk)
         geometry_->free(*vertex_range);
         return false;
     }
+    auto meshlet_range = geometry_->allocate(meshlets.size());
+    if (!meshlet_range) {
+        log::error("Terrain: {}", meshlet_range.error());
+        geometry_->free(*vertex_range);
+        geometry_->free(*index_range);
+        return false;
+    }
     // Kopie vor der nächsten Abgabe; gezeichnet wird erst nach dem Tausch in sync().
     geometry_->upload(*vertex_range, vertices);
     geometry_->upload(*index_range, indices);
+    geometry_->upload(*meshlet_range, meshlets);
     chunk.vertices = *vertex_range;
     chunk.indices = *index_range;
+    chunk.meshlets = *meshlet_range;
     chunk.vertex_address = geometry_->address(*vertex_range);
     chunk.index_buffer = &geometry_->buffer(*index_range);
     chunk.first_index = static_cast<u32>(index_range->offset / sizeof(u32));
-    chunk.index_count = static_cast<u32>(mesh.mesh.indices.size());
+    chunk.index_count = static_cast<u32>(index_data.size());
+    chunk.meshlet_address = geometry_->address(*meshlet_range);
+    chunk.meshlet_count = static_cast<u32>(meshlet_data.size());
     chunk.palette = {};
     for (u32 slot = 0; slot < mesh.mesh.palette_count; ++slot) {
         chunk.palette[slot / 4] |= u32{mesh.mesh.palette[slot]} << ((slot % 4) * 8);
@@ -98,8 +156,12 @@ TerrainMeshes::sync(const world::TerrainData& data, u64 frame, u32& uploads) {
         if (entry.staged.contains(coord)) {
             continue;
         }
+        // Meshlet-Daten grob mitgezählt: 48 Bytes je Meshlet, dazu Eckpunkte und Dreiecke.
         const u64 bytes = mesh.mesh.vertices.size() * sizeof(voxel::Vertex) +
-                          mesh.mesh.indices.size() * sizeof(u32);
+                          mesh.mesh.indices.size() * sizeof(u32) +
+                          mesh.mesh.meshlets.size() * sizeof(GpuMeshlet) +
+                          mesh.mesh.indices.size() / 3 * sizeof(u32) +
+                          mesh.mesh.indices.size() * sizeof(u32) / 2;
         if (bytes > budget_left_ && uploaded_in_frame_) {
             ++missing;
             continue;

@@ -321,10 +321,14 @@ public:
             meshed_chunks_);
         if (renderer_) {
             const render::RenderStats& r = renderer_->stats();
-            text += std::format("; {} Draws ({} Chunks), {} Schatten-Draws, {:.1f} MiB Geometrie "
-                                "auf der GPU",
-                                r.draws, r.terrain_chunks, r.shadow_draws,
-                                mib(renderer_->geometry().stats().used));
+            text += std::format(
+                "; {} Netze ({} Chunks, {} Meshlets), Draw-Aufrufe {} vorwärts und {} Schatten, "
+                "{:.1f} MiB Geometrie auf der GPU; GPU ({}): {} Meshlets mit {} Dreiecken "
+                "gezeichnet, aussortiert {} Stumpf, {} Rückseiten, {} verdeckt",
+                r.draws, r.terrain_chunks, r.meshlets, r.forward_draws, r.shadow_draws,
+                mib(renderer_->geometry().stats().used),
+                r.mesh_shaders ? "Mesh Shader" : "indirekt", r.meshlets_drawn, r.triangles_drawn,
+                r.culled_frustum, r.culled_backface, r.culled_occluded);
         }
         return text;
     }

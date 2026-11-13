@@ -8,6 +8,7 @@ module ngine.asset;
 
 import ngine.core;
 import ngine.math;
+import ngine.meshlet;
 
 namespace ngine::asset {
 
@@ -155,6 +156,18 @@ Primitive make_box(Vec3 half_extents) {
     }
     generate_tangents(box.vertices, box.indices);
     return box;
+}
+
+void ensure_meshlets(Model& model) {
+    for (Mesh& mesh : model.meshes) {
+        for (Primitive& primitive : mesh.primitives) {
+            if (primitive.meshlets.empty() && !primitive.indices.empty()) {
+                primitive.meshlets = meshlet::build(
+                    meshlet::positions_of(std::span<const Vertex>{primitive.vertices}),
+                    primitive.indices);
+            }
+        }
+    }
 }
 
 } // namespace ngine::asset
