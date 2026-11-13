@@ -22,8 +22,7 @@ Meshing in Jobs), [R3.2](iterations/R3.2-prozedurale-welt-und-materialien.md) (P
 und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LOD),
 [R3.4](iterations/R3.4-deltas-und-voxel-werkzeuge.md) (Deltas und Voxel-Werkzeuge) und
 [R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
-abgeschlossen. Das Review von R3 wartet noch auf das Szenario auf dem PC; danach folgt R4
-(Gameplay-Systeme). Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
+abgeschlossen, das Review des Reifegrads ebenfalls. Als Nächstes folgt R4 (Gameplay-Systeme). Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
 kommt der Rendering-Ausbau als eigener Reifegrad R6.
 
 ## Phasen und Iterationen
@@ -43,7 +42,7 @@ flowchart TB
     end
     subgraph B["Konstruktion: Reifegrade"]
         R1["R1 Rendering-Grundlagen ✓"] --> R2["R2 Welt und Editor ✓"]
-        R2 --> R3["R3 Voxel-Terrain"]
+        R2 --> R3["R3 Voxel-Terrain ✓"]
         R3 --> R4["R4 Gameplay-Systeme"]
         R4 --> R5["R5 Multiplayer"]
         R5 --> E["Review und Evaluation der Engine"]

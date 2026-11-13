@@ -1,7 +1,7 @@
 # R3: Voxel-Terrain
 
 - **Phase:** Konstruktion
-- **Status:** im Review (R3.1 bis R3.5 abgeschlossen, Szenario auf dem PC steht aus)
+- **Status:** abgeschlossen
 - **Pull Requests:** siehe Review
 
 R3 ist der dritte Reifegrad der Konstruktion. Wie R1 und R2 ist er zu groß für eine Iteration; wir
@@ -193,9 +193,9 @@ Rückfallpfad mit indirekten Draws.
 | [R3.5](R3.5-gpu-getriebenes-zeichnen.md) GPU-getriebenes Zeichnen | #45 und dieser PR | Meshlets, Culling auf der GPU mit Hi-Z in zwei Phasen, Mesh Shader mit Rückfallpfad, Durchsichtiges sortiert, transiente Texturen aus dem Vorrat |
 
 Abnahme: Alle fünf Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
-ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Das Szenario für den ganzen Reifegrad
-(Editor mit neuer Welt, Flug, Höhle, Gang graben, Hang bemalen, Undo und Redo, Speichern,
-Neustart; Sandbox mit `--baseline`) steht noch aus.
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Auch das Szenario für den ganzen
+Reifegrad lief auf dem PC erfolgreich (viiez): Editor mit neuer Welt, Flug, Höhle, Gang graben,
+Hang bemalen, Undo und Redo, Speichern, Neustart; dasselbe in der Sandbox mit `--baseline`.
 
 Abweichungen vom Plan:
 
