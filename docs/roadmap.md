@@ -16,9 +16,14 @@ ist [R2](iterations/R2-welt-und-editor.md) (Welt und Editor) abgeschlossen; sein
 [R2.3](iterations/R2.3-gizmos-und-spielen.md) (Gizmos und Spielen im Editor),
 [R2.4](iterations/R2.4-asset-ids-ressourcen-hot-reload.md) (Asset-IDs, Ressourcen, Hot Reload) und
 [R2.5](iterations/R2.5-kochen-ktx2-prefabs.md) (Kochen, KTX2, Prefabs) sind abgeschlossen, das
-Review des Reifegrads ebenfalls. Als Nächstes folgt
-[R3](iterations/R3-voxel-terrain.md) (Voxel-Terrain) mit fünf Iterationen; der Plan ist in
-Abstimmung.
+Review des Reifegrads ebenfalls. Danach kam [R3](iterations/R3-voxel-terrain.md)
+(Voxel-Terrain); seine fünf Iterationen [R3.1](iterations/R3.1-chunks-und-meshing.md) (Chunks und
+Meshing in Jobs), [R3.2](iterations/R3.2-prozedurale-welt-und-materialien.md) (Prozedurale Welt
+und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LOD),
+[R3.4](iterations/R3.4-deltas-und-voxel-werkzeuge.md) (Deltas und Voxel-Werkzeuge) und
+[R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
+abgeschlossen. Das Review von R3 wartet noch auf das Szenario auf dem PC und die Abstimmung über
+den Rendering-Ausbau; danach folgt R4 (Gameplay-Systeme).
 
 ## Phasen und Iterationen
 
