@@ -80,11 +80,14 @@ struct PickResult {
 };
 
 struct RenderStats {
-    // Netze (Instanzen), die der Vorwärts-Pass bekommt, und ihre Dreiecke, bevor die GPU prüft.
+    // Netze (Instanzen), die der Vorwärts-Pass bekommt, und ihre Dreiecke, bevor die GPU prüft;
+    // die Zahl der Draw-Aufrufe steht in forward_draws.
     u32 draws = 0;
     u32 triangles = 0;
     // Draw-Aufrufe in die Schattenkarten, über alle Kaskaden.
     u32 shadow_draws = 0;
+    // Draw-Aufrufe der Vorwärts-Passes (beide Phasen und Durchsichtiges, ohne Debug-Linien).
+    u32 forward_draws = 0;
     u32 lights = 0;
     u32 debug_lines = 0;
     // MeshRenderer, deren Modell noch lädt (oder nicht geladen werden konnte).

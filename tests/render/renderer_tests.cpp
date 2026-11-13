@@ -205,6 +205,8 @@ TEST_CASE("Renderer draws a PBR sphere with tone mapping", "[render][gpu]") {
         pool.end_frame();
     }
     CHECK(r.stats().draws == 1);
+    // Ein undurchsichtiges Netz: ein Draw-Aufruf je Phase.
+    CHECK(r.stats().forward_draws == 2);
     CHECK(r.stats().triangles == sphere.indices.size() / 3);
 
     const auto pixels = device->read_texture(**target, rhi::ResourceState::TransferSrc);

@@ -136,6 +136,9 @@ RendererCore::add_forward_passes(RenderGraph& graph, const FrameInfo& frame,
         }
     };
 
+    stats.forward_draws += job_draw_calls(frame.mesh_shaders) * (frame.occlusion ? 2u : 1u) +
+                           static_cast<u32>(blend_draws.size());
+
     // Phase 1: was im letzten Frame sichtbar war (ohne Hi-Z: alles im Stumpf).
     graph.add_pass(
         "Vorwärts",
