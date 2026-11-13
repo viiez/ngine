@@ -29,7 +29,8 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R3.3](R3.3-streaming-und-lod.md) | Konstruktion | Streaming und LOD | abgeschlossen |
 | [R3.4](R3.4-deltas-und-voxel-werkzeuge.md) | Konstruktion | Deltas und Voxel-Werkzeuge | abgeschlossen |
 | [R3.5](R3.5-gpu-getriebenes-zeichnen.md) | Konstruktion | GPU-getriebenes Zeichnen | abgeschlossen |
-| [R4](R4-gameplay-systeme.md) | Konstruktion | Reifegrad Gameplay-Systeme (R4.1 bis R4.6) | geplant |
+| [R4](R4-gameplay-systeme.md) | Konstruktion | Reifegrad Gameplay-Systeme (R4.1 bis R4.6) | in Arbeit |
+| [R4.1](R4.1-spielschleife-und-eingabe.md) | Konstruktion | Spielschleife und Eingabe | geplant |
 
 ## Vorlage
 

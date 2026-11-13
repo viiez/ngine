@@ -23,8 +23,8 @@ und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LO
 [R3.4](iterations/R3.4-deltas-und-voxel-werkzeuge.md) (Deltas und Voxel-Werkzeuge) und
 [R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
 abgeschlossen, das Review des Reifegrads ebenfalls. Als Nächstes kommt
-[R4](iterations/R4-gameplay-systeme.md) (Gameplay-Systeme); sein Plan mit sechs Iterationen liegt
-zur Abstimmung vor. Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
+[R4](iterations/R4-gameplay-systeme.md) (Gameplay-Systeme) mit sechs Iterationen; die erste,
+[R4.1](iterations/R4.1-spielschleife-und-eingabe.md) (Spielschleife und Eingabe), ist geplant. Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
 kommt der Rendering-Ausbau als eigener Reifegrad R6.
 
 ## Phasen und Iterationen
@@ -81,7 +81,7 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 | R1 Rendering-Grundlagen | Render-Graph, Bindless, Meshes aus glTF, PBR-Materialien, Kamera, Licht und Schatten; Mathematik, 64-Bit-Positionen und Transform-Propagation. Iterationen R1.1 Mathematik und Transforms, R1.2 Render-Graph, Bindless, GPU-Speicher, R1.3 Meshes, Materialien, Kamera, R1.4 Licht und Schatten ([Plan](iterations/R1-rendering-grundlagen.md)) |
 | R2 Welt und Editor | Szenenbaum, Inspector, Viewport, Spielen im Editor, Asset-Pipeline. Iterationen R2.1 Editor-Gerüst und Viewport, R2.2 Szenenbaum, Inspector, Undo, R2.3 Gizmos und Spielen im Editor, R2.4 Asset-IDs, Ressourcen, Hot Reload, R2.5 Kochen, KTX2, Prefabs ([Plan](iterations/R2-welt-und-editor.md)) |
 | R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas; dazu Mesh Shader und GPU-Culling aus R1. Iterationen R3.1 Chunks und Meshing in Jobs, R3.2 Prozedurale Welt und Materialien, R3.3 Streaming und LOD, R3.4 Deltas und Voxel-Werkzeuge, R3.5 GPU-getriebenes Zeichnen ([Plan](iterations/R3-voxel-terrain.md)) |
-| R4 Gameplay-Systeme | Spielschleife mit festem Zeitschritt, Physik (Jolt) mit Kollision des Terrains und Spielfigur, C#-Scripting vollständig, Audio, Animation. Vorgeschlagene Iterationen R4.1 Spielschleife und Eingabe, R4.2 Physik mit Jolt, R4.3 Terrain-Kollision und Spielfigur, R4.4 C#-Scripting, R4.5 Audio, R4.6 Animation ([Plan](iterations/R4-gameplay-systeme.md), zur Abstimmung) |
+| R4 Gameplay-Systeme | Spielschleife mit festem Zeitschritt, Physik (Jolt) mit Kollision des Terrains und Spielfigur, C#-Scripting vollständig, Audio, Animation. Iterationen R4.1 Spielschleife und Eingabe, R4.2 Physik mit Jolt, R4.3 Terrain-Kollision und Spielfigur, R4.4 C#-Scripting, R4.5 Audio, R4.6 Animation ([Plan](iterations/R4-gameplay-systeme.md)) |
 | R5 Multiplayer | Listen- und dedizierter Server, Replikation, Vorhersage, Voxel-Deltas übers Netz |
 | Review und Evaluation | Nach R5 treten wir einen Schritt zurück: viiez und Claude prüfen und bewerten die ganze Engine (Architektur, Code, Leistung, Werkzeuge, Prozess). Je nach Fazit kommen Maßnahmen vor dem Rendering-Ausbau |
 | R6 Rendering-Ausbau | Raytracing (REND-14), globale Beleuchtung, Tag-Nacht und Nebel (REND-12, NAT-03, NAT-05), Vegetation und Wind (NAT-01, NAT-02), Clustered Shading und Schatten für Punkt- und Spotlichter (TD-24, TD-25), Durchsichtiges auf der GPU (TD-43). Schatten der Taschenlampe können vorher als einzelne Iteration kommen, wenn das Gameplay sie braucht |

@@ -1,7 +1,7 @@
 # R4: Gameplay-Systeme
 
 - **Phase:** Konstruktion
-- **Status:** geplant (Plan zur Abstimmung)
+- **Status:** in Arbeit (Plan abgestimmt, R4.1 geplant)
 - **Pull Requests:** siehe Review
 
 R4 ist der vierte Reifegrad der Konstruktion. Wie R1 bis R3 ist er zu groß für eine Iteration; wir
@@ -37,7 +37,7 @@ flowchart LR
 
 | Iteration | Inhalt | Features und Schulden | Abnahme |
 | --- | --- | --- | --- |
-| R4.1 Spielschleife und Eingabe | Eine gemeinsame Spielschleife für Sandbox, Editor und Server: Phasen für Systeme (Eingabe, feste Simulation, Nachbereitung, Rendering) mit expliziter Reihenfolge, fester Zeitschritt für die Simulation mit Interpolation beim Zeichnen, Befehlspuffer für Strukturänderungen aus Systemen heraus. Eingabe als Aktionen (Tasten, Maus und Gamepad auf benannte Aktionen und Achsen abgebildet, Belegung als Datei). Fehlende Tasten in `editor_ui` und Kürzel der Voxel-Werkzeuge | WORLD-09, WORLD-10, PLAT-02, TD-42 | Ein System erzeugt und zerstört Entities über den Befehlspuffer (Test, auch unter ThreadSanitizer); die Simulation rechnet bei 30 und bei 240 Bildern pro Sekunde gleich viele Schritte pro Sekunde und dasselbe Ergebnis (Test); eine Aktion „Springen“ kommt von Tastatur und Gamepad; Kürzel der Pinsel im Editor |
+| [R4.1](R4.1-spielschleife-und-eingabe.md) Spielschleife und Eingabe | Eine gemeinsame Spielschleife für Sandbox, Editor und Server: Phasen für Systeme (Eingabe, feste Simulation, Nachbereitung, Rendering) mit expliziter Reihenfolge, fester Zeitschritt für die Simulation mit Interpolation beim Zeichnen, Befehlspuffer für Strukturänderungen aus Systemen heraus. Eingabe als Aktionen (Tasten, Maus und Gamepad auf benannte Aktionen und Achsen abgebildet, Belegung als Datei). Fehlende Tasten in `editor_ui` und Kürzel der Voxel-Werkzeuge | WORLD-09, WORLD-10, PLAT-02, TD-42 | Ein System erzeugt und zerstört Entities über den Befehlspuffer (Test, auch unter ThreadSanitizer); die Simulation rechnet bei 30 und bei 240 Bildern pro Sekunde gleich viele Schritte pro Sekunde und dasselbe Ergebnis (Test); eine Aktion „Springen“ kommt von Tastatur und Gamepad; Kürzel der Pinsel im Editor |
 | R4.2 Physik mit Jolt | Jolt hinter `ngine.physics` (`PhysicsWorld`), läuft auf dem Job-System der Engine und ohne GPU. Komponenten `RigidBody` und `Collider` (Kugel, Quader, Kapsel, konvexe Hülle und Dreiecksnetz aus dem gekochten Modell) in der Reflection, damit Editor, Szene und Prefabs sie kennen. Schritt in der festen Simulation, Lagen zurück in `Transform`. Strahl-, Form- und Überlappungsabfragen, Ebenen und Filter, Kontakt-Ereignisse über den `EventBus`. Formen als Debug-Zeichnen im Editor. Transforms parallel, wenn die Messung es lohnt | PHYS-01, PHYS-02, PHYS-04, TD-29 | Ein Stapel Kisten fällt im Editor im Spielmodus um und kommt beim Stoppen bitgenau zurück; Physik weit weg vom Ursprung (`--far`) zittert nicht; `--headless` rechnet dieselbe Szene; 2 000 bewegte Körper auf dem PC gemessen (Schritt der Physik, `update_transforms()`) |
 | R4.3 Terrain-Kollision und Spielfigur | Kollisionsformen aus den Netzen der Chunks, gebaut in Jobs und nur dort, wo Körper oder Beobachter sind; nach einem Pinsel wird die Form des Chunks ersetzt und ruhende Körper wachen auf. Character Controller (Kapsel, Stufen, Hänge, Springen) und eine Spielfigur in der Sandbox mit Kamera in Ich- und Schulterperspektive, die läuft und gräbt. Materialtabelle des Terrains als Asset mit Reibung und Namen für Schrittgeräusche, im Editor bearbeitbar, Texturen über den Koch-Cache; mehr als acht Materialien pro Chunk | VOX-08, PHYS-03, VOX-07, TD-37, TD-38 | Die Figur läuft über Hügel und durch Höhlen, ohne durch den Boden zu fallen, auch beim Streamen neuer Chunks; Boden unter einer Kiste weggraben: Sie fällt; Zeit für das Bauen einer Form pro Chunk und Speicher gemessen; `--headless` lässt Körper auf Terrain fallen; ein neues Material entsteht im Editor ohne Neubauen |
 | R4.4 C#-Scripting | Bindings aus der Reflection erzeugt: Komponenten als C#-Structs, Entity-API (`entity.Get<T>()`, `Set`, Hierarchie, Abfragen), dazu Eingabe-Aktionen, Physik-Abfragen, Ereignisse und Log. Skript-Komponenten: C#-Klassen hängen an Entities, ihre Felder erscheinen im Inspector und in der Szene. Hot Reload: Ändert sich eine `.cs`-Datei, baut die Engine neu, entlädt, lädt und stellt die Feldwerte wieder her. Skripte laufen im Spielmodus des Editors und auf dem Server. Prefabs mit entfernten Knoten und verschachtelt | SCR-01, SCR-02, SCR-03, SCR-04, WORLD-02, EDIT-06, TD-32 | Die Steuerung der Spielfigur und eine Laterne, die man an- und ausschaltet, sind C#-Skripte; ein Wert im Skript ändern und speichern: Im laufenden Spiel gilt er ohne Neustart, Feldwerte bleiben; eine neue Komponente in C++ ist nach dem Bauen in C# da, ohne Handarbeit; Kosten von 10 000 Skript-Updates pro Frame gemessen; Build ohne .NET-SDK geht weiter |
@@ -201,3 +201,11 @@ Spiel ändern, stoppen: Die Welt ist wie vorher. Dasselbe mit Gamepad in der San
 8. **Demo-Szene „Spielplatz“** in der Sandbox als roter Faden und Abnahme-Szenario. Modelle und
    Klänge dafür brauchen freie Lizenzen (CC0); Vorschläge kommen mit den Iterationen, die sie
    brauchen.
+
+**Ergebnis der Abstimmung** (viiez, mit dem Merge des Plans): Alle acht Punkte passen wie
+vorgeschlagen. Reihenfolge R4.1 bis R4.6 in sechs Iterationen; fester Zeitschritt von 60 Hz mit
+Interpolation; Jolt mit doppelter Genauigkeit für Positionen, ohne bitgleiche Physik zwischen
+Plattformen; Animation selbst gebaut, ozz-animation als Rückfall; Hot Reload über `dotnet build`;
+Spiel-UI (UI-01, UI-02) nach R5, die Evaluation entscheidet; TD-29 in R4.2 nur, wenn die Messung
+es lohnt; Demo-Szene „Spielplatz“ mit Modellen und Klängen unter CC0. Die neuen Fristen stehen im
+[Schuldenregister](../tech-debt.md) und im [Feature-Katalog](../features.md).

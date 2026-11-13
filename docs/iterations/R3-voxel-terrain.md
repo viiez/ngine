@@ -195,8 +195,8 @@ Rückfallpfad mit indirekten Draws.
 Abnahme: Alle fünf Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
 ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Das Szenario für den ganzen Reifegrad
 (Editor mit neuer Welt, Flug, Höhle, Gang graben, Hang bemalen, Undo und Redo, Speichern,
-Neustart; Sandbox mit `--baseline`) stand beim Schreiben des Reviews noch aus; viiez hat den
-Reifegrad am 13.11.2026 für abgeschlossen erklärt.
+Neustart; Sandbox mit `--baseline`) hat viiez am 13.11.2026 auf dem PC
+erfolgreich durchgespielt; damit ist der Reifegrad abgeschlossen.
 
 Abweichungen vom Plan:
 

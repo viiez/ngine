@@ -185,8 +185,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| UI-01 | HUD und Menüs | Oberfläche im Spiel, getrennt vom Editor (z. B. RmlUi) | R4 | Idee |
-| UI-02 | Text | Schriften, Unicode, Umlaute | R4 | geplant |
+| UI-01 | HUD und Menüs | Oberfläche im Spiel, getrennt vom Editor (z. B. RmlUi); Bibliothek und Zeitpunkt entscheidet die Evaluation nach R5 | nach R5 | Idee |
+| UI-02 | Text | Schriften, Unicode, Umlaute | nach R5 | geplant |
 
 ## KI und Navigation
 
