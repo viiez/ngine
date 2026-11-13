@@ -193,9 +193,10 @@ Rückfallpfad mit indirekten Draws.
 | [R3.5](R3.5-gpu-getriebenes-zeichnen.md) GPU-getriebenes Zeichnen | #45 und dieser PR | Meshlets, Culling auf der GPU mit Hi-Z in zwei Phasen, Mesh Shader mit Rückfallpfad, Durchsichtiges sortiert, transiente Texturen aus dem Vorrat |
 
 Abnahme: Alle fünf Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
-ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Auch das Szenario für den ganzen
-Reifegrad lief auf dem PC erfolgreich (viiez): Editor mit neuer Welt, Flug, Höhle, Gang graben,
-Hang bemalen, Undo und Redo, Speichern, Neustart; dasselbe in der Sandbox mit `--baseline`.
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Das Szenario für den ganzen Reifegrad
+(Editor mit neuer Welt, Flug, Höhle, Gang graben, Hang bemalen, Undo und Redo, Speichern,
+Neustart; Sandbox mit `--baseline`) hat viiez am 13.11.2026 auf dem PC
+erfolgreich durchgespielt; damit ist der Reifegrad abgeschlossen.
 
 Abweichungen vom Plan:
 
