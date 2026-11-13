@@ -23,7 +23,8 @@ und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LO
 [R3.4](iterations/R3.4-deltas-und-voxel-werkzeuge.md) (Deltas und Voxel-Werkzeuge) und
 [R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
 abgeschlossen. Das Review von R3 wartet noch auf das Szenario auf dem PC; danach folgt R4
-(Gameplay-Systeme). Der Rendering-Ausbau kommt als eigener Reifegrad R6 nach R5.
+(Gameplay-Systeme). Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
+kommt der Rendering-Ausbau als eigener Reifegrad R6.
 
 ## Phasen und Iterationen
 
@@ -45,7 +46,8 @@ flowchart TB
         R2 --> R3["R3 Voxel-Terrain"]
         R3 --> R4["R4 Gameplay-Systeme"]
         R4 --> R5["R5 Multiplayer"]
-        R5 --> R6["R6 Rendering-Ausbau"]
+        R5 --> E["Review und Evaluation der Engine"]
+        E --> R6["R6 Rendering-Ausbau"]
     end
     subgraph U["Übergabe"]
         P1["P1 Spiel-Prototyp"]
@@ -80,10 +82,13 @@ Wissen: ein ADR oder eine Anpassung der Architektur.
 | R3 Voxel-Terrain | Chunks, LOD, Streaming, prozedurale Grundwelt, Änderungen als Deltas; dazu Mesh Shader und GPU-Culling aus R1. Iterationen R3.1 Chunks und Meshing in Jobs, R3.2 Prozedurale Welt und Materialien, R3.3 Streaming und LOD, R3.4 Deltas und Voxel-Werkzeuge, R3.5 GPU-getriebenes Zeichnen ([Plan](iterations/R3-voxel-terrain.md)) |
 | R4 Gameplay-Systeme | Physik (Jolt), C#-Scripting vollständig, Audio, Animation |
 | R5 Multiplayer | Listen- und dedizierter Server, Replikation, Vorhersage, Voxel-Deltas übers Netz |
+| Review und Evaluation | Nach R5 treten wir einen Schritt zurück: viiez und Claude prüfen und bewerten die ganze Engine (Architektur, Code, Leistung, Werkzeuge, Prozess). Je nach Fazit kommen Maßnahmen vor dem Rendering-Ausbau |
 | R6 Rendering-Ausbau | Raytracing (REND-14), globale Beleuchtung, Tag-Nacht und Nebel (REND-12, NAT-03, NAT-05), Vegetation und Wind (NAT-01, NAT-02), Clustered Shading und Schatten für Punkt- und Spotlichter (TD-24, TD-25), Durchsichtiges auf der GPU (TD-43). Schatten der Taschenlampe können vorher als einzelne Iteration kommen, wenn das Gameplay sie braucht |
 
 **Raytracing** (REND-14) stand ursprünglich in R2 und kommt mit dem Rendering-Ausbau in R6. So hat
 viiez es im Review von R3 entschieden: Die GPU ist nach den Messungen nicht der Engpass, und für
-den Prototyp sind Physik, Scripting und Multiplayer dringender.
+den Prototyp sind Physik, Scripting und Multiplayer dringender. Der Plan sah fünf Reifegrade vor;
+deshalb kommt nach R5 zuerst ein Review und eine Evaluation der ganzen Engine, und erst deren
+Fazit entscheidet, welche Maßnahmen vor R6 nötig sind.
 
 Details zu jedem Feature stehen im [Feature-Katalog](features.md).
