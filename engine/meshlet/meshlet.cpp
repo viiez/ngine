@@ -20,6 +20,46 @@ namespace {
 
 using math::Vec3;
 
+// Lokale Nummern der Eckpunkte eines Meshlets in O(1): je Eckpunkt des Netzes die Nummer des
+// Meshlets, in dem er zuletzt vorkam, und seine lokale Nummer dort. Eine lineare Suche in der
+// Liste des Meshlets kostete beim Hochladen vieler Chunks im Hauptthread über 10 ms (R3.5).
+class LocalIndex {
+public:
+    explicit LocalIndex(std::span<const u32> indices) {
+        u32 largest = 0;
+        for (const u32 index : indices) {
+            largest = std::max(largest, index);
+        }
+        stamps_.assign(indices.empty() ? 0 : usize{largest} + 1, 0);
+        slots_.resize(stamps_.size());
+    }
+
+    // Beginnt ein neues Meshlet; danach sind alle Eckpunkte wieder unbekannt.
+    void next() {
+        ++stamp_;
+        count_ = 0;
+    }
+
+    // Lokale Nummer von vertex im aktuellen Meshlet; neue Eckpunkte bekommen die nächste.
+    // added sagt, ob der Eckpunkt neu war.
+    u32 find_or_add(u32 vertex, bool& added) {
+        if (stamps_[vertex] == stamp_) {
+            added = false;
+            return slots_[vertex];
+        }
+        stamps_[vertex] = stamp_;
+        slots_[vertex] = count_;
+        added = true;
+        return count_++;
+    }
+
+private:
+    std::vector<u32> stamps_;
+    std::vector<u32> slots_;
+    u32 stamp_ = 0;
+    u32 count_ = 0;
+};
+
 } // namespace
 
 Vec3 Positions::operator[](usize index) const noexcept {
@@ -186,24 +226,25 @@ void compute_bounds(Positions positions, std::span<const u32> indices, Meshlet& 
 
 bool valid(std::span<const Meshlet> meshlets, std::span<const u32> indices) {
     u32 next = 0;
-    std::vector<u32> local;
+    LocalIndex local{indices};
     for (const Meshlet& meshlet : meshlets) {
         if (meshlet.first_triangle != next || meshlet.triangle_count == 0 ||
             meshlet.triangle_count > max_triangles || meshlet.vertex_count > max_vertices) {
             return false;
         }
-        local.clear();
         const usize first = usize{meshlet.first_triangle} * 3;
         const usize end = first + usize{meshlet.triangle_count} * 3;
         if (end > indices.size()) {
             return false;
         }
+        local.next();
+        u32 count = 0;
         for (usize i = first; i < end; ++i) {
-            if (std::ranges::find(local, indices[i]) == local.end()) {
-                local.push_back(indices[i]);
-            }
+            bool added = false;
+            static_cast<void>(local.find_or_add(indices[i], added));
+            count += added ? 1u : 0u;
         }
-        if (local.size() != meshlet.vertex_count) {
+        if (count != meshlet.vertex_count) {
             return false;
         }
         next += meshlet.triangle_count;
@@ -215,25 +256,24 @@ LocalData local_data(std::span<const Meshlet> meshlets, std::span<const u32> ind
     LocalData data;
     data.vertex_offsets.reserve(meshlets.size());
     data.triangles.reserve(indices.size() / 3);
-    std::vector<u32> local;
+    LocalIndex local{indices};
     for (const Meshlet& meshlet : meshlets) {
         data.vertex_offsets.push_back(static_cast<u32>(data.vertices.size()));
-        local.clear();
+        local.next();
         const usize first = usize{meshlet.first_triangle} * 3;
         for (usize t = 0; t < meshlet.triangle_count; ++t) {
             u32 packed = 0;
             for (usize corner = 0; corner < 3; ++corner) {
                 const u32 vertex = indices[first + t * 3 + corner];
-                auto found = std::ranges::find(local, vertex);
-                if (found == local.end()) {
-                    local.push_back(vertex);
-                    found = local.end() - 1;
+                bool added = false;
+                const u32 slot = local.find_or_add(vertex, added);
+                if (added) {
+                    data.vertices.push_back(vertex);
                 }
-                packed |= static_cast<u32>(found - local.begin()) << (corner * 8);
+                packed |= slot << (corner * 8);
             }
             data.triangles.push_back(packed);
         }
-        data.vertices.insert(data.vertices.end(), local.begin(), local.end());
     }
     return data;
 }
