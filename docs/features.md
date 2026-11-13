@@ -62,9 +62,9 @@ eine Komponente.
 | REND-09 | Licht und Schatten | Lichter als Komponenten (`DirectionalLight`, `PointLight`, `SpotLight`); Sonne mit vier Cascaded Shadow Maps, eingerastet gegen Flimmern; Punkt- und Spotlichter ohne Schatten aus einer Liste im GPU-Speicher ([ADR 0028](adr/0028-lights-cascaded-shadows.md)) | R1.4 | fertig |
 | REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU: Meshlets gegen Stumpf, Normalenkegel und Hi-Z in zwei Phasen (R3.5, [ADR 0043](adr/0043-gpu-driven-meshlets.md)) | R3 | fertig |
 | REND-11 | Post-Processing | Tone Mapping (Khronos PBR Neutral, Belichtung aus der Kamera, R1.3), Bloom, Farbkorrektur | R1.3 / R3 | in Arbeit |
-| REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
+| REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R6 | Idee |
 | REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling (R3.5, [ADR 0043](adr/0043-gpu-driven-meshlets.md)) | R3 | fertig |
-| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren; aus R2 verschoben, Iteration legt spätestens das Review von R3 fest | nach R3 | geplant |
+| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren; aus R2 verschoben, kommt mit dem Rendering-Ausbau in R6 (Review von R3) | R6 | geplant |
 | REND-15 | Debug-Zeichnen | Linien, Boxen, Kugeln und Achsenkreuze in der Welt (`Renderer::debug()`, R1.4); Text in der Welt über `DebugDraw::text()`, im Editor über die Zeichenliste der UI gezeichnet (R2.3) | R1.4 / R2.3 | fertig |
 
 ## Welt und ECS
@@ -103,11 +103,11 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| NAT-01 | Vegetation | Viele Pflanzen per Instancing, auf dem Voxel-Terrain verteilt | nach R3 | geplant |
-| NAT-02 | Wind | Bewegung von Gras und Bäumen im Shader | nach R3 | Idee |
-| NAT-03 | Tag-Nacht-Wechsel | Sonne, Mond, Himmel, Lichtstimmung über Zeit | R1 / R3 | geplant |
+| NAT-01 | Vegetation | Viele Pflanzen per Instancing, auf dem Voxel-Terrain verteilt | R6 | geplant |
+| NAT-02 | Wind | Bewegung von Gras und Bäumen im Shader | R6 | Idee |
+| NAT-03 | Tag-Nacht-Wechsel | Sonne, Mond, Himmel, Lichtstimmung über Zeit | R1 / R6 | geplant |
 | NAT-04 | Himmel und Atmosphäre | Physikalisch basierte Atmosphäre | R1 | geplant |
-| NAT-05 | Volumetrischer Nebel | Nebel mit Lichtstreuung, wichtig für Horror-Stimmung | R3 | Idee |
+| NAT-05 | Volumetrischer Nebel | Nebel mit Lichtstreuung, wichtig für Horror-Stimmung | R6 | Idee |
 | NAT-06 | Wetter | Regen, Sturm, Wolken | später | Idee |
 | NAT-07 | Wasser | Flüsse, Seen | später | Idee |
 

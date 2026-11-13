@@ -273,3 +273,7 @@ Abweichungen vom Plan:
    dringender. Die Taschenlampe mit Schatten (TD-25) kann vorher als einzelne Iteration kommen,
    wenn das Gameplay sie braucht.
 
+**Ergebnis der Abstimmung** (viiez): Der Rendering-Ausbau kommt als eigener Reifegrad R6 nach R5,
+wie vorgeschlagen. Roadmap, Feature-Katalog (REND-12, REND-14, NAT-01 bis NAT-03, NAT-05) und
+Schuldenregister (TD-24, TD-25, TD-43) sind angepasst; TD-35 (Paket aus gekochten Dateien) hatte
+die Frist R6 und steht jetzt bei der Übergabe (P1).
