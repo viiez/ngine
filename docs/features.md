@@ -62,9 +62,9 @@ eine Komponente.
 | REND-09 | Licht und Schatten | Lichter als Komponenten (`DirectionalLight`, `PointLight`, `SpotLight`); Sonne mit vier Cascaded Shadow Maps, eingerastet gegen Flimmern; Punkt- und Spotlichter ohne Schatten aus einer Liste im GPU-Speicher ([ADR 0028](adr/0028-lights-cascaded-shadows.md)) | R1.4 | fertig |
 | REND-10 | GPU-Culling | Frustum- und Occlusion-Culling auf der GPU: Meshlets gegen Stumpf, Normalenkegel und Hi-Z in zwei Phasen (R3.5, [ADR 0043](adr/0043-gpu-driven-meshlets.md)) | R3 | fertig |
 | REND-11 | Post-Processing | Tone Mapping (Khronos PBR Neutral, Belichtung aus der Kamera, R1.3), Bloom, Farbkorrektur | R1.3 / R3 | in Arbeit |
-| REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R3 | Idee |
+| REND-12 | Globale Beleuchtung | Dynamische GI für veränderbare Welten (z. B. Probes oder Radiance Cascades) | R6 | Idee |
 | REND-13 | Mesh Shader | GPU-getriebene Geometrie mit Meshlets und Culling auf der GPU, wo die Stufe vorhanden ist; sonst Vertex-Pipeline mit Compute-Culling (R3.5, [ADR 0043](adr/0043-gpu-driven-meshlets.md)) | R3 | fertig |
-| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren; aus R2 verschoben, Iteration legt spätestens das Review von R3 fest | nach R3 | geplant |
+| REND-14 | Raytracing | Schatten, AO und GI über Ray Queries, wo die Stufe vorhanden ist; sonst Shadow Maps und Screen-Space-Verfahren; aus R2 verschoben, kommt mit dem Rendering-Ausbau in R6 (Review von R3) | R6 | geplant |
 | REND-15 | Debug-Zeichnen | Linien, Boxen, Kugeln und Achsenkreuze in der Welt (`Renderer::debug()`, R1.4); Text in der Welt über `DebugDraw::text()`, im Editor über die Zeichenliste der UI gezeichnet (R2.3) | R1.4 / R2.3 | fertig |
 
 ## Welt und ECS
@@ -77,8 +77,8 @@ eine Komponente.
 | WORLD-04 | Prefabs | Vorlagen als `.prefab`-Datei, Instanzen in der Welt voll ausgebaut, in Szenen als Kennung mit Überschreibungen auf Feldebene; geänderte Vorlagen ziehen alle Instanzen nach (Hot Reload), im Editor anlegen, übernehmen, aufbrechen und aus dem Asset-Browser ziehen ([ADR 0037](adr/0037-prefabs-field-overrides.md)) | R2.5 | fertig |
 | WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten (A4); binär als `.nscene` mit Typtabelle (R2.5) | A4 / R2.5 | fertig |
 | WORLD-06 | 64-Bit-Weltpositionen | Große Welten ohne Zittern: Positionen in 64 Bit, gezeichnet relativ zur Kamera ([ADR 0012](adr/0012-64bit-world-coordinates.md)); `--far` zeigt es | R1.1 | fertig |
-| WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming; R3.3: Baum von Chunks in Stufen, ausgeglichen, um mehrere Beobachter ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | in Arbeit |
-| WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen; R3.3: Terrain lädt um `TerrainObserver` im Job-System mit Budget, Übernahme in einem Schritt, Speicher begrenzt; Renderer lädt neue Netze mit Budget pro Frame und tauscht sie auf einmal; R3.4: Änderungen überleben Entladen und Neuladen | R3 | in Arbeit |
+| WORLD-07 | Welt-Partitionierung | Räumliche Aufteilung für Sichtbarkeit und Streaming; R3.3: Baum von Chunks in Stufen, ausgeglichen, um mehrere Beobachter ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | fertig |
+| WORLD-08 | Streaming | Welt-Teile nach Kameraposition laden und entladen; R3.3: Terrain lädt um `TerrainObserver` im Job-System mit Budget, Übernahme in einem Schritt, Speicher begrenzt; Renderer lädt neue Netze mit Budget pro Frame und tauscht sie auf einmal; R3.4: Änderungen überleben Entladen und Neuladen | R3 | fertig |
 | WORLD-09 | Befehlspuffer | Strukturänderungen aus Systemen heraus sammeln und nach dem Schedule ausführen | R4 | geplant |
 | WORLD-10 | Phasen für Systeme | Systeme in Phasen (Eingabe, Simulation, Rendering) und mit expliziter Reihenfolge | R4 | geplant |
 
@@ -86,15 +86,15 @@ eine Komponente.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| VOX-01 | Dichtefeld | Dichte (8 Bit, Abstand) und Material pro Sample ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Gitter; R3.1: Chunks mit 32³ Samples zu 0,5 m, leere und volle Chunks als ein Wert ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)) | D1 / R3 | in Arbeit |
-| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk; R3.1: nahtlose Chunk-Grenzen über eine Randschicht der Nachbarn, Meshing im Job-System; R3.3: `LodMesher` über Stufen des LOD-Baums | D1 / R3 | in Arbeit |
+| VOX-01 | Dichtefeld | Dichte (8 Bit, Abstand) und Material pro Sample ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Gitter; R3.1: Chunks mit 32³ Samples zu 0,5 m, leere und volle Chunks als ein Wert ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)) | D1 / R3 | fertig |
+| VOX-02 | Meshing | Surface Nets ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); D1: ein Chunk; R3.1: nahtlose Chunk-Grenzen über eine Randschicht der Nachbarn, Meshing im Job-System; R3.3: `LodMesher` über Stufen des LOD-Baums | D1 / R3 | fertig |
 | VOX-03 | Bearbeiten zur Laufzeit | Abbauen, Auftragen, Glätten, ohne Ruckler; D1: Kugel-Pinsel und Strahltest, Neu-Meshing im selben Frame; R3.1: Pinsel und Strahltest über Chunk-Grenzen, nur betroffene Chunks neu gemesht; R3.4: Ebnen und Bemalen, Pinsel auf endlosen Terrains über Deltas, Strahltest über alle Stufen | D1 / R3 | fertig |
-| VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse; R3.3: Surface Nets über Stufengrenzen mit Nahtpolygonen, Test ohne offene Kanten ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | in Arbeit |
-| VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln; R3.2: eigenes deterministisches Rauschen und Generator mit Hügeln, Felswänden und Schichten, bitgleich auf Linux und Windows ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md)); R3.3: grobe Stufen und endloses Terrain mit Streaming | R3 | in Arbeit |
+| VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse; R3.3: Surface Nets über Stufengrenzen mit Nahtpolygonen, Test ohne offene Kanten ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | fertig |
+| VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln; R3.2: eigenes deterministisches Rauschen und Generator mit Hügeln, Felswänden und Schichten, bitgleich auf Linux und Windows ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md)); R3.3: grobe Stufen und endloses Terrain mit Streaming | R3 | fertig |
 | VOX-06 | Deltas | Nur Änderungen speichern und übertragen; R3.4: Deltas pro Chunk der Stufe 0 gegenüber der Grundwelt, als Lauflängen mit Varints kodiert, fließen in alle Stufen ein, überleben das Entladen und liegen als Regionen-Dateien neben der Szene ([ADR 0042](adr/0042-terrain-deltas-region-files.md)); Übertragen folgt in R5 (NET-06) | R3 / R5 | in Arbeit |
-| VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar); R3.2: Gewichte je Eckpunkt mit Palette pro Chunk, Tabelle mit Texturen, triplanar im Shader ([ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); Materialtabelle als Asset folgt (TD-37) | R3 | in Arbeit |
+| VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar); R3.2: Gewichte je Eckpunkt mit Palette pro Chunk, Tabelle mit Texturen, triplanar im Shader ([ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); Materialtabelle als Asset und mehr als acht Materialien pro Chunk folgen in R4 (TD-37, TD-38) | R3 / R4 | in Arbeit |
 | VOX-08 | Kollision | Physik-Formen aus den Voxeln | R4 | geplant |
-| VOX-09 | Höhlen und Überhänge | Echte 3D-Strukturen statt Höhenkarte; R3.2: Überhänge an steilen Stellen, Tunnel und Kavernen aus 3D-Rauschen | R3 | in Arbeit |
+| VOX-09 | Höhlen und Überhänge | Echte 3D-Strukturen statt Höhenkarte; R3.2: Überhänge an steilen Stellen, Tunnel und Kavernen aus 3D-Rauschen | R3 | fertig |
 | VOX-10 | Statik | Einstürzende Strukturen ohne Halt | später | Idee |
 
 ## Natur und Atmosphäre
@@ -103,11 +103,11 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| NAT-01 | Vegetation | Viele Pflanzen per Instancing, auf dem Voxel-Terrain verteilt | nach R3 | geplant |
-| NAT-02 | Wind | Bewegung von Gras und Bäumen im Shader | nach R3 | Idee |
-| NAT-03 | Tag-Nacht-Wechsel | Sonne, Mond, Himmel, Lichtstimmung über Zeit | R1 / R3 | geplant |
+| NAT-01 | Vegetation | Viele Pflanzen per Instancing, auf dem Voxel-Terrain verteilt | R6 | geplant |
+| NAT-02 | Wind | Bewegung von Gras und Bäumen im Shader | R6 | Idee |
+| NAT-03 | Tag-Nacht-Wechsel | Sonne, Mond, Himmel, Lichtstimmung über Zeit | R1 / R6 | geplant |
 | NAT-04 | Himmel und Atmosphäre | Physikalisch basierte Atmosphäre | R1 | geplant |
-| NAT-05 | Volumetrischer Nebel | Nebel mit Lichtstreuung, wichtig für Horror-Stimmung | R3 | Idee |
+| NAT-05 | Volumetrischer Nebel | Nebel mit Lichtstreuung, wichtig für Horror-Stimmung | R6 | Idee |
 | NAT-06 | Wetter | Regen, Sturm, Wolken | später | Idee |
 | NAT-07 | Wasser | Flüsse, Seen | später | Idee |
 
