@@ -22,8 +22,9 @@ Meshing in Jobs), [R3.2](iterations/R3.2-prozedurale-welt-und-materialien.md) (P
 und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LOD),
 [R3.4](iterations/R3.4-deltas-und-voxel-werkzeuge.md) (Deltas und Voxel-Werkzeuge) und
 [R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
-abgeschlossen, das Review des Reifegrads ebenfalls. Als Nächstes folgt R4 (Gameplay-Systeme). Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
-kommt der Rendering-Ausbau als eigener Reifegrad R6.
+abgeschlossen, das Review des Reifegrads ebenfalls. Als Nächstes folgt R4 (Gameplay-Systeme).
+Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach kommt der
+Rendering-Ausbau als eigener Reifegrad R6.
 
 ## Phasen und Iterationen
 
