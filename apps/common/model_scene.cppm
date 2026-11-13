@@ -399,14 +399,15 @@ public:
 
     [[nodiscard]] std::string stats() const {
         const render::RenderStats& stats = renderer_->stats();
-        return std::format("{} Draws, {} Dreiecke, {} Schatten-Draws, {} Lichter, {} Meshes, {} "
-                           "Materialien, {} Debug-Linien; GPU ({}): {} von {} Meshlets "
-                           "gezeichnet, aussortiert {} Stumpf, {} Rückseiten, {} verdeckt",
-                           stats.draws, stats.triangles, stats.shadow_draws, stats.lights,
-                           renderer_->meshes().count(), renderer_->materials().count(),
-                           stats.debug_lines, stats.mesh_shaders ? "Mesh Shader" : "indirekt",
-                           stats.meshlets_drawn, stats.meshlets, stats.culled_frustum,
-                           stats.culled_backface, stats.culled_occluded);
+        return std::format(
+            "{} Draws, {} Dreiecke, {} Schatten-Draws, {} Lichter, {} Meshes, {} "
+            "Materialien, {} Debug-Linien; GPU ({}): {} von {} Meshlets "
+            "mit {} Dreiecken gezeichnet, aussortiert {} Stumpf, {} Rückseiten, {} verdeckt",
+            stats.draws, stats.triangles, stats.shadow_draws, stats.lights,
+            renderer_->meshes().count(), renderer_->materials().count(), stats.debug_lines,
+            stats.mesh_shaders ? "Mesh Shader" : "indirekt", stats.meshlets_drawn, stats.meshlets,
+            stats.triangles_drawn, stats.culled_frustum, stats.culled_backface,
+            stats.culled_occluded);
     }
 
 private:

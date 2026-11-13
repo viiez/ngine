@@ -321,14 +321,14 @@ public:
             meshed_chunks_);
         if (renderer_) {
             const render::RenderStats& r = renderer_->stats();
-            text +=
-                std::format("; {} Draws ({} Chunks, {} Meshlets), {} Schatten-Draws, {:.1f} MiB "
-                            "Geometrie auf der GPU; GPU ({}): {} Meshlets gezeichnet, "
-                            "aussortiert {} Stumpf, {} Rückseiten, {} verdeckt",
-                            r.draws, r.terrain_chunks, r.meshlets, r.shadow_draws,
-                            mib(renderer_->geometry().stats().used),
-                            r.mesh_shaders ? "Mesh Shader" : "indirekt", r.meshlets_drawn,
-                            r.culled_frustum, r.culled_backface, r.culled_occluded);
+            text += std::format(
+                "; {} Draws ({} Chunks, {} Meshlets), {} Schatten-Draws, {:.1f} MiB "
+                "Geometrie auf der GPU; GPU ({}): {} Meshlets mit {} Dreiecken gezeichnet, "
+                "aussortiert {} Stumpf, {} Rückseiten, {} verdeckt",
+                r.draws, r.terrain_chunks, r.meshlets, r.shadow_draws,
+                mib(renderer_->geometry().stats().used),
+                r.mesh_shaders ? "Mesh Shader" : "indirekt", r.meshlets_drawn, r.triangles_drawn,
+                r.culled_frustum, r.culled_backface, r.culled_occluded);
         }
         return text;
     }
