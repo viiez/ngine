@@ -128,6 +128,17 @@ TEST_CASE("Packed meshlet data reproduces the triangles", "[render][culling]") {
     }
 }
 
+TEST_CASE("Packed meshlet data uses precomputed local data", "[render][culling]") {
+    Grid grid = plane(12);
+    const auto positions = meshlet::positions_of(std::span<const Vec3>{grid.vertices});
+    const std::vector<meshlet::Meshlet> meshlets = meshlet::build(positions, grid.indices);
+    const meshlet::LocalData local = meshlet::local_data(meshlets, grid.indices);
+    const std::array computed{render::MeshletPart{.meshlets = meshlets, .indices = grid.indices}};
+    const std::array given{
+        render::MeshletPart{.meshlets = meshlets, .indices = grid.indices, .local = &local}};
+    CHECK(render::pack_meshlets(computed) == render::pack_meshlets(given));
+}
+
 TEST_CASE("Packed meshlet data of nothing is empty", "[render][culling]") {
     CHECK(render::pack_meshlets({}).empty());
 }

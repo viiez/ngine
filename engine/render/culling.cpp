@@ -45,7 +45,11 @@ std::vector<u32> pack_meshlets(std::span<const MeshletPart> parts) {
     std::vector<u32> words(total * record_words);
     usize record = 0;
     for (const MeshletPart& part : parts) {
-        const meshlet::LocalData local = meshlet::local_data(part.meshlets, part.indices);
+        meshlet::LocalData computed;
+        if (part.local == nullptr) {
+            computed = meshlet::local_data(part.meshlets, part.indices);
+        }
+        const meshlet::LocalData& local = part.local != nullptr ? *part.local : computed;
         const auto vertex_start = static_cast<u32>(words.size());
         words.insert(words.end(), local.vertices.begin(), local.vertices.end());
         const auto triangle_start = static_cast<u32>(words.size());

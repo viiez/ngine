@@ -68,6 +68,7 @@ u32 palette_slot(Mesh& mesh, Material material) {
 void build_meshlets(Mesh& mesh) {
     mesh.meshlets =
         meshlet::build(meshlet::positions_of(std::span<const Vertex>{mesh.vertices}), mesh.indices);
+    mesh.local = meshlet::local_data(mesh.meshlets, mesh.indices);
 }
 
 // Gewichte auf 8 Bit pro Platz mit der Summe 255; der Rest der Rundung geht an den größten Platz.

@@ -101,6 +101,9 @@ static_assert(sizeof(GpuView) == 384);
 struct MeshletPart {
     std::span<const meshlet::Meshlet> meshlets;
     std::span<const u32> indices;
+    // Schon gerechnete lokale Daten (z. B. aus dem Job des Meshers); sonst rechnet
+    // pack_meshlets() sie selbst.
+    const meshlet::LocalData* local = nullptr;
 };
 
 // Meshlet-Daten eines Netzes für die GPU: erst ein GpuMeshlet je Meshlet aller Teile (in der

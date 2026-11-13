@@ -19,6 +19,32 @@ import ngine.world;
 
 namespace ngine::render {
 
+namespace {
+
+// Passen Meshlets und lokale Daten aus dem Mesher zum Netz? Nur Größen und Reihenfolge, in
+// O(Meshlets): Der Mesher baut beides aus denselben Indizes (voxel::Mesh::local).
+bool from_mesher(const voxel::Mesh& mesh) {
+    const meshlet::LocalData& local = mesh.local;
+    if (mesh.meshlets.empty() || local.vertex_offsets.size() != mesh.meshlets.size() ||
+        local.triangles.size() * 3 != mesh.indices.size()) {
+        return false;
+    }
+    u32 next_triangle = 0;
+    for (usize i = 0; i < mesh.meshlets.size(); ++i) {
+        const meshlet::Meshlet& m = mesh.meshlets[i];
+        const usize vertex_end = usize{local.vertex_offsets[i]} + m.vertex_count;
+        if (m.first_triangle != next_triangle || m.triangle_count == 0 ||
+            m.triangle_count > meshlet::max_triangles || m.vertex_count > meshlet::max_vertices ||
+            vertex_end > local.vertices.size()) {
+            return false;
+        }
+        next_triangle += m.triangle_count;
+    }
+    return usize{next_triangle} == local.triangles.size();
+}
+
+} // namespace
+
 TerrainMeshes::~TerrainMeshes() {
     for (auto& [id, entry] : terrains_) {
         for (auto& [coord, chunk] : entry.chunks) {
@@ -42,19 +68,22 @@ bool TerrainMeshes::upload(const world::ChunkMesh& mesh, TerrainChunkGpu& chunk)
     if (mesh.mesh.indices.empty()) {
         return true;
     }
-    // Netze aus dem Mesher haben Meshlets (R3.5); sonst hier auf einer Kopie bauen.
+    // Netze aus dem Mesher haben Meshlets und ihre lokalen Daten, im Job gerechnet (R3.5); der
+    // Hauptthread prüft nur, ob sie zusammenpassen. Sonst hier auf einer Kopie bauen.
     std::span<const u32> index_data = mesh.mesh.indices;
     std::span<const meshlet::Meshlet> meshlet_data = mesh.mesh.meshlets;
+    const meshlet::LocalData* local = &mesh.mesh.local;
     std::vector<u32> own_indices;
     std::vector<meshlet::Meshlet> own_meshlets;
-    if (meshlet_data.empty() || !meshlet::valid(meshlet_data, index_data)) {
+    if (!from_mesher(mesh.mesh)) {
         own_indices.assign(index_data.begin(), index_data.end());
         own_meshlets = meshlet::build(
             meshlet::positions_of(std::span<const voxel::Vertex>{mesh.mesh.vertices}), own_indices);
         index_data = own_indices;
         meshlet_data = own_meshlets;
+        local = nullptr;
     }
-    const MeshletPart part{.meshlets = meshlet_data, .indices = index_data};
+    const MeshletPart part{.meshlets = meshlet_data, .indices = index_data, .local = local};
     const std::vector<u32> packed = pack_meshlets(std::span{&part, 1});
     const auto vertices = std::as_bytes(std::span{mesh.mesh.vertices});
     const auto indices = std::as_bytes(index_data);
