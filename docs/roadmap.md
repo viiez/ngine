@@ -24,8 +24,9 @@ und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LO
 [R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
 abgeschlossen, das Review des Reifegrads ebenfalls. Als Nächstes kommt
 [R4](iterations/R4-gameplay-systeme.md) (Gameplay-Systeme) mit sechs Iterationen; die erste,
-[R4.1](iterations/R4.1-spielschleife-und-eingabe.md) (Spielschleife und Eingabe), ist geplant. Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach
-kommt der Rendering-Ausbau als eigener Reifegrad R6.
+[R4.1](iterations/R4.1-spielschleife-und-eingabe.md) (Spielschleife und Eingabe), ist geplant.
+Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach kommt der
+Rendering-Ausbau als eigener Reifegrad R6.
 
 ## Phasen und Iterationen
 
