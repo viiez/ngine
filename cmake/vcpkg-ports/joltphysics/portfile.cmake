@@ -62,6 +62,9 @@ vcpkg_fixup_pkgconfig()
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 vcpkg_cmake_config_fixup(PACKAGE_NAME Jolt CONFIG_PATH "lib/cmake/Jolt")
 
+# Als DLL (Triplet x64-windows) schreibt der Port die Definitionen in Core.h. NGine: ohne
+# JPH_FLOATING_POINT_EXCEPTIONS_ENABLED, weil die Bibliothek ohne gebaut ist; sonst schlägt
+# VerifyJoltVersionID() beim Start fehl.
 if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
     vcpkg_replace_string(
         "${CURRENT_PACKAGES_DIR}/include/Jolt/Core/Core.h"
@@ -70,9 +73,6 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
 
 #ifndef JPH_SHARED_LIBRARY
 #define JPH_SHARED_LIBRARY
-#endif
-#ifndef JPH_FLOATING_POINT_EXCEPTIONS_ENABLED
-#define JPH_FLOATING_POINT_EXCEPTIONS_ENABLED
 #endif
 #ifndef JPH_USE_CPU_COMPUTE
 #define JPH_USE_CPU_COMPUTE
