@@ -3,6 +3,7 @@ module;
 #include <functional>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 export module ngine.world:simulation;
 
@@ -89,6 +90,14 @@ public:
     // Setzt die Uhr auf null (z. B. beim Stoppen des Spielmodus); der Schedule bleibt.
     void reset_clock() noexcept;
 
+    // Stufe nach den Systemen jedes festen Schritts, nach ihren Befehlspuffern und vor
+    // set_after_fixed_step(): Arbeit an der ganzen Welt, die kein System pro Entity ist und die
+    // Struktur ändern darf, z. B. der Schritt der Physik (R4.2). Stufen laufen in der Reihenfolge
+    // ihres Hinzufügens im Hauptthread.
+    void add_fixed_stage(std::function<void()> stage) {
+        fixed_stages_.push_back(std::move(stage));
+    }
+
     // Wird nach jedem festen Schritt aufgerufen, nachdem die Befehlspuffer ausgeführt sind. Die
     // Eingabe gibt darüber ihre Flanken frei (input::ActionState::end_fixed_step()).
     void set_after_fixed_step(std::function<void()> callback) {
@@ -108,6 +117,7 @@ private:
     SimulationOptions options_;
     Schedule schedule_;
     Query<Interpolated, const Transform> interpolated_;
+    std::vector<std::function<void()>> fixed_stages_;
     std::function<void()> after_fixed_step_;
     f64 accumulator_ = 0.0;
     f64 time_scale_ = 1.0;

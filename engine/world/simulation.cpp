@@ -132,6 +132,9 @@ void Simulation::fixed_step() {
     time.delta = time.fixed_delta;
     world_->set_time(time);
     schedule_.run(*jobs_, Phase::Fixed);
+    for (const auto& stage : fixed_stages_) {
+        stage();
+    }
     if (after_fixed_step_) {
         after_fixed_step_();
     }
