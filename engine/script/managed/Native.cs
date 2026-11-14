@@ -13,6 +13,8 @@ public unsafe struct NativeApi
     public delegate* unmanaged<int, int, int> Add;
     // Welt: Entities, Komponenten, Abfragen (R4.4).
     public WorldApi World;
+    // Skript-Komponenten (R4.4).
+    public ScriptApi Script;
 }
 
 // Funktionen der Welt; Aufbau wie WorldApi in engine/script/world_api.cppm. Komponenten heißen

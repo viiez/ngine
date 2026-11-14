@@ -261,13 +261,13 @@ Result<bool> commit(SceneDocument& document, EntityId entity, const InspectorRow
     // Kopie, damit das Klemmen den Wert des Aufrufers nicht ändert.
     auto storage = std::make_unique<std::byte[]>(type.size);
     void* copy = storage.get();
-    type.ops.copy_construct(copy, value);
+    type.copy_construct(copy, value);
     if (row.widget == Widget::Number || row.widget == Widget::Angle ||
         row.widget == Widget::Vector || row.widget == Widget::Color) {
         clamp_to_range(row, copy);
     }
     auto command = set_field(document, entity, row.path, copy);
-    type.ops.destroy(copy);
+    type.destroy(copy);
     if (!command) {
         return std::unexpected(command.error());
     }

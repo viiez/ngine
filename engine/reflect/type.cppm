@@ -82,15 +82,20 @@ struct Enumerator {
 };
 
 // Lebenszyklus eines Typs, ohne ihn zu kennen. Alle Zeiger zeigen auf passend ausgerichteten
-// Speicher der Größe TypeInfo::size.
+// Speicher der Größe TypeInfo::size. Die Funktionen bekommen ihren Typ mit, damit auch Typen, die
+// erst zur Laufzeit entstehen (Skripte, R4.4), ihre Felder kennen. Aufrufen über die Methoden von
+// TypeInfo (construct(), destroy(), ...).
 struct TypeOps {
-    void (*construct)(void* target);
-    void (*destroy)(void* target) noexcept;
-    void (*copy_construct)(void* target, const void* source);
-    void (*move_construct)(void* target, void* source) noexcept;
-    void (*copy_assign)(void* target, const void* source);
-    void (*move_assign)(void* target, void* source) noexcept;
+    void (*construct)(const TypeInfo& type, void* target);
+    void (*destroy)(const TypeInfo& type, void* target) noexcept;
+    void (*copy_construct)(const TypeInfo& type, void* target, const void* source);
+    void (*move_construct)(const TypeInfo& type, void* target, void* source) noexcept;
+    void (*copy_assign)(const TypeInfo& type, void* target, const void* source);
+    void (*move_assign)(const TypeInfo& type, void* target, void* source) noexcept;
 };
+
+// Daten eines Typs, der zur Laufzeit aus Feldern zusammengesetzt ist (TypeRegistry::add_composite).
+struct CompositeData;
 
 struct TypeInfo {
     std::string name;
@@ -111,6 +116,30 @@ struct TypeInfo {
     // Platz in der Reihenfolge der Registrierung (TypeRegistry::types()). Fest, solange die
     // Registry lebt; taugt als Index in Arrays pro Typ.
     u32 index = 0;
+    // Nur bei zusammengesetzten Typen (zur Laufzeit entstanden): Vorlage mit den Standardwerten.
+    std::shared_ptr<CompositeData> composite;
+    // Ersetzt (TypeRegistry::retire()): unter seinem Namen nicht mehr zu finden, aber noch gültig
+    // für Daten, die ihn benutzen.
+    bool retired = false;
+
+    void construct(void* target) const {
+        ops.construct(*this, target);
+    }
+    void destroy(void* target) const noexcept {
+        ops.destroy(*this, target);
+    }
+    void copy_construct(void* target, const void* source) const {
+        ops.copy_construct(*this, target, source);
+    }
+    void move_construct(void* target, void* source) const noexcept {
+        ops.move_construct(*this, target, source);
+    }
+    void copy_assign(void* target, const void* source) const {
+        ops.copy_assign(*this, target, source);
+    }
+    void move_assign(void* target, void* source) const noexcept {
+        ops.move_assign(*this, target, source);
+    }
 
     [[nodiscard]] const Field* find_field(std::string_view field_name) const noexcept {
         for (const Field& field : fields) {
@@ -151,22 +180,24 @@ concept Reflectable = std::is_default_constructible_v<T> && std::is_copy_constru
 template <Reflectable T>
 [[nodiscard]] constexpr TypeOps make_ops() noexcept {
     return TypeOps{
-        .construct = [](void* target) { std::construct_at(static_cast<T*>(target)); },
-        .destroy = [](void* target) noexcept { std::destroy_at(static_cast<T*>(target)); },
+        .construct = [](const TypeInfo&,
+                        void* target) { std::construct_at(static_cast<T*>(target)); },
+        .destroy = [](const TypeInfo&,
+                      void* target) noexcept { std::destroy_at(static_cast<T*>(target)); },
         .copy_construct =
-            [](void* target, const void* source) {
+            [](const TypeInfo&, void* target, const void* source) {
                 std::construct_at(static_cast<T*>(target), *static_cast<const T*>(source));
             },
         .move_construct =
-            [](void* target, void* source) noexcept {
+            [](const TypeInfo&, void* target, void* source) noexcept {
                 std::construct_at(static_cast<T*>(target), std::move(*static_cast<T*>(source)));
             },
         .copy_assign =
-            [](void* target, const void* source) {
+            [](const TypeInfo&, void* target, const void* source) {
                 *static_cast<T*>(target) = *static_cast<const T*>(source);
             },
         .move_assign =
-            [](void* target, void* source) noexcept {
+            [](const TypeInfo&, void* target, void* source) noexcept {
                 *static_cast<T*>(target) = std::move(*static_cast<T*>(source));
             },
     };
@@ -194,7 +225,7 @@ template <Reflectable T>
 // Offset eines Feldes aus einem Zeiger auf ein Datenelement. offsetof() nimmt keine Zeiger auf
 // Elemente; deshalb wird ein Objekt erzeugt und die Adressen verglichen.
 template <typename T, typename M>
-[[nodiscard]] usize offset_of(M T::*member) {
+[[nodiscard]] usize offset_of(M T::* member) {
     const T object{};
     const auto* base = reinterpret_cast<const std::byte*>(std::addressof(object));
     const auto* field = reinterpret_cast<const std::byte*>(std::addressof(object.*member));

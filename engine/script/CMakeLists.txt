@@ -12,10 +12,12 @@ target_sources(ngine_script
         FILES
             native.cppm
             world_api.cppm
+            script_api.cppm
     PRIVATE
         runtime.cpp
         bindings.cpp
-        world_api.cpp)
+        world_api.cpp
+        script_api.cpp)
 
 # Plattformcode nur in den Adaptern: je eine Datei pro Betriebssystem.
 if(WIN32)
@@ -27,7 +29,7 @@ endif()
 
 # Zur Laufzeit wird hostfxr dynamisch geladen; zum Bauen braucht der C++-Teil kein .NET.
 target_link_libraries(ngine_script PUBLIC ngine::core ngine::reflect ngine::world
-    PRIVATE ngine::profile)
+    PRIVATE ngine::profile ngine::serialize)
 ngine_set_compiler_options(ngine_script)
 
 # Der verwaltete Teil (NGine.Scripting) braucht das .NET-SDK. Fehlt es, baut die Engine ohne ihn,
@@ -52,6 +54,7 @@ if(NGINE_WITH_DOTNET)
         PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/managed/NGine.Scripting.csproj"
         SOURCES managed/Host.cs managed/Log.cs managed/Native.cs managed/Script.cs
             managed/Components.cs managed/Math.cs managed/Entity.cs managed/World.cs
+            managed/ScriptClasses.cs
         GENERATED "${generated}/Components.g.cs"
         PROPERTIES "NgineGeneratedDir=${generated}")
 endif()

@@ -98,10 +98,10 @@ json::Value changed_fields(const json::Value& current, const json::Value* base) 
 // die Vorlage Felder auslässt oder Zahlen anders schreibt (6 statt 6.0).
 json::Value effective_value(const reflect::TypeInfo& type, const json::Value& partial) {
     void* data = ::operator new(type.size, std::align_val_t{type.alignment});
-    type.ops.construct(data);
+    type.construct(data);
     json::Value result =
         serialize::from_json(partial, data, type) ? serialize::to_json(data, type) : partial;
-    type.ops.destroy(data);
+    type.destroy(data);
     ::operator delete(data, std::align_val_t{type.alignment});
     return result;
 }

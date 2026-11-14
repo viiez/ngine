@@ -81,3 +81,45 @@ public static class WorldTests
 
     public static void Throws() => throw new System.InvalidOperationException("Absichtlich");
 }
+
+// Skript-Komponente (R4.4): bewegt ihre Entity und zählt ihre Aufrufe in einem öffentlichen Feld.
+public class Spinner : Script
+{
+    [Range(0, 10)] public float Speed = 2.0f;
+    public string Label = "Kreisel";
+    [Color] public Vec3 Tint = new(1, 0.5f, 0);
+    public int Calls;
+    public MotionType Motion = MotionType.Kinematic;
+    private int privateState = 7;
+
+    public override void Start()
+    {
+        Calls += 100;
+        privateState = 0;
+    }
+
+    public override void FixedUpdate()
+    {
+        Calls += 1;
+        ref Transform transform = ref Get<Transform>();
+        transform.Position.X += Speed * Time.Delta;
+    }
+
+    public override void Update() => Calls += 1000;
+
+    public override void Stop() => Log.Info($"Spinner {Label} stoppt nach {Calls} Aufrufen ({privateState})");
+}
+
+// Legt beim Start Entities an (über den Befehlspuffer).
+public class Spawner : Script
+{
+    public int Count = 2;
+
+    public override void Start()
+    {
+        for (int i = 0; i < Count; ++i)
+        {
+            World.Create("Gespawnt").Set(new Transform());
+        }
+    }
+}

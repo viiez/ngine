@@ -1,6 +1,7 @@
 module;
 
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -118,8 +119,27 @@ public:
     }
     [[nodiscard]] const TypeInfo& get_key(TypeKey key) const;
 
-    // Alle Typen in der Reihenfolge der Registrierung.
+    // Alle Typen in der Reihenfolge der Registrierung, auch ersetzte (TypeInfo::retired).
     [[nodiscard]] std::span<const TypeInfo* const> types() const noexcept;
+
+    // --- Typen zur Laufzeit (Skripte, R4.4) ---------------------------------------------------
+    // Nur im Hauptthread und während niemand sonst die Registry liest.
+
+    // Legt einen Struct aus Feldern an, deren Typen schon registriert sind. Die Registry wählt die
+    // Anordnung (Reihenfolge der Felder, natürliche Ausrichtung). Neue Werte sind Kopien der
+    // Vorlage (composite_prototype()), die mit den Standardwerten der Feldtypen beginnt.
+    struct CompositeField {
+        std::string name;
+        const TypeInfo* type = nullptr;
+        std::optional<Range> range;
+        Hint hint = Hint::None;
+    };
+    TypeInfo& add_composite(std::string_view name, std::span<const CompositeField> fields);
+    // Vorlage eines zusammengesetzten Typs; wer sie ändert, ändert die Standardwerte.
+    [[nodiscard]] static void* composite_prototype(const TypeInfo& type);
+    // Nimmt einen Typ aus der Suche nach Name und Kennung. Er bleibt gültig (Zeiger, Index), und
+    // ein neuer Typ darf seinen Namen bekommen, z. B. ein Skript mit geänderten Feldern.
+    void retire(const TypeInfo& type);
 
 private:
     template <typename T>

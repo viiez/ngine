@@ -1,6 +1,8 @@
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -250,4 +252,66 @@ TEST_CASE("Component lookup by type", "[world][.benchmark]") {
         }
         return sum;
     };
+}
+
+TEST_CASE("Composite types made at runtime work as components and in scenes", "[world]") {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    using Field = reflect::TypeRegistry::CompositeField;
+    const std::array<Field, 4> fields{
+        Field{.name = "on", .type = types.find("bool")},
+        Field{.name = "label", .type = types.find("string")},
+        Field{.name = "brightness", .type = types.find("f32"), .range = reflect::Range{0.0, 10.0}},
+        Field{.name = "color", .type = types.find("Vec3"), .hint = reflect::Hint::Color}};
+    const reflect::TypeInfo& lantern = types.add_composite("Lantern", fields);
+    CHECK_FALSE(lantern.trivial);
+    CHECK(lantern.fields[1].offset % alignof(std::string) == 0);
+    CHECK(lantern.size % lantern.alignment == 0);
+    CHECK(lantern.fields[2].range->max == 10.0);
+    // Standardwerte über die Vorlage.
+    auto* prototype = static_cast<std::byte*>(reflect::TypeRegistry::composite_prototype(lantern));
+    *reinterpret_cast<bool*>(prototype + lantern.fields[0].offset) = true;
+    *reinterpret_cast<std::string*>(prototype + lantern.fields[1].offset) = "Laterne";
+    *reinterpret_cast<f32*>(prototype + lantern.fields[2].offset) = 2.5f;
+
+    world::World w{types};
+    const world::ComponentId id = w.component(lantern);
+    world::Entity entity = w.create("Lampe");
+    auto* data = static_cast<std::byte*>(w.ensure(entity.id(), id));
+    CHECK(*reinterpret_cast<bool*>(data + lantern.fields[0].offset));
+    CHECK(*reinterpret_cast<std::string*>(data + lantern.fields[1].offset) == "Laterne");
+    *reinterpret_cast<f32*>(data + lantern.fields[2].offset) = 7.0f;
+    *reinterpret_cast<std::string*>(data + lantern.fields[1].offset) = "Eine sehr lange Laterne, "
+                                                                       "die nicht in SSO passt";
+    w.modified(entity.id(), id);
+
+    // Szenen speichern und laden zusammengesetzte Typen wie jede Komponente.
+    const std::string text = world::save_scene(w);
+    CHECK(text.find("\"Lantern\"") != std::string::npos);
+    world::World loaded{types};
+    REQUIRE(world::load_scene(loaded, text));
+    bool found = false;
+    loaded.each<const world::Name>([&](world::Entity e, const world::Name& name) {
+        if (name.value != "Lampe") {
+            return;
+        }
+        const auto* values =
+            static_cast<const std::byte*>(loaded.get(e.id(), loaded.component(lantern)));
+        REQUIRE(values != nullptr);
+        CHECK(*reinterpret_cast<const f32*>(values + lantern.fields[2].offset) == 7.0f);
+        CHECK(*reinterpret_cast<const std::string*>(values + lantern.fields[1].offset) ==
+              "Eine sehr lange Laterne, die nicht in SSO passt");
+        found = true;
+    });
+    CHECK(found);
+
+    // Ersetzen: Der alte Typ bleibt gültig, der Name ist frei für einen neuen.
+    types.retire(lantern);
+    CHECK(lantern.retired);
+    CHECK(types.find("Lantern") == nullptr);
+    const std::array<Field, 1> fewer{Field{.name = "on", .type = types.find("bool")}};
+    const reflect::TypeInfo& replacement = types.add_composite("Lantern", fewer);
+    CHECK(types.find("Lantern") == &replacement);
+    CHECK(replacement.trivial);
+    CHECK(w.get(entity.id(), id) != nullptr);
 }

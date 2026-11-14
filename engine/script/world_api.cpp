@@ -158,10 +158,10 @@ std::int32_t api_set(u64 entity, std::int32_t type, const void* value) {
     void* raw = storage.get();
     usize space = info->size + info->alignment;
     void* aligned = std::align(info->alignment, info->size, raw, space);
-    info->ops.construct(aligned);
+    info->construct(aligned);
     copy_visible(*info, static_cast<std::byte*>(aligned), source);
     c.commands->set(c.world->entity(entity), *info, aligned);
-    info->ops.destroy(aligned);
+    info->destroy(aligned);
     return 0;
 }
 

@@ -177,10 +177,10 @@ void write_struct(std::string& out, const reflect::TypeInfo& type) {
         void* raw = storage.get();
         usize space = type.size + type.alignment;
         void* aligned = std::align(type.alignment, type.size, raw, space);
-        type.ops.construct(aligned);
+        type.construct(aligned);
         std::string defaults;
         write_defaults(defaults, type, static_cast<const std::byte*>(aligned), "");
-        type.ops.destroy(aligned);
+        type.destroy(aligned);
         out += std::format("    public {}()\n    {{\n{}    }}\n", type.name, defaults);
     }
     for (const reflect::Field& field : type.fields) {

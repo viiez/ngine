@@ -28,6 +28,9 @@ struct Position {
     f32 z = 0.0f;
 };
 
+// Wann Skripte laufen: im festen Schritt vor der Physik oder einmal pro Bild.
+enum class ScriptPhase : u8 { Fixed, Frame };
+
 struct RuntimeDesc {
     // Ordner mit NGine.Scripting.dll und NGine.Scripting.runtimeconfig.json.
     std::string assembly_dir;
@@ -53,6 +56,24 @@ public:
     [[nodiscard]] Result<void> start();
     // Skripte sehen und ändern positions direkt, ohne Kopie.
     [[nodiscard]] Result<void> update(f32 delta_time, std::span<Position> positions);
+
+    // --- Skript-Komponenten (R4.4) ------------------------------------------------------------
+
+    // Registry, in der jede Skript-Klasse beim Laden ein Komponententyp wird (dieselbe, die die
+    // Welt nutzt). Ohne Registry laden nur die Skripte aus D2 (IScript).
+    void use_types(reflect::TypeRegistry* types);
+    // Typen der geladenen Skript-Klassen, nach Namen sortiert.
+    [[nodiscard]] std::span<const reflect::TypeInfo* const> script_types() const noexcept;
+    // Ruft FixedUpdate bzw. Update aller Skript-Komponenten der gebundenen Welt auf (neue bekommen
+    // vorher Start, verschwundene Stop) und führt danach ihre Strukturänderungen aus.
+    [[nodiscard]] Result<void> run(ScriptPhase phase, f32 delta_time);
+    // Felder der laufenden Skripte in ihre Komponenten schreiben (vor Speichern, Snapshot,
+    // Inspector) bzw. aus ihnen lesen (nach Änderungen im Inspector, Undo).
+    void store_fields();
+    void load_fields();
+    // Stoppt alle laufenden Skripte (Stop) und vergisst sie, z. B. beim Verlassen des
+    // Spielmodus. Beim nächsten run() entstehen sie neu aus den Komponenten.
+    void reset_instances();
 
     // Welt, auf die Skripte über Entity und World zugreifen (R4.4); nullptr löst sie. Die Welt
     // muss leben, solange sie gebunden ist, und vor ihrem Ende gelöst werden.

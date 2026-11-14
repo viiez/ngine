@@ -30,6 +30,7 @@ import ngine.profile;
 import ngine.reflect;
 import ngine.world;
 import :native;
+import :script_api;
 import :world_api;
 
 namespace ngine::script {
@@ -91,6 +92,7 @@ struct NativeApi {
     void (*log)(std::int32_t level, const u8* text, std::int32_t length);
     std::int32_t (*add)(std::int32_t a, std::int32_t b);
     WorldApi world;
+    ScriptApi script;
 };
 
 void native_log(std::int32_t level, const u8* text, std::int32_t length) {
@@ -117,6 +119,11 @@ struct ManagedApi {
     std::int32_t (*describe_layout)(void (*)(const u8*, std::int32_t, const u8*, std::int32_t,
                                              std::int64_t)) = nullptr;
     std::int32_t (*invoke)(const u8*, std::int32_t) = nullptr;
+    std::int32_t (*register_scripts)() = nullptr;
+    std::int32_t (*run_scripts)(std::int32_t, f32) = nullptr;
+    std::int32_t (*store_fields)() = nullptr;
+    std::int32_t (*load_fields)() = nullptr;
+    std::int32_t (*reset_instances)() = nullptr;
 };
 
 // Anordnung der Structs, wie C# sie meldet: Typ → Größe und Offsets der Felder.
@@ -211,7 +218,7 @@ struct ScriptRuntime::Impl {
     // hostfxr bleibt geladen, solange der Prozess läuft; .NET hängt daran.
     void* library = nullptr;
     ManagedApi managed;
-    NativeApi native{native_log, native_add, make_world_api()};
+    NativeApi native{native_log, native_add, make_world_api(), make_script_api()};
     bool scripts_loaded = false;
 };
 
@@ -338,7 +345,10 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         !function(m.unload_scripts, "UnloadScripts") || !function(m.add, "Add") ||
         !function(m.benchmark_native_calls, "BenchmarkNativeCalls") ||
         !function(m.world_changed, "WorldChanged") ||
-        !function(m.describe_layout, "DescribeLayout") || !function(m.invoke, "Invoke")) {
+        !function(m.describe_layout, "DescribeLayout") || !function(m.invoke, "Invoke") ||
+        !function(m.register_scripts, "RegisterScripts") ||
+        !function(m.run_scripts, "RunScripts") || !function(m.store_fields, "StoreFields") ||
+        !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
     if (m.initialize(&impl->native, static_cast<std::int32_t>(sizeof(NativeApi))) != 0) {
@@ -373,7 +383,54 @@ Result<u32> ScriptRuntime::load_scripts(std::string_view assembly_path) {
             std::format("Skripte aus {} lassen sich nicht laden", assembly_path));
     }
     impl_->scripts_loaded = true;
+    // Skript-Komponenten als Typen anmelden; Komponenten geänderter Typen ziehen um.
+    clear_registered_script_types();
+    if (script_registry() != nullptr) {
+        if (impl_->managed.register_scripts() < 0) {
+            return std::unexpected("Skript-Komponenten lassen sich nicht anmelden");
+        }
+        if (const usize moved = migrate_script_types(); moved > 0) {
+            log::info("{} Skript-Komponenten auf geänderte Felder umgezogen", moved);
+        }
+    }
     return static_cast<u32>(count);
+}
+
+void ScriptRuntime::use_types(reflect::TypeRegistry* types) {
+    set_script_registry(types);
+}
+
+std::span<const reflect::TypeInfo* const> ScriptRuntime::script_types() const noexcept {
+    return registered_script_types();
+}
+
+Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
+    NGINE_PROFILE_ZONE("ScriptRuntime::run");
+    if (script_world() == nullptr) {
+        return {};
+    }
+    const std::int32_t errors =
+        impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
+    apply_script_commands();
+    if (errors != 0) {
+        return std::unexpected(std::format("{} Fehler in Skripten", errors));
+    }
+    return {};
+}
+
+void ScriptRuntime::store_fields() {
+    NGINE_PROFILE_ZONE("ScriptRuntime::store_fields");
+    (void)impl_->managed.store_fields();
+}
+
+void ScriptRuntime::load_fields() {
+    NGINE_PROFILE_ZONE("ScriptRuntime::load_fields");
+    (void)impl_->managed.load_fields();
+}
+
+void ScriptRuntime::reset_instances() {
+    (void)impl_->managed.reset_instances();
+    apply_script_commands();
 }
 
 Result<bool> ScriptRuntime::unload_scripts() {

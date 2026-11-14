@@ -128,7 +128,8 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
     auto& rt = runtime();
     const auto count = rt.load_scripts(test_scripts());
     REQUIRE(count);
-    CHECK(*count == 2); // Greeter und Mover, nicht die abstrakte Klasse
+    // Greeter und Mover (D2), Spawner und Spinner (Skript-Komponenten), nicht die abstrakte Klasse.
+    CHECK(*count == 4);
 
     REQUIRE(rt.start());
     CHECK(capture()->contains("Hallo aus C#"));
@@ -148,7 +149,7 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
     // Neu laden wie beim Hot Reload.
     const auto again = rt.load_scripts(test_scripts());
     REQUIRE(again);
-    CHECK(*again == 2);
+    CHECK(*again == 4);
     REQUIRE(rt.unload_scripts());
 }
 
@@ -298,4 +299,89 @@ TEST_CASE("C# reads and changes the world without copies", "[script]") {
 
     rt.bind_world(nullptr);
     REQUIRE(rt.unload_scripts());
+}
+
+namespace {
+
+template <typename T>
+T& field(void* data, const reflect::TypeInfo& type, std::string_view name) {
+    const reflect::Field* f = type.find_field(name);
+    REQUIRE(f != nullptr);
+    return *reinterpret_cast<T*>(static_cast<std::byte*>(data) + f->offset);
+}
+
+} // namespace
+
+TEST_CASE("Script classes become components with fields and a life cycle", "[script]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    rt.use_types(&types);
+    REQUIRE(rt.load_scripts(test_scripts()));
+
+    // Jede Skript-Klasse ist ein Typ der Registry, sortiert nach Namen.
+    REQUIRE(rt.script_types().size() == 2);
+    CHECK(rt.script_types()[0]->name == "Spawner");
+    CHECK(rt.script_types()[1]->name == "Spinner");
+    const reflect::TypeInfo* spinner = types.find("Spinner");
+    REQUIRE(spinner != nullptr);
+    CHECK(spinner->fields.size() == 5); // ohne privates Feld
+    CHECK(spinner->find_field("Speed")->range->max == 10.0);
+    CHECK(spinner->find_field("Tint")->hint == reflect::Hint::Color);
+    CHECK(spinner->find_field("Motion")->type == types.find("MotionType"));
+    // Standardwerte aus den Feldinitialisierern in C#.
+    void* prototype = reflect::TypeRegistry::composite_prototype(*spinner);
+    CHECK(field<f32>(prototype, *spinner, "Speed") == 2.0f);
+    CHECK(field<std::string>(prototype, *spinner, "Label") == "Kreisel");
+    CHECK(field<math::Vec3>(prototype, *spinner, "Tint").y == 0.5f);
+    CHECK(field<physics::MotionType>(prototype, *spinner, "Motion") ==
+          physics::MotionType::Kinematic);
+
+    world::World w{types};
+    world::Entity entity = w.create("Kreisel");
+    entity.set(world::Transform{});
+    const world::ComponentId spinner_id = w.component(*spinner);
+    field<std::string>(w.ensure(entity.id(), spinner_id), *spinner, "Label") = "Erster";
+    world::Entity spawner = w.create("Spawner");
+    (void)w.ensure(spawner.id(), w.component(*types.find("Spawner")));
+    rt.bind_world(&w);
+
+    const usize before = w.entity_count();
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.5f));
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.5f));
+    REQUIRE(rt.run(script::ScriptPhase::Frame, 0.016f));
+    CHECK(entity.get<world::Transform>()->position.x == 2.0);
+    // Start hat über den Befehlspuffer Entities angelegt.
+    CHECK(w.entity_count() == before + 2);
+    // Öffentliche Felder kommen erst auf Wunsch in die Komponente.
+    CHECK(field<i32>(w.get_mut(entity.id(), spinner_id), *spinner, "Calls") == 0);
+    rt.store_fields();
+    CHECK(field<i32>(w.get_mut(entity.id(), spinner_id), *spinner, "Calls") == 1102);
+    // Werte aus der Komponente zurück ins Skript (Inspector, Undo).
+    field<f32>(w.get_mut(entity.id(), spinner_id), *spinner, "Speed") = 0.0f;
+    rt.load_fields();
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.5f));
+    CHECK(entity.get<world::Transform>()->position.x == 2.0);
+
+    // Szenen speichern Skripte wie Komponenten.
+    rt.store_fields();
+    const std::string scene = world::save_scene(w);
+    CHECK(scene.find("\"Spinner\"") != std::string::npos);
+    CHECK(scene.find("\"Label\": \"Erster\"") != std::string::npos);
+
+    // Komponente weg: Stop, privater Zustand bleibt bis dahin.
+    w.remove(entity.id(), spinner_id);
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.5f));
+    CHECK(capture()->contains("Spinner Erster stoppt nach 1103 Aufrufen (0)"));
+
+    // Neu laden mit gleichen Feldern behält die Typen.
+    rt.bind_world(nullptr);
+    const auto unloaded = rt.unload_scripts();
+    REQUIRE(unloaded);
+    CHECK(*unloaded); // Auch mit Skript-Komponenten wird der Kontext frei.
+    REQUIRE(rt.load_scripts(test_scripts()));
+    CHECK(types.find("Spinner") == spinner);
+
+    REQUIRE(rt.unload_scripts());
+    rt.use_types(nullptr);
 }

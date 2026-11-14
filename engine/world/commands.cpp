@@ -168,7 +168,7 @@ void Commands::apply() {
             const u64 entity = resolve(record.entity);
             if (entity != 0 && world.alive(entity)) {
                 const ComponentId component = world.component(*record.type);
-                record.type->ops.move_assign(world.ensure(entity, component), record.value);
+                record.type->move_assign(world.ensure(entity, component), record.value);
                 world.modified(entity, component);
             }
             break;
@@ -196,7 +196,7 @@ void Commands::apply() {
 void Commands::destroy_values() noexcept {
     for (Record& record : records_) {
         if (record.value != nullptr) {
-            record.type->ops.destroy(record.value);
+            record.type->destroy(record.value);
             record.value = nullptr;
         }
     }

@@ -54,7 +54,7 @@ public:
     void set(Entity entity, T value) {
         const reflect::TypeInfo& type = world_->types().get<T>();
         void* storage = push_set(entity, type);
-        type.ops.move_construct(storage, &value);
+        type.move_construct(storage, &value);
     }
     template <typename T>
     void remove(Entity entity) {
@@ -63,7 +63,7 @@ public:
     // Ohne C++-Typ (Skripte, R4.4): kopiert value, das auf einen Wert von type zeigt.
     void set(Entity entity, const reflect::TypeInfo& type, const void* value) {
         void* storage = push_set(entity, type);
-        type.ops.copy_construct(storage, value);
+        type.copy_construct(storage, value);
     }
     void remove(Entity entity, const reflect::TypeInfo& type) {
         push_remove(entity, type);

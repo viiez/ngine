@@ -47,42 +47,42 @@ const std::byte* element(const void* base, i32 index, usize size) noexcept {
 void hook_ctor(void* ptr, i32 count, const ecs_type_info_t* info) {
     const auto& type = type_of(info);
     for (i32 i = 0; i < count; ++i) {
-        type.ops.construct(element(ptr, i, type.size));
+        type.construct(element(ptr, i, type.size));
     }
 }
 
 void hook_dtor(void* ptr, i32 count, const ecs_type_info_t* info) {
     const auto& type = type_of(info);
     for (i32 i = 0; i < count; ++i) {
-        type.ops.destroy(element(ptr, i, type.size));
+        type.destroy(element(ptr, i, type.size));
     }
 }
 
 void hook_copy(void* dst, const void* src, i32 count, const ecs_type_info_t* info) {
     const auto& type = type_of(info);
     for (i32 i = 0; i < count; ++i) {
-        type.ops.copy_assign(element(dst, i, type.size), element(src, i, type.size));
+        type.copy_assign(element(dst, i, type.size), element(src, i, type.size));
     }
 }
 
 void hook_move(void* dst, void* src, i32 count, const ecs_type_info_t* info) {
     const auto& type = type_of(info);
     for (i32 i = 0; i < count; ++i) {
-        type.ops.move_assign(element(dst, i, type.size), element(src, i, type.size));
+        type.move_assign(element(dst, i, type.size), element(src, i, type.size));
     }
 }
 
 void hook_copy_ctor(void* dst, const void* src, i32 count, const ecs_type_info_t* info) {
     const auto& type = type_of(info);
     for (i32 i = 0; i < count; ++i) {
-        type.ops.copy_construct(element(dst, i, type.size), element(src, i, type.size));
+        type.copy_construct(element(dst, i, type.size), element(src, i, type.size));
     }
 }
 
 void hook_move_ctor(void* dst, void* src, i32 count, const ecs_type_info_t* info) {
     const auto& type = type_of(info);
     for (i32 i = 0; i < count; ++i) {
-        type.ops.move_construct(element(dst, i, type.size), element(src, i, type.size));
+        type.move_construct(element(dst, i, type.size), element(src, i, type.size));
     }
 }
 
