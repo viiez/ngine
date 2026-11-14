@@ -307,6 +307,9 @@ struct ModelLoading {
     // Kocht veraltete Modelle und legt sie in den Cache (Editor). Ohne kommt ein veraltetes Modell
     // aus der Quelle, mit einfachen Tangenten und Mip-Stufen auf der CPU (Spiel, Server).
     asset::ModelCooker cook;
+    // Kocht Einzeltexturen (z. B. des Terrains) zu KTX2 und legt sie in den Cache (R4.3). Ohne
+    // kommt eine veraltete Textur aus der Bilddatei mit Mip-Stufen auf der CPU.
+    asset::ImageCooker cook_image;
 };
 
 // Meldet beim Ressourcen-Manager, wie GpuModel aus glTF-Dateien entstehen: lesen (aus dem Cache,

@@ -99,12 +99,28 @@ inline constexpr u32 cooked_model_version = 2;
 // Liest ein gekochtes Modell; kaputte Daten und andere Versionen liefern einen Fehler.
 [[nodiscard]] Result<CookedModel> read_cooked_model(std::span<const std::byte> data);
 
+// Eine gekochte Einzeltextur (R4.3, z. B. die Texturen des Terrains): KTX2 und BC7 wie bei
+// Modellen, dazu der Stempel der Bilddatei. texture.image ist 0.
+struct CookedImage {
+    CookedTexture texture;
+    std::vector<SourceStamp> sources;
+};
+
+inline constexpr u32 cooked_image_version = 1;
+
+[[nodiscard]] std::vector<std::byte> write_cooked_image(const CookedImage& image);
+[[nodiscard]] Result<CookedImage> read_cooked_image(std::span<const std::byte> data);
+
+// Kocht eine Bilddatei (absolut, normalisiert) im Farbraum srgb mit Mip-Stufen. Kommt von
+// ngine.cook.
+using ImageCooker = std::function<Result<CookedImage>(std::string_view source, bool srgb)>;
+
 // Kocht ein Modell aus seiner Quelldatei (absolut, normalisiert). Kommt von ngine.cook; der
 // Ressourcen-Manager ruft es im Hintergrund auf.
 using ModelCooker = std::function<Result<CookedModel>(std::string_view source)>;
 
-// Ordner mit gekochten Assets, eine Datei pro Kennung (<Kennung hex>.nmodel). Lesen und Schreiben
-// verschiedener Kennungen darf parallel laufen.
+// Ordner mit gekochten Assets, eine Datei pro Kennung (<Kennung hex>.nmodel, Texturen .ntex). Lesen
+// und Schreiben verschiedener Kennungen darf parallel laufen.
 class AssetCache {
 public:
     AssetCache() = default;
@@ -126,6 +142,12 @@ public:
     // Schreibt das Modell (über eine temporäre Datei, damit ein paralleles Lesen nie eine halbe
     // Datei sieht) und legt den Ordner bei Bedarf an. Dieselbe Kennung nicht parallel schreiben.
     [[nodiscard]] Result<void> store_model(AssetId id, const CookedModel& model) const;
+
+    // Einzeltexturen (R4.3), eine Datei je Kennung und Farbraum (<Kennung hex>.srgb.ntex bzw.
+    // .linear.ntex); sonst wie die Modelle.
+    [[nodiscard]] std::string texture_path(AssetId id, bool srgb) const;
+    [[nodiscard]] Result<std::optional<CookedImage>> load_texture(AssetId id, bool srgb) const;
+    [[nodiscard]] Result<void> store_texture(AssetId id, bool srgb, const CookedImage& image) const;
 
 private:
     std::string directory_;

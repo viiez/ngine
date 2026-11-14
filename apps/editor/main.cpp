@@ -283,7 +283,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         }
         app::SceneAssets scene_assets{.database = database ? &*database : nullptr, .loading = {}};
         if (cache) {
-            scene_assets.loading = {.cache = &*cache, .cook = cook::model_cooker()};
+            scene_assets.loading = {
+                .cache = &*cache, .cook = cook::model_cooker(), .cook_image = cook::image_cooker()};
         }
         auto scene =
             app::ModelScene::create(**device, viewport_format, options.model_path, math::DVec3{},
