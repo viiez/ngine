@@ -173,6 +173,8 @@ jobs:
           # Seit R4.3: Spielplatz auf dem Terrain mit Figur, die eine feste Spur läuft und gräbt.
           "$exe" --headless --playground --frames 420
           "$exe" --script-demo --frames 60
+          # Seit R4.4: Skript-Komponenten mit Update pro Bild (auf dem PC mit 10 000 gemessen).
+          "$exe" --scripts 1000 --frames 60
           "$exe" --net-demo --frames 120
 
       # Netzwerk (D3) mit zwei Prozessen: dedizierter Server und Client über localhost.

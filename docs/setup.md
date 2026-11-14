@@ -412,6 +412,38 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R4.4 testen: C#-Scripting
+
+Voraussetzung ist das .NET-SDK 10 (`dotnet --version`). Ohne SDK läuft die Engine mit der zuletzt
+gebauten Assembly aus `assets/.cache/skripte`, sonst ohne Skripte; die Figur steuert dann C++.
+
+1. **Tests:** `ctest` meldet auch die neuen `[script]`-Fälle (Bindings, Skript-Komponenten,
+   Eingabe und Physik, Bau im Hintergrund mit Neuladen, Spielskripte) und `[platform]` (externe
+   Programme) als bestanden. Der Fall mit dem Bau dauert einige Sekunden.
+2. **Spielplatz:** `ngine_sandbox --playground`. Das Log meldet „Skripte in … s gebaut“; die Figur
+   läuft wie in R4.3, jetzt gesteuert von `assets/skripte/Spielersteuerung.cs`. Zur Laterne neben
+   der Ebene laufen und F drücken (am Gamepad Y bzw. Dreieck): Das Licht geht aus und wieder an und
+   flackert leicht.
+3. **Hot Reload:** Bei laufendem Spielplatz in `Laterne.cs` die Logzeile in `Update` ändern, z. B.
+   `"an"` durch `"leuchtet"` ersetzen, und speichern. Nach rund zwei Sekunden steht im Log
+   „Skripte in … s gebaut“, das Spiel lief durchgehend weiter, und F meldet den neuen Text. Ein
+   neues öffentliches Feld (z. B. `public int Test = 3;`) erscheint nach dem Speichern im
+   Inspector des Editors mit dem Standardwert; geänderte Standardwerte bestehender Felder gelten
+   nicht für Laternen, die schon einen Wert haben, denn die Komponente ist die Quelle der Wahrheit.
+   Einen Fehler einbauen (z. B. ein Semikolon löschen): Das Log zeigt Datei, Zeile und Fehlercode,
+   die alten Skripte laufen weiter.
+4. **Editor:** `szenen/spielplatz.json` öffnen, Menü „Ansicht“, „Skripte“: Das Fenster zeigt den
+   Zustand des Baus, Fehler mit Datei und Zeile und die geladenen Klassen. Die Laterne auswählen:
+   Der Inspector zeigt „Laterne“ mit `An`, `Flackern` (Schieber) und `Reichweite`. Spielen (F5),
+   F drücken: Im Inspector springt `An` mit. `Flackern` im Inspector ändern, dann die Datei wie in
+   Schritt 3 speichern: Der Wert aus dem Inspector bleibt. Stoppen stellt alles wieder her.
+   „Komponente hinzufügen“ bietet die Skript-Klassen an wie jede Komponente.
+5. **Ohne Skripte:** `ngine_sandbox --playground --no-scripts` steuert die Figur mit dem Rückfall in
+   C++; `--headless --playground` mit und ohne `--no-scripts` ergibt dieselbe „Prüfsumme der Lagen“.
+6. **Messung:** Im Release-Build `ngine_sandbox --scripts 10000`. Das Log meldet die Zeit des
+   ersten Bildes und den Median und das 99. Perzentil von `Update` für 10 000 Skripte pro Bild. Die
+   Zahlen gehören ins Iterationsdokument.
+
 ## R4.3 testen: Terrain-Kollision und Spielfigur
 
 1. **Tests:** `ctest` meldet auch die neuen Fälle in `[physics]` (Terrain, Figur, Materialien),
