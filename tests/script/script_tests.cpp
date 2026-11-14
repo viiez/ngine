@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
 #include <cstdlib>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -8,6 +10,11 @@
 
 import ngine.core;
 import ngine.filesystem;
+import ngine.math;
+import ngine.reflect;
+import ngine.world;
+import ngine.physics;
+import ngine.render;
 import ngine.script;
 
 // Diese Tests brauchen das .NET-SDK beim Bauen und .NET 10 zur Laufzeit. Fehlt beides, werden
@@ -164,4 +171,131 @@ TEST_CASE("Aufrufe zwischen C++ und C# sind billig", "[script]") {
     // Großzügige Grenze, auch für Debug-Builds unter Last: ein Aufruf unter einer Mikrosekunde.
     CHECK(to_managed < 1000.0);
     CHECK(to_native < 1000.0);
+}
+
+namespace {
+
+struct BindingSample {
+    f32 speed = 2.5f;
+    bool active = true;
+    std::string label;
+    math::Vec3 offset{0.0f, 1.0f, 0.0f};
+    u8 mode = 3;
+};
+
+enum class BindingMode : u8 { Off, On };
+
+void register_engine_types(reflect::TypeRegistry& types) {
+    world::register_types(types);
+    physics::register_types(types);
+    render::register_types(types);
+}
+
+} // namespace
+
+TEST_CASE("Bindings mirror the reflection layout with C++ defaults", "[script]") {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    types.add<BindingMode>("BindingMode")
+        .value("Off", BindingMode::Off)
+        .value("On", BindingMode::On);
+    types.add<BindingSample>("BindingSample")
+        .field("speed", &BindingSample::speed)
+        .field("active", &BindingSample::active)
+        .field("label", &BindingSample::label)
+        .field("offset", &BindingSample::offset)
+        .field("mode", &BindingSample::mode);
+    const std::string source = script::generate_bindings(types);
+    INFO(source);
+    CHECK(source.find("public enum BindingMode : byte") != std::string::npos);
+    CHECK(source.find("On = 1,") != std::string::npos);
+    CHECK(source.find(std::format("[StructLayout(LayoutKind.Explicit, Size = {})]\npublic struct "
+                                  "BindingSample : IComponent",
+                                  sizeof(BindingSample))) != std::string::npos);
+    CHECK(source.find(std::format("[FieldOffset({})] public float Speed;",
+                                  offsetof(BindingSample, speed))) != std::string::npos);
+    CHECK(source.find(std::format("[FieldOffset({})] public Vec3 Offset;",
+                                  offsetof(BindingSample, offset))) != std::string::npos);
+    CHECK(source.find("public byte Mode;") != std::string::npos);
+    // Texte fehlen im Struct; der Typ ist nicht trivial.
+    CHECK(source.find("public string") == std::string::npos);
+    CHECK(source.find("Label") == std::string::npos);
+    // Standardwerte aus C++.
+    CHECK(source.find("Speed = 2.5f;") != std::string::npos);
+    CHECK(source.find("Active = true;") != std::string::npos);
+    CHECK(source.find("Offset.Y = 1f;") != std::string::npos);
+    CHECK(source.find("Mode = (byte)3UL;") != std::string::npos);
+    // Mathe-Typen bringt NGine.Scripting mit; ihre Anordnung wird trotzdem gemeldet.
+    CHECK(source.find("public struct Vec3") == std::string::npos);
+    CHECK(source.find("w.Type(\"Vec3\"") != std::string::npos);
+    CHECK(source.find("public struct Transform : IComponent") != std::string::npos);
+
+    // Mit einer Basis entstehen nur die neuen Typen.
+    reflect::TypeRegistry base;
+    world::register_types(base);
+    const std::string app =
+        script::generate_bindings(types, {.name_space = "Spiel", .base = &base});
+    CHECK(app.find("namespace Spiel;") != std::string::npos);
+    CHECK(app.find("using NGine;") != std::string::npos);
+    CHECK(app.find("public struct BindingSample") != std::string::npos);
+    CHECK(app.find("public struct Transform") == std::string::npos);
+}
+
+TEST_CASE("C# reads and changes the world without copies", "[script]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    // Die erzeugten Structs passen Byte für Byte zur Reflection, und keiner fehlt.
+    const auto verified = rt.verify_bindings(types, true);
+    INFO((verified ? std::string{} : verified.error()));
+    REQUIRE(verified);
+
+    world::World w{types};
+    world::Entity first = w.create("Erste");
+    first.set(world::Transform{});
+    w.create("Zweite").set(world::Transform{.position = {1.0, 0.0, 0.0}});
+    REQUIRE(rt.load_scripts(test_scripts()));
+    rt.bind_world(&w);
+
+    REQUIRE(rt.invoke("Tests.Scripts.WorldTests.MoveAll"));
+    CHECK(first.get<world::Transform>()->position.x == 1.0);
+    CHECK(w.entity(w.entity_ids().back()).get<world::Transform>()->position.x == 2.0);
+    CHECK(capture()->contains("WorldTests: 2 Entities verschoben"));
+
+    REQUIRE(rt.invoke("Tests.Scripts.WorldTests.EditOne"));
+    CHECK(first.get<world::Transform>()->scale.x == 2.0f);
+    CHECK(capture()->contains("WorldTests: Name Erste"));
+    // Neue Komponenten und Entities erst nach dem Befehlspuffer.
+    CHECK_FALSE(first.has<physics::RigidBody>());
+    const usize before = w.entity_count();
+    rt.apply_commands();
+    REQUIRE(first.has<physics::RigidBody>());
+    CHECK(first.get<physics::RigidBody>()->mass == 5.0f);
+    // Felder, die C# nicht setzt, haben die Standardwerte aus C++.
+    CHECK(first.get<physics::RigidBody>()->friction == 0.5f);
+    CHECK(first.get<physics::RigidBody>()->allow_sleep);
+    CHECK(w.entity_count() == before + 1);
+    world::Entity created{};
+    w.each<const world::Name>([&](world::Entity e, const world::Name& name) {
+        if (name.value == "AusCSharp") {
+            created = e;
+        }
+    });
+    REQUIRE(created);
+    CHECK(created.parent() == first);
+    CHECK(created.get<world::Transform>()->position.z == 9.0);
+    CHECK(created.get<world::Transform>()->rotation.w == 1.0f);
+
+    REQUIRE(rt.invoke("Tests.Scripts.WorldTests.RemoveBodies"));
+    CHECK(first.get<physics::RigidBody>()->mass == 6.0f);
+    rt.apply_commands();
+    CHECK_FALSE(first.has<physics::RigidBody>());
+
+    // Fehler im Skript und unbekannte Methoden melden sich, statt abzustürzen.
+    CHECK_FALSE(rt.invoke("Tests.Scripts.WorldTests.Throws"));
+    CHECK(capture()->contains("Absichtlich"));
+    CHECK_FALSE(rt.invoke("Tests.Scripts.WorldTests.GibtEsNicht"));
+
+    rt.bind_world(nullptr);
+    REQUIRE(rt.unload_scripts());
 }

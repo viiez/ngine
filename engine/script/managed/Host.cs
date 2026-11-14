@@ -163,6 +163,73 @@ public static unsafe class Host
         return weak;
     }
 
+    // --- Welt und Bindings (R4.4) ----------------------------------------------------------------
+
+    // Die Engine hat eine andere Welt gebunden (oder keine); Typen werden neu nachgeschlagen.
+    [UnmanagedCallersOnly]
+    public static void WorldChanged()
+    {
+        ++World.Generation;
+    }
+
+    // Meldet Größe und Offsets aller erzeugten Structs, wie C# sie sieht.
+    [UnmanagedCallersOnly]
+    public static int DescribeLayout(delegate* unmanaged<byte*, int, byte*, int, long, void> report)
+    {
+        try
+        {
+            GeneratedBindings.DescribeLayout(new LayoutWriter(report));
+            return 0;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Anordnung der Bindings lässt sich nicht melden: {e}");
+            return -1;
+        }
+    }
+
+    // Ruft eine statische Methode ohne Parameter aus den geladenen Skripten auf, z. B.
+    // "Tests.Scripts.WorldTests.MoveAll". 0: gut, -1: Fehler im Skript, -2: nicht gefunden.
+    [UnmanagedCallersOnly]
+    public static int Invoke(byte* name, int length)
+    {
+        try
+        {
+            string full = System.Text.Encoding.UTF8.GetString(name, length);
+            int dot = full.LastIndexOf('.');
+            if (context == null || dot <= 0)
+            {
+                Log.Error($"{full}: keine Skripte geladen oder kein Name der Form Typ.Methode");
+                return -2;
+            }
+            string typeName = full[..dot];
+            string methodName = full[(dot + 1)..];
+            foreach (Assembly assembly in context.Assemblies)
+            {
+                Type? type = assembly.GetType(typeName);
+                MethodInfo? method = type?.GetMethod(methodName,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, Type.EmptyTypes);
+                if (method != null)
+                {
+                    method.Invoke(null, null);
+                    return 0;
+                }
+            }
+            Log.Error($"{full} gibt es in den Skripten nicht");
+            return -2;
+        }
+        catch (TargetInvocationException e) when (e.InnerException != null)
+        {
+            Log.Error($"Fehler im Skript: {e.InnerException}");
+            return -1;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Fehler im Skript: {e}");
+            return -1;
+        }
+    }
+
     // --- Prüfen und Messen des Aufrufwegs -------------------------------------------------------
 
     [UnmanagedCallersOnly]

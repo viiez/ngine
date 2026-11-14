@@ -14,17 +14,24 @@ endif()
 
 set(NGINE_DOTNET_DIR "${CMAKE_BINARY_DIR}/dotnet" CACHE INTERNAL "Ausgabeordner der C#-Assemblies")
 
-# ngine_add_dotnet_project(<target> PROJECT <csproj> SOURCES <datei.cs>... [DEPENDS <target>...])
+# ngine_add_dotnet_project(<target> PROJECT <csproj> SOURCES <datei.cs>... [DEPENDS <target>...]
+#                         [GENERATED <datei>...] [PROPERTIES <Name=Wert>...])
+# GENERATED sind erzeugte Dateien mit vollem Pfad (Abhängigkeiten), PROPERTIES gehen als -p an
+# dotnet build.
 # Projekte mit DEPENDS bauen ihre Projektverweise nicht selbst, damit zwei Builds nicht
 # gleichzeitig dieselben Dateien schreiben.
 function(ngine_add_dotnet_project target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "PROJECT" "SOURCES;DEPENDS")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "PROJECT" "SOURCES;DEPENDS;GENERATED;PROPERTIES")
     set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}.stamp")
     set(build_references "true")
     if(arg_DEPENDS)
         set(build_references "false")
     endif()
     list(TRANSFORM arg_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+    set(properties "")
+    foreach(property IN LISTS arg_PROPERTIES)
+        list(APPEND properties "-p:${property}")
+    endforeach()
 
     add_custom_command(
         OUTPUT "${stamp}"
@@ -34,8 +41,9 @@ function(ngine_add_dotnet_project target)
             --artifacts-path "${CMAKE_BINARY_DIR}/dotnet-artifacts"
             --output "${NGINE_DOTNET_DIR}"
             -p:BuildProjectReferences=${build_references}
+            ${properties}
         COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
-        DEPENDS "${arg_PROJECT}" ${arg_SOURCES}
+        DEPENDS "${arg_PROJECT}" ${arg_SOURCES} ${arg_GENERATED}
         COMMENT ".NET: ${target}"
         VERBATIM)
     add_custom_target(${target} ALL DEPENDS "${stamp}")

@@ -11,6 +11,41 @@ public unsafe struct NativeApi
     public delegate* unmanaged<int, byte*, int, void> Log;
     // Nur für die Messung der Aufrufkosten von C# nach C++.
     public delegate* unmanaged<int, int, int> Add;
+    // Welt: Entities, Komponenten, Abfragen (R4.4).
+    public WorldApi World;
+}
+
+// Funktionen der Welt; Aufbau wie WorldApi in engine/script/world_api.cppm. Komponenten heißen
+// über den Index ihres Typs in der Registry, -1 ist unbekannt.
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct WorldApi
+{
+    public delegate* unmanaged<byte*, int, int> TypeIndex;
+    public delegate* unmanaged<ulong, int, int, void*> Get;
+    public delegate* unmanaged<ulong, int, int> Has;
+    public delegate* unmanaged<ulong, int, void*, int> Set;
+    public delegate* unmanaged<ulong, int, int> Remove;
+    public delegate* unmanaged<byte*, int, ulong> Create;
+    public delegate* unmanaged<ulong, int> Destroy;
+    public delegate* unmanaged<ulong, int> Alive;
+    public delegate* unmanaged<ulong, ulong> Parent;
+    public delegate* unmanaged<ulong, ulong, int> SetParent;
+    public delegate* unmanaged<ulong, ulong*, int, int> Children;
+    public delegate* unmanaged<ulong, byte**, int> Name;
+    public delegate* unmanaged<ulong, byte*, int, int> SetName;
+    public delegate* unmanaged<byte*, int, ulong> Find;
+    public delegate* unmanaged<int*, int, NativeChunk**, int> Query;
+}
+
+// Ein Block von Entities mit denselben Komponenten (NativeChunk in world_api.cppm).
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct NativeChunk
+{
+    public const int MaxTerms = 16;
+    public uint Count;
+    public uint Reserved;
+    public ulong* Entities;
+    public fixed ulong Columns[MaxTerms];
 }
 
 // Position wie ngine::script::Position (drei float). Daten, die sich C++ und C# teilen, müssen

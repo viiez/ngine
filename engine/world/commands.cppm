@@ -60,6 +60,14 @@ public:
     void remove(Entity entity) {
         push_remove(entity, world_->types().get<T>());
     }
+    // Ohne C++-Typ (Skripte, R4.4): kopiert value, das auf einen Wert von type zeigt.
+    void set(Entity entity, const reflect::TypeInfo& type, const void* value) {
+        void* storage = push_set(entity, type);
+        type.ops.copy_construct(storage, value);
+    }
+    void remove(Entity entity, const reflect::TypeInfo& type) {
+        push_remove(entity, type);
+    }
     // Ein leerer parent löst die Entity vom Elternteil.
     void set_parent(Entity child, Entity parent);
 

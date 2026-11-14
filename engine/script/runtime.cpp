@@ -10,6 +10,8 @@ module;
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -25,7 +27,10 @@ module ngine.script;
 
 import ngine.core;
 import ngine.profile;
+import ngine.reflect;
+import ngine.world;
 import :native;
+import :world_api;
 
 namespace ngine::script {
 
@@ -85,6 +90,7 @@ void write_hostfxr_error(const char_t* message) {
 struct NativeApi {
     void (*log)(std::int32_t level, const u8* text, std::int32_t length);
     std::int32_t (*add)(std::int32_t a, std::int32_t b);
+    WorldApi world;
 };
 
 void native_log(std::int32_t level, const u8* text, std::int32_t length) {
@@ -107,7 +113,34 @@ struct ManagedApi {
     std::int32_t (*unload_scripts)() = nullptr;
     std::int32_t (*add)(std::int32_t, std::int32_t) = nullptr;
     std::int64_t (*benchmark_native_calls)(std::int32_t, std::int32_t*) = nullptr;
+    void (*world_changed)() = nullptr;
+    std::int32_t (*describe_layout)(void (*)(const u8*, std::int32_t, const u8*, std::int32_t,
+                                             std::int64_t)) = nullptr;
+    std::int32_t (*invoke)(const u8*, std::int32_t) = nullptr;
 };
+
+// Anordnung der Structs, wie C# sie meldet: Typ → Größe und Offsets der Felder.
+struct ReportedType {
+    std::int64_t size = -1;
+    std::map<std::string, std::int64_t, std::less<>> fields;
+};
+std::map<std::string, ReportedType, std::less<>>* layout_report = nullptr;
+
+void report_layout(const u8* type, std::int32_t type_length, const u8* field,
+                   std::int32_t field_length, std::int64_t value) {
+    if (layout_report == nullptr) {
+        return;
+    }
+    const std::string type_name{reinterpret_cast<const char*>(type),
+                                static_cast<usize>(type_length)};
+    ReportedType& entry = (*layout_report)[type_name];
+    if (field_length == 0) {
+        entry.size = value;
+    } else {
+        entry.fields[std::string{reinterpret_cast<const char*>(field),
+                                 static_cast<usize>(field_length)}] = value;
+    }
+}
 
 // Neueste Version unter <root>/host/fxr/<version>/.
 std::optional<std::filesystem::path> find_hostfxr(const std::filesystem::path& root) {
@@ -178,7 +211,7 @@ struct ScriptRuntime::Impl {
     // hostfxr bleibt geladen, solange der Prozess läuft; .NET hängt daran.
     void* library = nullptr;
     ManagedApi managed;
-    NativeApi native{native_log, native_add};
+    NativeApi native{native_log, native_add, make_world_api()};
     bool scripts_loaded = false;
 };
 
@@ -303,7 +336,9 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
     if (!function(m.initialize, "Initialize") || !function(m.load_scripts, "LoadScripts") ||
         !function(m.start, "Start") || !function(m.update, "Update") ||
         !function(m.unload_scripts, "UnloadScripts") || !function(m.add, "Add") ||
-        !function(m.benchmark_native_calls, "BenchmarkNativeCalls")) {
+        !function(m.benchmark_native_calls, "BenchmarkNativeCalls") ||
+        !function(m.world_changed, "WorldChanged") ||
+        !function(m.describe_layout, "DescribeLayout") || !function(m.invoke, "Invoke")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
     if (m.initialize(&impl->native, static_cast<std::int32_t>(sizeof(NativeApi))) != 0) {
@@ -323,6 +358,7 @@ ScriptRuntime::~ScriptRuntime() {
     if (impl_->scripts_loaded) {
         (void)unload_scripts();
     }
+    bind_script_world(nullptr);
     impl_.reset();
     runtime_alive = false;
 }
@@ -362,6 +398,92 @@ Result<void> ScriptRuntime::update(f32 delta_time, std::span<Position> positions
     if (impl_->managed.update(delta_time, positions.data(),
                               static_cast<std::int32_t>(positions.size())) != 0) {
         return std::unexpected("Fehler in einem Skript");
+    }
+    return {};
+}
+
+void ScriptRuntime::bind_world(world::World* world) {
+    bind_script_world(world);
+    impl_->managed.world_changed();
+}
+
+void ScriptRuntime::apply_commands() {
+    NGINE_PROFILE_ZONE("ScriptRuntime::apply_commands");
+    apply_script_commands();
+}
+
+Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, bool require_all) {
+    std::map<std::string, ReportedType, std::less<>> reported;
+    layout_report = &reported;
+    const std::int32_t result = impl_->managed.describe_layout(report_layout);
+    layout_report = nullptr;
+    if (result != 0) {
+        return std::unexpected("C# kann die Anordnung der Bindings nicht melden");
+    }
+    std::string problems;
+    const auto problem = [&](std::string text) {
+        if (!problems.empty()) {
+            problems += "; ";
+        }
+        problems += std::move(text);
+    };
+    usize compared = 0;
+    for (const reflect::TypeInfo* type : types.types()) {
+        if (type->kind != reflect::Kind::Struct) {
+            continue;
+        }
+        const auto found = reported.find(type->name);
+        if (found == reported.end()) {
+            if (require_all) {
+                problem(std::format("{} fehlt in C#", type->name));
+            }
+            continue;
+        }
+        ++compared;
+        const ReportedType& seen = found->second;
+        if (seen.size != static_cast<std::int64_t>(type->size)) {
+            problem(
+                std::format("{}: Größe {} in C#, {} in C++", type->name, seen.size, type->size));
+        }
+        for (const reflect::Field& field : type->fields) {
+            if (!csharp_visible(field)) {
+                continue;
+            }
+            const auto offset = seen.fields.find(field.name);
+            if (offset == seen.fields.end()) {
+                problem(std::format("{}.{} fehlt in C#", type->name, field.name));
+            } else if (offset->second != static_cast<std::int64_t>(field.offset)) {
+                problem(std::format("{}.{}: Offset {} in C#, {} in C++", type->name, field.name,
+                                    offset->second, field.offset));
+            }
+        }
+        if (seen.fields.size() > type->fields.size()) {
+            problem(std::format("{}: C# kennt Felder, die C++ nicht hat", type->name));
+        }
+    }
+    if (require_all) {
+        for (const auto& [name, seen] : reported) {
+            if (types.find(name) == nullptr) {
+                problem(std::format("{} gibt es nur in C#", name));
+            }
+        }
+    }
+    if (!problems.empty()) {
+        return std::unexpected(std::format("Bindings passen nicht zur Engine: {}", problems));
+    }
+    log::debug("Bindings geprüft: {} Typen passen", compared);
+    return {};
+}
+
+Result<void> ScriptRuntime::invoke(std::string_view method) {
+    NGINE_PROFILE_ZONE("ScriptRuntime::invoke");
+    const std::int32_t result = impl_->managed.invoke(reinterpret_cast<const u8*>(method.data()),
+                                                      static_cast<std::int32_t>(method.size()));
+    if (result == -2) {
+        return std::unexpected(std::format("{} gibt es in den Skripten nicht", method));
+    }
+    if (result != 0) {
+        return std::unexpected(std::format("Fehler in {}", method));
     }
     return {};
 }

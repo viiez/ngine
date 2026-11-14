@@ -12,6 +12,9 @@ module;
 export module ngine.script;
 
 import ngine.core;
+import ngine.reflect;
+import ngine.world;
+export import :bindings;
 
 export namespace ngine::script {
 
@@ -50,6 +53,20 @@ public:
     [[nodiscard]] Result<void> start();
     // Skripte sehen und ändern positions direkt, ohne Kopie.
     [[nodiscard]] Result<void> update(f32 delta_time, std::span<Position> positions);
+
+    // Welt, auf die Skripte über Entity und World zugreifen (R4.4); nullptr löst sie. Die Welt
+    // muss leben, solange sie gebunden ist, und vor ihrem Ende gelöst werden.
+    void bind_world(world::World* world);
+    // Führt die Strukturänderungen aus, die Skripte gesammelt haben (Create, Set einer neuen
+    // Komponente, Remove, Destroy, Parent, Name). Nicht während Systeme laufen.
+    void apply_commands();
+    // Vergleicht Größe und Offsets der erzeugten C#-Structs mit der Reflection. Typen, die nur
+    // eine Seite kennt, fallen mit require_all als Fehler auf (veraltete Bindings).
+    [[nodiscard]] Result<void> verify_bindings(const reflect::TypeRegistry& types,
+                                               bool require_all = false);
+    // Ruft eine statische Methode ohne Parameter aus den geladenen Skripten auf
+    // ("Namespace.Typ.Methode").
+    [[nodiscard]] Result<void> invoke(std::string_view method);
 
     // Prüft den Weg C++ → C# → C++.
     [[nodiscard]] i32 add(i32 a, i32 b);
