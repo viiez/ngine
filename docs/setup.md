@@ -412,6 +412,41 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R4.3 testen: Terrain-Kollision und Spielfigur
+
+1. **Tests:** `ctest` meldet auch die neuen Fälle in `[physics]` (Terrain, Figur, Materialien),
+   `[world]` (Materialtabelle) und `[cook]` (Einzeltexturen) als bestanden.
+2. **Spielplatz:** `ngine_sandbox --playground` startet auf dem endlosen Terrain vor einer Ebene
+   mit Türmen, Rampe und Kugeln, die Maus ist gefangen. W/A/S/D laufen, Maus schaut, Shift rennt,
+   Leertaste springt, Strg duckt, V wechselt zwischen Ich- und Schulterperspektive. Die rechte
+   Maustaste gräbt dort, wo die Bildmitte das Terrain trifft (bis 6 m), mit Shift trägt sie auf.
+   Die linke Maustaste wirft eine Kugel. Am Gamepad: linker Stick laufen, rechter schauen, A bzw.
+   Kreuz springen, B bzw. Kreis ducken, Klick auf den rechten Stick wechselt die Kamera, linker
+   Trigger gräbt. Hänge hinauf, über Stufen, gegen die Kisten laufen (sie werden geschoben), unter
+   einer losen Kiste graben (sie fällt in die Grube), in eine Höhle steigen.
+3. **Flugmodus:** F4 schaltet in den Flugmodus aus R3 (rechte Maustaste halten zum Drehen); die
+   Figur bleibt stehen. Noch einmal F4 kehrt zur Figur zurück.
+4. **Formen sehen:** F3 zeigt die Formen der Chunks als graue Würfel (gelb im Bau), die Kapsel der
+   Figur (grün auf dem Boden, orange in der Luft) und die Körper wie in R4.2. Weit laufen: Neue
+   Chunks bekommen Formen, bevor die Figur sie erreicht; niemand fällt durch den Boden. Das Log
+   meldet alle drei Sekunden „Terrain-Kollision: … Formen …“ und Zustand und Material der Figur.
+5. **Materialtabelle:** `assets/terrain/standard.terrain-materials` ändern, z. B. bei „Gras“ die
+   Farbe auf Rot oder `friction` auf 0, und speichern. Im Log steht „Terrain-Materialien neu
+   geladen“; das Terrain wird sofort rot bzw. Kisten rutschen auf Gras.
+6. **Editor:** `szenen/spielplatz.json` öffnen, Spielen (F5), ins Bild klicken: Die Maus ist
+   gefangen und steuert die Figur wie in der Sandbox; Esc gibt sie frei, F4 schaltet in den
+   Flugmodus. Stoppen stellt die Welt wieder her. Menü „Ansicht“, „Terrain-Materialien“: Material
+   wählen, Farbe oder Reibung ändern (gilt sofort), „Hinzufügen“ legt ein neues an, das danach der
+   Pinsel „Auftragen“ bzw. „Bemalen“ anbietet; „Speichern“ schreibt die Datei. Beim ersten Laden
+   kocht der Editor die Texturen des Terrains in den Cache (`assets/.cache/*.ntex`).
+7. **Ohne Fenster:** `ngine_sandbox --headless --playground` lässt die Figur 10 s eine feste Spur
+   laufen und unter einer Kiste graben und meldet Formen, Figuren und die „Prüfsumme der Lagen“.
+   Zwei Läufe mit demselben Build ergeben dieselbe Summe.
+8. **Messung:** Im Release-Build `ngine_sandbox --headless --playground --characters 100 --frames
+   600`. Das Log meldet die Zeit der Figuren (Median, 99. Perzentil, pro Figur), die Formen mit
+   ihrem Speicher und den Schritt der Physik. Dazu im Spielplatz mit Fenster aus dem Log die Bauzeit
+   der Formen („Terrain-Kollision: … ms Bau“). Die Zahlen gehören ins Iterationsdokument.
+
 ## R4.2 testen: Physik mit Jolt
 
 1. **Tests:** `ctest` meldet auch `[physics]` als bestanden, unter ThreadSanitizer ebenso.

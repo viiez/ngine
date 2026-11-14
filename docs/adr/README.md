@@ -54,3 +54,4 @@ betroffene Code einreichen.
 | [0043](0043-gpu-driven-meshlets.md) | GPU-getriebenes Zeichnen: Meshlets, Culling gegen Stumpf, Kegel und Hi-Z in zwei Phasen, Mesh Shader mit Rückfallpfad über indirekte Draws | angenommen |
 | [0044](0044-game-loop-phases-fixed-step-commands.md) | Spielschleife mit Phasen, festem Zeitschritt, Interpolation nur für `Interpolated` und Befehlspuffer in fester Reihenfolge | angenommen |
 | [0045](0045-physics-jolt-double-precision.md) | Physik mit Jolt in doppelter Genauigkeit über einen eigenen Overlay-Port, die Welt als Quelle der Wahrheit, reproduzierbar im selben Build | angenommen |
+| [0046](0046-terrain-collision-character-virtual.md) | Terrain-Kollision als `MeshShape` pro Chunk um Anker mit Einfrieren, Spielfigur mit Jolts `CharacterVirtual`, Materialtabelle als Asset mit Reibung pro Dreieck | angenommen |
