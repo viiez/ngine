@@ -33,7 +33,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R4.1](R4.1-spielschleife-und-eingabe.md) | Konstruktion | Spielschleife und Eingabe | abgeschlossen |
 | [R4.2](R4.2-physik-mit-jolt.md) | Konstruktion | Physik mit Jolt | abgeschlossen |
 | [R4.3](R4.3-terrain-kollision-und-spielfigur.md) | Konstruktion | Terrain-Kollision und Spielfigur | abgeschlossen |
-| [R4.4](R4.4-csharp-scripting.md) | Konstruktion | C#-Scripting | Plan zur Abstimmung |
+| [R4.4](R4.4-csharp-scripting.md) | Konstruktion | C#-Scripting | in Arbeit |
 
 ## Vorlage
 
