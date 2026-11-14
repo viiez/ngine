@@ -170,6 +170,8 @@ jobs:
           # Seit R3.3 mit Streaming um drei Beobachter; kürzere Sicht als auf dem PC (2 km), damit
           # der Debug-Build schnell bleibt.
           "$exe" --voxel-demo --headless --frames 60 --view 1000
+          # Seit R4.3: Spielplatz auf dem Terrain mit Figur, die eine feste Spur läuft und gräbt.
+          "$exe" --headless --playground --frames 420
           "$exe" --script-demo --frames 60
           "$exe" --net-demo --frames 120
 
@@ -239,6 +241,14 @@ jobs:
           xvfb-run -a "$exe" --frames 60 --no-ini --scene "$RUNNER_TEMP/szene-i.json" \
             --save "$RUNNER_TEMP/szene-j.json"
           cmp "$RUNNER_TEMP/szene-i.json" "$RUNNER_TEMP/szene-j.json"
+          # Seit R4.3: Der Spielplatz mit Figur übersteht Öffnen, Spielen und Speichern textgleich,
+          # und die Datei im Repository passt zum Code, der sie erzeugt.
+          xvfb-run -a "$exe" --frames 90 --no-ini --play 60 --scene assets/szenen/spielplatz.json \
+            --save "$RUNNER_TEMP/spielplatz.json"
+          cmp assets/szenen/spielplatz.json "$RUNNER_TEMP/spielplatz.json"
+          build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox \
+            --save-playground "$RUNNER_TEMP/spielplatz-code.json"
+          cmp assets/szenen/spielplatz.json "$RUNNER_TEMP/spielplatz-code.json"
 
       # Dasselbe ohne optionale Stufen (Mesh Shader, Raytracing): Die Engine muss auch auf
       # GPUs laufen, die nur die Mindestanforderung erfüllen.
@@ -304,6 +314,7 @@ jobs:
           "$exe" --far --image $out/scene-far.ppm
           "$exe" --baseline --image $out/scene-baseline.ppm
           "$exe" --debug-draw --image $out/scene-debug.ppm
+          "$exe" --playground --image $out/spielplatz.ppm
           # 10 000 km vom Ursprung rasten die Schattenkarten auf ein anderes Texelgitter ein:
           # Schattenkanten verschieben sich um Bruchteile eines Texels, sonst bleibt das Bild gleich.
           python3 - $out/scene.ppm $out/scene-far.ppm <<'PY'

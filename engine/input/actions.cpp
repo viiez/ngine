@@ -301,6 +301,16 @@ ActionMap ActionMap::standard() {
         Action{.name = "throw",
                .kind = ActionKind::Button,
                .bindings = {key("Mouse.Left"), key("Gamepad.West")}},
+        // Spielfigur (R4.3): ducken, Kamera umschalten, graben.
+        Action{.name = "crouch",
+               .kind = ActionKind::Button,
+               .bindings = {key("Key.Ctrl"), key("Gamepad.East")}},
+        Action{.name = "camera",
+               .kind = ActionKind::Button,
+               .bindings = {key("Key.V"), key("Gamepad.RightStick")}},
+        Action{.name = "dig",
+               .kind = ActionKind::Button,
+               .bindings = {key("Mouse.Right"), key("Gamepad.LeftTrigger")}},
     };
     for (const Action& action : actions) {
         const auto added = map.add(action);

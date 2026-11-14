@@ -1303,13 +1303,19 @@ struct PhysicsWorld::Impl {
                     destroy_character(found, ended, left);
                 } else {
                     CharacterRecord& record = found->second;
-                    if (!same(record.transform, *transform)) {
+                    // Nur die Lage zählt: Die Steuerung dreht die Figur jedes Bild um die
+                    // Hochachse, das ist kein Versetzen.
+                    const world::Transform& before = record.transform;
+                    const bool moved = before.position.x != transform->position.x ||
+                                       before.position.y != transform->position.y ||
+                                       before.position.z != transform->position.z;
+                    record.transform = *transform;
+                    if (moved) {
                         // Von außen versetzt: Die Figur springt an die neue Lage.
                         bool has_parent = false;
                         const math::Decomposed pose = world_pose(entity, *transform, has_parent);
                         record.character->SetPosition(to_jolt(pose.translation));
                         record.character->SetLinearVelocity(JPH::Vec3::sZero());
-                        record.transform = *transform;
                         record.has_parent = has_parent;
                         record.fall_top = pose.translation.y;
                     }
@@ -1878,6 +1884,10 @@ PhysicsWorld::~PhysicsWorld() = default;
 void PhysicsWorld::set_shape_source(ShapeSource source) {
     impl_->shape_source = std::move(source);
     impl_->shape_cache.clear();
+}
+
+void PhysicsWorld::set_wait_for_terrain(bool wait) noexcept {
+    impl_->settings.wait_for_terrain = wait;
 }
 
 void PhysicsWorld::set_events(events::EventBus* bus) noexcept {

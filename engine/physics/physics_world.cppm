@@ -170,6 +170,8 @@ public:
     void set_shape_source(ShapeSource source);
     // Ereignisse gehen an bus; ohne Bus werden sie nicht gesammelt.
     void set_events(events::EventBus* bus) noexcept;
+    // Wie PhysicsSettings::wait_for_terrain, z. B. für Bilder ohne Fenster.
+    void set_wait_for_terrain(bool wait) noexcept;
 
     // Gleicht die Körper mit den Komponenten ab (step() tut das selbst).
     void sync();

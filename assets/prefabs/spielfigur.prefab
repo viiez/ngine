@@ -1,0 +1,101 @@
+{
+  "format": "ngine.prefab",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "value": "Spielfigur"
+        },
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "Interpolated": {},
+        "TerrainObserver": {
+          "active": true
+        },
+        "CharacterController": {
+          "radius": 0.35,
+          "height": 1.8,
+          "crouch_height": 1.1,
+          "max_slope": 0.8727,
+          "step_height": 0.4,
+          "jump_height": 1.2,
+          "walk_speed": 4.0,
+          "run_speed": 7.0,
+          "crouch_speed": 2.0,
+          "ground_acceleration": 40.0,
+          "air_acceleration": 6.0,
+          "gravity_factor": 1.0,
+          "mass": 70.0,
+          "push_strength": 200.0,
+          "step_length": 0.7
+        },
+        "PlayerInput": {
+          "yaw": 0.0,
+          "pitch": 0.0,
+          "view": "FirstPerson",
+          "eye_height": 1.6,
+          "shoulder_distance": 3.0,
+          "shoulder_side": 0.5,
+          "dig_radius": 0.8,
+          "dig_reach": 6.0,
+          "look_speed": 0.0025
+        }
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "components": {
+        "Name": {
+          "value": "Körper"
+        },
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 5
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        }
+      }
+    }
+  ]
+}

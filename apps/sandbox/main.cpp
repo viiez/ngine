@@ -31,12 +31,18 @@
 //                   automatisch; mit --headless ohne GPU, dann misst die Demo Erzeugen und
 //                   Meshing vieler Chunks seriell und parallel.
 //   --seed <n>      Startwert der Welt für --voxel-demo (Standard 1)
-//   --playground    Spielplatz der Physik (R4.2): Boden, Rampe, Kistenstapel und Kugeln; linke
-//                   Maustaste bzw. X am Gamepad wirft eine Kugel, F3 zeigt die Kollisionsformen.
-//                   Mit --headless ohne Fenster und GPU: rechnet den Spielplatz und meldet eine
-//                   Prüfsumme der Lagen
+//   --playground    Spielplatz der Physik (R4.2, seit R4.3 auf dem Terrain mit Spielfigur):
+//                   W/A/S/D laufen, Maus schaut (rechte Maustaste nicht nötig, die Maus ist
+//                   gefangen), Shift rennt, Leertaste springt, Strg duckt, V wechselt Ich- und
+//                   Schulterperspektive, rechte Maustaste gräbt (mit Shift trägt sie auf), linke
+//                   Maustaste bzw. X am Gamepad wirft eine Kugel, F4 schaltet in den Flugmodus,
+//                   F3 zeigt die Kollisionsformen. Mit --headless ohne Fenster und GPU: Die Figur
+//                   läuft eine feste Spur, gräbt unter einer Kiste, am Ende eine Prüfsumme
 //   --bodies <n>    auf dem Spielplatz n weitere Körper herabregnen lassen und die Zeiten von
 //                   Physik und update_transforms() messen
+//   --characters <n> auf dem Spielplatz ohne Fenster n Figuren im Kreis laufen lassen und messen
+//   --save-playground <pfad>  Spielplatz aus Code als Szene speichern (für
+//                   assets/szenen/spielplatz.json), ohne Fenster
 //   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
 //                   64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
@@ -74,6 +80,7 @@ import sandbox.model_demo;
 import app.model_scene;
 import app.paths;
 import app.input_bindings;
+import app.player;
 import ngine.input;
 import ngine.asset;
 import sandbox.script_demo;
@@ -114,6 +121,9 @@ struct Options {
     // Spielplatz der Physik und weitere Körper zum Messen (R4.2).
     bool playground = false;
     ngine::u32 bodies = 0;
+    // Viele Figuren messen und Spielplatz als Szene speichern (R4.3).
+    ngine::u32 characters = 0;
+    std::optional<std::string> save_playground;
     std::optional<ngine::u64> frames;
 };
 
@@ -202,6 +212,16 @@ Options parse_options(std::span<char*> args) {
                 options.bodies = bodies;
                 options.playground = true;
             }
+        } else if (arg == "--characters" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 characters = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), characters).ec ==
+                std::errc{}) {
+                options.characters = characters;
+                options.playground = true;
+            }
+        } else if (arg == "--save-playground" && i + 1 < args.size()) {
+            options.save_playground = std::string{args[++i]};
         } else if (arg == "--debug-draw") {
             options.debug_draw = true;
         } else if (arg == "--no-cache") {
@@ -305,6 +325,14 @@ int run_windowed(const Options& options) {
         app::InputBindings bindings;
         ngine::input::ActionState actions{bindings.load()};
         bool looking = false;
+        // Auf dem Spielplatz mit Figur ist die Maus gefangen und schaut ohne Taste (R4.3).
+        const auto player_mode = [&] {
+            return scene && !voxels && scene->active_player() && !scene->flying();
+        };
+        if (player_mode()) {
+            looking = true;
+            window->set_relative_mouse(true);
+        }
         auto last_time = std::chrono::steady_clock::now();
         auto last_report = last_time;
 
@@ -332,13 +360,14 @@ int run_windowed(const Options& options) {
                 if (options.playground && actions.pressed("throw")) {
                     scene->throw_ball();
                 }
-                scene->update(dt, fly);
+                scene->update(dt, fly, app::player_controls(actions));
             }
             if (now - last_report > std::chrono::seconds{3}) {
                 ngine::log::info("{}", voxels ? "Voxel-Terrain: " + voxels->stats()
                                               : "Szene: " + scene->stats());
                 if (options.playground) {
                     ngine::log::info("{}", scene->physics_stats());
+                    ngine::log::info("{}", scene->character_stats());
                 }
                 last_report = now;
             }
@@ -407,6 +436,11 @@ int run_windowed(const Options& options) {
                                 scene->toggle_cascades();
                             } else if (ev.key == Key::F3 && scene) {
                                 scene->toggle_draw_colliders();
+                            } else if (ev.key == Key::F4 && scene && scene->active_player()) {
+                                scene->toggle_fly();
+                                looking = player_mode();
+                                window->set_relative_mouse(looking);
+                                actions.release_all();
                             }
                         } else if constexpr (std::is_same_v<T, event::GamepadAdded>) {
                             ngine::log::info("Gamepad angesteckt: {}", ev.name);
@@ -417,8 +451,9 @@ int run_windowed(const Options& options) {
                                 voxels->set_cursor(ev.x, ev.y);
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
-                            const bool look_button =
-                                ev.button == MouseButton::Right && (!voxels || voxels->flying());
+                            const bool look_button = ev.button == MouseButton::Right &&
+                                                     (!voxels || voxels->flying()) &&
+                                                     !player_mode();
                             if (voxels && !look_button) {
                                 using ngine::voxel::BrushMode;
                                 voxels->set_cursor(ev.x, ev.y);
@@ -435,7 +470,7 @@ int run_windowed(const Options& options) {
                         } else if constexpr (std::is_same_v<T, event::MouseButtonReleased>) {
                             if (voxels && (ev.button != MouseButton::Right || !looking)) {
                                 voxels->set_brush(std::nullopt);
-                            } else if (ev.button == MouseButton::Right) {
+                            } else if (ev.button == MouseButton::Right && !player_mode()) {
                                 looking = false;
                                 window->set_relative_mouse(false);
                             }
@@ -519,9 +554,13 @@ int main(int argc, char** argv) {
                                          options.no_cache, options.playground);
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
+    } else if (options.save_playground) {
+        const sandbox::SandboxAssets sandbox_assets{true};
+        exit_code = sandbox::save_playground(*options.save_playground, sandbox_assets.database());
     } else if (options.headless && options.playground) {
-        exit_code = sandbox::run_playground_headless(
-            options.frames.value_or(300), sandbox::voxel_origin(options.far), options.bodies);
+        exit_code = sandbox::run_playground_headless(options.frames.value_or(600),
+                                                     sandbox::voxel_origin(options.far),
+                                                     options.bodies, options.characters);
     } else if (options.headless) {
         exit_code = sandbox::run_headless(options.frames.value_or(60));
     } else {
