@@ -311,6 +311,10 @@ ActionMap ActionMap::standard() {
         Action{.name = "dig",
                .kind = ActionKind::Button,
                .bindings = {key("Mouse.Right"), key("Gamepad.LeftTrigger")}},
+        // Laterne an und aus (R4.4, Skript Laterne.cs).
+        Action{.name = "light",
+               .kind = ActionKind::Button,
+               .bindings = {key("Key.F"), key("Gamepad.North")}},
     };
     for (const Action& action : actions) {
         const auto added = map.add(action);

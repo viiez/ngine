@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -23,9 +24,10 @@ namespace {
 constexpr std::array<std::string_view, 5> hand_written{"Vec2", "Vec3", "Vec4", "DVec3", "Quat"};
 
 // Namen, die NGine.Scripting schon vergibt; ein reflektierter Typ darf sie nicht tragen.
-constexpr std::array<std::string_view, 12> reserved{
-    "Entity", "World", "Log",      "Host",    "Input",      "Physics",
-    "Time",   "Frame", "Position", "IScript", "IComponent", "NativeApi"};
+constexpr std::array<std::string_view, 20> reserved{
+    "Entity", "World",       "Log",        "Host",       "Input",     "Physics", "Time",
+    "Frame",  "Position",    "IScript",    "IComponent", "NativeApi", "Script",  "Terrains",
+    "RayHit", "QueryFilter", "QueryShape", "Contact",    "EventKind", "GameApi"};
 
 // C#-Typ eines Feldes; leer, wenn das Feld in C# fehlt.
 std::string csharp_type(const reflect::TypeInfo& type) {
@@ -196,6 +198,10 @@ void write_struct(std::string& out, const reflect::TypeInfo& type) {
 }
 
 void write_layout(std::string& out, const reflect::TypeInfo& type) {
+    if (type.kind == reflect::Kind::Enum) {
+        out += std::format("        w.Type(\"{}\", sizeof({}));\n", type.name, type.name);
+        return;
+    }
     bool any_field = false;
     for (const reflect::Field& field : type.fields) {
         any_field = any_field || csharp_visible(field);
@@ -268,7 +274,13 @@ std::string generate_bindings(const reflect::TypeRegistry& types, const BindingO
         if (type.kind != reflect::Kind::Struct && type.kind != reflect::Kind::Enum) {
             return false;
         }
+        if (type.composite != nullptr || type.retired) {
+            return false;
+        }
         if (options.base != nullptr && options.base->find(type.name) != nullptr) {
+            return false;
+        }
+        if (std::ranges::find(options.skip, type.name) != options.skip.end()) {
             return false;
         }
         verify(
@@ -288,11 +300,14 @@ std::string generate_bindings(const reflect::TypeRegistry& types, const BindingO
         }
     }
 
+    if (!options.layout_report) {
+        return out;
+    }
     // Anordnung, wie C# sie sieht; die Engine vergleicht sie beim Start mit der Reflection.
     out += "internal static unsafe partial class GeneratedBindings\n{\n";
     out += "    static partial void Describe(LayoutWriter w)\n    {\n";
     for (const reflect::TypeInfo* type : types.types()) {
-        if (wanted(*type) && type->kind == reflect::Kind::Struct) {
+        if (wanted(*type)) {
             write_layout(out, *type);
         }
     }

@@ -5,6 +5,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // C#-Scripting über eingebettetes .NET (ADR 0006, ADR 0023). Durchstich D2: Laufzeit über hostfxr
 // starten, Skripte aus einer Assembly in einen entladbaren Kontext laden, Aufrufe in beide
@@ -94,6 +95,8 @@ public:
     // eine Seite kennt, fallen mit require_all als Fehler auf (veraltete Bindings).
     [[nodiscard]] Result<void> verify_bindings(const reflect::TypeRegistry& types,
                                                bool require_all = false);
+    // Namen der Structs und Enums, die NGine.Scripting mitbringt.
+    [[nodiscard]] std::vector<std::string> bound_types();
     // Ruft eine statische Methode ohne Parameter aus den geladenen Skripten auf
     // ("Namespace.Typ.Methode").
     [[nodiscard]] Result<void> invoke(std::string_view method);

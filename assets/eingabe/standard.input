@@ -84,6 +84,14 @@
         { "source": "Mouse.Right" },
         { "source": "Gamepad.LeftTrigger" }
       ]
+    },
+    {
+      "name": "light",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Key.F" },
+        { "source": "Gamepad.North" }
+      ]
     }
   ]
 }

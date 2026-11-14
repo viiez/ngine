@@ -46,6 +46,8 @@
 //   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
 //                   64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
+//   --scripts <n>   n Skript-Komponenten mit Update pro Bild messen (R4.4), ohne Fenster
+//   --no-scripts    ohne C#-Skripte aus assets/skripte (Steuerung der Figur dann in C++)
 //   --net-demo      Netzwerk vorführen: Server und Client im selben Prozess über localhost
 //   --server        dedizierter Server ohne Fenster (Port mit --port, Standard 27020); ohne
 //                   --frames läuft er, bis man ihn beendet
@@ -121,6 +123,8 @@ struct Options {
     bool far = false;
     bool debug_draw = false;
     bool no_cache = false;
+    bool no_scripts = false;
+    std::optional<ngine::u32> script_count;
     // Spielplatz der Physik und weitere Körper zum Messen (R4.2).
     bool playground = false;
     ngine::u32 bodies = 0;
@@ -229,6 +233,15 @@ Options parse_options(std::span<char*> args) {
             options.debug_draw = true;
         } else if (arg == "--no-cache") {
             options.no_cache = true;
+        } else if (arg == "--no-scripts") {
+            options.no_scripts = true;
+        } else if (arg == "--scripts" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 count = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), count).ec ==
+                std::errc{}) {
+                options.script_count = count;
+            }
         } else if (arg == "--frames" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u64 frames = 0;
@@ -279,7 +292,7 @@ int run_windowed(const Options& options) {
     int exit_code = 0;
     // .NET für die Skripte (R4.4); lebt länger als die Szene.
     const std::unique_ptr<ngine::script::ScriptRuntime> script_runtime =
-        options.voxel_demo ? nullptr : app::start_script_runtime();
+        options.voxel_demo || options.no_scripts ? nullptr : app::start_script_runtime();
     {
         // Ressourcen leben in diesem Block, damit sie vor dem Device zerstört werden.
         // Voxel-Demo (Durchstich D1) oder Standardansicht mit Renderer und Welt (R1.3).
@@ -534,7 +547,7 @@ int main(int argc, char** argv) {
     int exit_code = 0;
     if (options.jobs_demo) {
         exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
-    } else if (options.script_demo) {
+    } else if (options.script_demo || options.script_count) {
         // Die Assemblies liegen im Ordner „dotnet“ neben der Sandbox (TD-12).
         std::string dotnet_dir;
 #if NGINE_WITH_DOTNET
@@ -542,7 +555,10 @@ int main(int argc, char** argv) {
             dotnet_dir = ngine::filesystem::join(*exe, "dotnet");
         }
 #endif
-        exit_code = sandbox::run_script_demo(options.frames.value_or(120), dotnet_dir);
+        exit_code = options.script_count
+                        ? sandbox::run_script_benchmark(*options.script_count,
+                                                        options.frames.value_or(300), dotnet_dir)
+                        : sandbox::run_script_demo(options.frames.value_or(120), dotnet_dir);
     } else if (options.net_demo) {
         exit_code = sandbox::run_net_demo(options.frames.value_or(180));
     } else if (options.server) {
@@ -568,9 +584,9 @@ int main(int argc, char** argv) {
         const sandbox::SandboxAssets sandbox_assets{true};
         exit_code = sandbox::save_playground(*options.save_playground, sandbox_assets.database());
     } else if (options.headless && options.playground) {
-        exit_code = sandbox::run_playground_headless(options.frames.value_or(600),
-                                                     sandbox::voxel_origin(options.far),
-                                                     options.bodies, options.characters);
+        exit_code = sandbox::run_playground_headless(
+            options.frames.value_or(600), sandbox::voxel_origin(options.far), options.bodies,
+            options.characters, !options.no_scripts);
     } else if (options.headless) {
         exit_code = sandbox::run_headless(options.frames.value_or(60));
     } else {

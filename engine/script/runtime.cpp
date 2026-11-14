@@ -427,6 +427,7 @@ Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
         return {};
     }
     std::int32_t errors = 0;
+    set_script_input_fixed(phase == ScriptPhase::Fixed);
     if (phase == ScriptPhase::Fixed) {
         // Ereignisse des letzten Schritts der Physik vor FixedUpdate.
         const std::vector<NativeEvent> events = take_script_events();
@@ -436,6 +437,7 @@ Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
         }
     }
     errors += impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
+    set_script_input_fixed(false);
     apply_script_commands();
     if (errors != 0) {
         return std::unexpected(std::format("{} Fehler in Skripten", errors));
@@ -503,14 +505,38 @@ void ScriptRuntime::apply_commands() {
     apply_script_commands();
 }
 
-Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, bool require_all) {
+namespace {
+
+Result<std::map<std::string, ReportedType, std::less<>>> describe_layout(std::int32_t (*describe)(
+    void (*)(const u8*, std::int32_t, const u8*, std::int32_t, std::int64_t))) {
     std::map<std::string, ReportedType, std::less<>> reported;
     layout_report = &reported;
-    const std::int32_t result = impl_->managed.describe_layout(report_layout);
+    const std::int32_t result = describe(report_layout);
     layout_report = nullptr;
     if (result != 0) {
         return std::unexpected("C# kann die Anordnung der Bindings nicht melden");
     }
+    return reported;
+}
+
+} // namespace
+
+std::vector<std::string> ScriptRuntime::bound_types() {
+    std::vector<std::string> names;
+    if (auto reported = describe_layout(impl_->managed.describe_layout)) {
+        for (const auto& entry : *reported) {
+            names.push_back(entry.first);
+        }
+    }
+    return names;
+}
+
+Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, bool require_all) {
+    auto described = describe_layout(impl_->managed.describe_layout);
+    if (!described) {
+        return std::unexpected(std::move(described.error()));
+    }
+    const auto& reported = *described;
     std::string problems;
     const auto problem = [&](std::string text) {
         if (!problems.empty()) {
@@ -520,7 +546,8 @@ Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, 
     };
     usize compared = 0;
     for (const reflect::TypeInfo* type : types.types()) {
-        if (type->kind != reflect::Kind::Struct) {
+        if ((type->kind != reflect::Kind::Struct && type->kind != reflect::Kind::Enum) ||
+            type->composite != nullptr || type->retired) {
             continue;
         }
         const auto found = reported.find(type->name);

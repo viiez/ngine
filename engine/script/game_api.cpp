@@ -14,7 +14,10 @@ import ngine.core;
 import ngine.input;
 import ngine.math;
 import ngine.physics;
+import ngine.voxel;
+import ngine.world;
 import :game_api;
+import :world_api;
 
 namespace ngine::script {
 
@@ -22,6 +25,7 @@ namespace {
 
 struct Context {
     const input::ActionState* actions = nullptr;
+    bool fixed = false;
     const physics::PhysicsWorld* physics = nullptr;
     std::vector<events::Subscription> subscriptions;
     std::vector<NativeEvent> events;
@@ -75,7 +79,8 @@ std::int32_t api_action(const u8* name, std::int32_t length, NativeAction* out) 
     if (c.actions == nullptr || !c.actions->map().find(text(name, length))) {
         return 0;
     }
-    const input::ActionValue& value = c.actions->value(text(name, length));
+    const input::ActionValue& value =
+        c.fixed ? c.actions->fixed(text(name, length)) : c.actions->value(text(name, length));
     *out = {.x = value.x,
             .y = value.y,
             .down = static_cast<u8>(value.down),
@@ -130,6 +135,28 @@ std::int32_t api_overlap(const NativeShape* shape, const f64* position, const f3
     return static_cast<std::int32_t>(found.size());
 }
 
+std::int32_t api_terrain_edit(u64 terrain, const f64* point, f32 radius, std::int32_t add,
+                              std::int32_t material) {
+    world::World* world = script_world();
+    if (world == nullptr || terrain == 0 || world::Commands::is_pending(terrain) ||
+        !world->alive(terrain)) {
+        return -1;
+    }
+    world::Entity entity = world->entity(terrain);
+    if (!entity.has<world::Terrain>()) {
+        return -1;
+    }
+    const math::DVec3 center = world::terrain_voxels(entity, dvec3(point));
+    const voxel::Brush brush{
+        .mode = add != 0 ? voxel::BrushMode::Add : voxel::BrushMode::Remove,
+        .center = {static_cast<f32>(center.x), static_cast<f32>(center.y),
+                   static_cast<f32>(center.z)},
+        .radius = static_cast<f32>(static_cast<f64>(radius) / voxel::voxel_size),
+        .material = static_cast<voxel::Material>(std::clamp(material, 1, 255))};
+    const voxel::TerrainEdit edit = world::edit_terrain(entity, brush);
+    return edit.empty() ? 0 : 1;
+}
+
 } // namespace
 
 GameApi make_game_api() {
@@ -138,7 +165,12 @@ GameApi make_game_api() {
         .raycast = api_raycast,
         .shape_cast = api_shape_cast,
         .overlap = api_overlap,
+        .terrain_edit = api_terrain_edit,
     };
+}
+
+void set_script_input_fixed(bool fixed) {
+    context().fixed = fixed;
 }
 
 void bind_script_input(const input::ActionState* actions) {

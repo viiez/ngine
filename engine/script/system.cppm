@@ -53,6 +53,9 @@ struct ScriptBuildDesc {
     std::string output_dir;
     // Ordner mit NGine.Scripting.dll (RuntimeDesc::assembly_dir).
     std::string scripting_dir;
+    // Erzeugte C#-Structs der Komponenten, die NGine.Scripting nicht kennt (z. B. die der
+    // Anwendung); das Projekt bindet sie über $(NgineBindings) ein. Leer: keine.
+    std::string bindings;
     std::string dotnet = "dotnet";
 };
 

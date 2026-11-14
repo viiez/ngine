@@ -12,6 +12,7 @@ public unsafe struct GameApi
     public delegate* unmanaged<double*, float*, float, NativeFilter*, NativeHit*, int> Raycast;
     public delegate* unmanaged<NativeShape*, double*, float*, float*, float, NativeFilter*, NativeHit*, int> ShapeCast;
     public delegate* unmanaged<NativeShape*, double*, float*, NativeFilter*, ulong*, int, int> Overlap;
+    public delegate* unmanaged<ulong, double*, float, int, int, int> TerrainEdit;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -49,8 +50,9 @@ public struct NativeShape
     public float HalfHeight;
 }
 
-// Aktionen der Eingabe (assets/eingabe/*.input). Pressed und Released gelten für ein Bild; in
-// FixedUpdate besser Down lesen oder den Druck in Update merken.
+// Aktionen der Eingabe (assets/eingabe/*.input). In Update gelten Pressed und Released für das
+// Bild; in FixedUpdate für die Zeit seit dem letzten festen Schritt, damit kein Druck verloren geht
+// oder doppelt zählt. Bewegungen der Maus (look) gehören nach Update.
 public static unsafe class Input
 {
     public static bool Down(string action) => Get(action).Down != 0;
@@ -213,6 +215,25 @@ public static unsafe class Physics
             }
             return &api->Game;
         }
+    }
+}
+
+// Graben und Aufschütten im Terrain (Pinsel aus R3.4).
+public static unsafe class Terrains
+{
+    // Material der Erde in der Standardtabelle (voxel::earth).
+    public const byte Earth = 3;
+
+    // Trägt an point eine Kugel mit radius Metern ab, mit add auf (material für Neues). Liefert,
+    // ob sich das Terrain geändert hat.
+    public static bool Edit(Entity terrain, DVec3 point, float radius, bool add = false, byte material = Earth)
+    {
+        var api = Host.Api;
+        if (api == null)
+        {
+            return false;
+        }
+        return api->Game.TerrainEdit(terrain.Id, (double*)&point, radius, add ? 1 : 0, material) == 1;
     }
 }
 

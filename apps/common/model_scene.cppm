@@ -334,7 +334,7 @@ public:
     // Skripte aus assets/skripte (R4.4): bauen, laden, bei Änderungen neu laden. runtime muss die
     // Szene überleben. Sie sehen die Welt, die Aktionen und die Physik der Szene; im Editor laufen
     // sie nur beim Spielen (scripts()->set_active()).
-    void enable_scripts(script::ScriptRuntime& runtime, const input::ActionState* actions,
+    void enable_scripts(script::ScriptRuntime& runtime, input::ActionState* actions,
                         ScriptOptions options = {}) {
         if (database_ == nullptr) {
             log::warn("Skripte: kein Asset-Ordner");
@@ -353,11 +353,25 @@ public:
                                      .build = options.build,
                                      .watch = options.watch});
         scripts_->bind(&world_, actions, &physics_, &events_);
+        script_actions_ = actions;
+        // Flanken für FixedUpdate gelten bis nach dem festen Schritt, der sie gesehen hat.
+        if (actions != nullptr) {
+            simulation_.set_after_fixed_step([actions] { actions->end_fixed_step(); });
+        }
         scripts_->set_active(mode_ == SceneMode::Game);
         scripts_->start(options.wait);
     }
     [[nodiscard]] script::ScriptSystem* scripts() noexcept {
         return scripts_.get();
+    }
+    // Ob ein laufendes Skript Spielersteuerung die Figur steuert.
+    [[nodiscard]] bool scripted_player(world::Entity player) {
+        if (!scripts_ || !scripts_->active() || !scripts_->runtime().scripts_loaded()) {
+            return false;
+        }
+        const reflect::TypeInfo* type = types_.find("Spielersteuerung");
+        return type != nullptr && !type->retired &&
+               world_.has(player.id(), world_.component(*type));
     }
 
     void set_player_enabled(bool enabled) {
@@ -389,11 +403,15 @@ public:
     // Spielfigur (R4.3) und ist der Flugmodus aus, steuert controls stattdessen die Figur, und die
     // Kamera folgt ihr. Im Spiel rechnet danach die Spielschleife ein Bild (simulate()).
     void update(f32 dt, const FlyInput& input, const PlayerControls& controls = {}) {
+        world::Entity player = active_player();
+        // Steuert ein Skript die Figur (Spielersteuerung.cs, R4.4), entfällt die Steuerung in C++;
+        // im Flugmodus bekommen die Skripte keine Eingabe.
+        const bool scripted = player && scripted_player(player);
         if (scripts_) {
             scripts_->update();
+            scripts_->runtime().bind_input(fly_ ? nullptr : script_actions_);
         }
-        world::Entity player = active_player();
-        if (player) {
+        if (player && !scripted) {
             app::apply_controls(player, fly_ ? PlayerControls{} : controls);
         }
         const bool fly = !player || fly_;
@@ -424,7 +442,9 @@ public:
             view_position_ = view.position;
             view_rotation_ = view.rotation;
             throw_origin_ = view.eye;
-            update_dig(dt, player, view, controls);
+            if (!scripted) {
+                update_dig(dt, player, view, controls);
+            }
         }
         if (mode_ == SceneMode::Game) {
             camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
@@ -905,6 +925,14 @@ private:
             const asset::AssetId figure = asset_id("prefabs/spielfigur.prefab");
             (void)app::spawn_player(world_, layout.spawn,
                                     figure != 0 ? prefabs_.get(figure) : nullptr, figure);
+            const asset::AssetId lantern = asset_id("prefabs/laterne.prefab");
+            if (const world::Prefab* prefab = lantern != 0 ? prefabs_.get(lantern) : nullptr) {
+                if (auto placed = world::instantiate(world_, *prefab, lantern)) {
+                    world::Transform transform = *placed->get<world::Transform>();
+                    transform.position = layout.lantern;
+                    placed->set(transform);
+                }
+            }
             spawn = layout.spawn;
         }
         (void)world::update_transforms(world_);
@@ -1096,6 +1124,7 @@ private:
     // Ereignisse der Physik für die Skripte; zuletzt angelegt, damit die Skripte vor Welt und
     // Physik gehen.
     events::EventBus events_;
+    input::ActionState* script_actions_ = nullptr;
     std::unique_ptr<script::ScriptSystem> scripts_;
 };
 

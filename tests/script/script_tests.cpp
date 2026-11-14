@@ -683,3 +683,129 @@ TEST_CASE("Scripts build in the background and reload with their field values", 
     system.reset();
     CHECK_FALSE(rt.scripts_loaded());
 }
+
+namespace {
+
+// Stellvertreter für app::PlayerInput (apps/common): dieselben Namen, die Spielersteuerung.cs
+// benutzt. Die Tests bauen ohne die Anwendungen.
+enum class TestCameraView : u8 { FirstPerson, Shoulder };
+struct TestPlayerInput {
+    f32 yaw = 0.0f;
+    f32 pitch = 0.0f;
+    TestCameraView view = TestCameraView::FirstPerson;
+    f32 eye_height = 1.6f;
+    f32 dig_radius = 0.8f;
+    f32 dig_reach = 6.0f;
+    f32 look_speed = 0.0025f;
+};
+
+void register_player_stand_in(reflect::TypeRegistry& types) {
+    types.add<TestCameraView>("CameraView")
+        .value("FirstPerson", TestCameraView::FirstPerson)
+        .value("Shoulder", TestCameraView::Shoulder);
+    types.add<TestPlayerInput>("PlayerInput")
+        .field("yaw", &TestPlayerInput::yaw)
+        .field("pitch", &TestPlayerInput::pitch)
+        .field("view", &TestPlayerInput::view)
+        .field("eye_height", &TestPlayerInput::eye_height)
+        .field("dig_radius", &TestPlayerInput::dig_radius)
+        .field("dig_reach", &TestPlayerInput::dig_reach)
+        .field("look_speed", &TestPlayerInput::look_speed);
+}
+
+} // namespace
+
+TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    register_player_stand_in(types);
+    const std::filesystem::path cache =
+        std::filesystem::temp_directory_path() /
+        std::format("ngine_spielskripte_{}", std::random_device{}());
+    world::World w{types};
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    world::Simulation simulation{w, jobs};
+    input::ActionState actions{input::ActionMap::standard()};
+    auto system = std::make_unique<script::ScriptSystem>(
+        rt, types,
+        script::ScriptSystemDesc{.project = NGINE_ASSET_SOURCE_DIR "/skripte/Skripte.csproj",
+                                 .cache_dir = cache.string(),
+                                 .watch = false});
+    system->bind(&w, &actions);
+    system->start(true);
+    const auto& status = system->status();
+    REQUIRE(status.last_build.has_value());
+    if (status.last_build->sdk_missing) {
+        system.reset();
+        if (dotnet_required()) {
+            FAIL(".NET-SDK fehlt: " + status.last_build->output);
+        }
+        SKIP(".NET-SDK fehlt");
+    }
+    INFO(status.last_build->output);
+    REQUIRE(status.last_build->ok);
+    CHECK(status.classes == std::vector<std::string>{"Laterne", "Spielersteuerung"});
+    system->add_to(simulation);
+    simulation.set_after_fixed_step([&] { actions.end_fixed_step(); });
+
+    // Laterne mit Licht als Kind wie prefabs/laterne.prefab, Figur einen Meter daneben.
+    world::Entity lantern = w.create("Laterne");
+    lantern.set(world::Transform{});
+    (void)w.ensure(lantern.id(), w.component(*types.find("Laterne")));
+    world::Entity light = w.create("Leuchte");
+    light.set(world::Transform{.position = {0.0, 3.0, 0.0}})
+        .set(render::PointLight{.intensity = 6.0f});
+    w.set_parent(light.id(), lantern.id());
+    world::Entity player = w.create("Spielfigur");
+    player.set(world::Transform{.position = {1.0, 0.0, 0.0}})
+        .set(TestPlayerInput{})
+        .set(physics::CharacterController{})
+        .set(physics::CharacterMotion{});
+    (void)w.ensure(player.id(), w.component(*types.find("Spielersteuerung")));
+
+    const auto frame = [&](std::vector<platform::Event> events = {}) {
+        actions.begin_frame();
+        for (const platform::Event& event : events) {
+            actions.handle(event);
+        }
+        actions.end_frame(1.0f / 60.0f);
+        simulation.advance(1.0 / 60.0 + 1e-6);
+    };
+    frame();
+    frame();
+    const auto* point = light.get<render::PointLight>();
+    CHECK(point->active);
+    CHECK(point->intensity > 6.0f * 0.85f);
+    CHECK(point->intensity < 6.0f * 1.15f);
+
+    // F schaltet die Laterne in Reichweite aus.
+    frame({platform::event::KeyPressed{platform::Key::F}});
+    CHECK_FALSE(light.get<render::PointLight>()->active);
+    frame({platform::event::KeyReleased{platform::Key::F}});
+    CHECK(capture()->contains("Laterne: aus"));
+
+    // W vorwärts, die Maus dreht um 100 Pixel nach rechts, Leertaste springt.
+    frame({platform::event::KeyPressed{platform::Key::W},
+           platform::event::MouseMoved{.x = 0.0f, .y = 0.0f, .dx = 100.0f},
+           platform::event::KeyPressed{platform::Key::Space}});
+    frame();
+    const auto* input = player.get<TestPlayerInput>();
+    CHECK(input->yaw == -0.25f);
+    const auto* motion = player.get<physics::CharacterMotion>();
+    // Nach rechts gedreht: vorwärts zeigt nach −z und etwas nach +x.
+    CHECK(motion->move.z < -0.9f);
+    CHECK(motion->move.x > 0.2f);
+    CHECK(motion->jump);
+    CHECK_FALSE(motion->run);
+
+    // Ohne die Laterne kommt das ruhige Licht zurück (Stop).
+    w.remove(lantern.id(), w.component(*types.find("Laterne")));
+    frame();
+    CHECK(light.get<render::PointLight>()->intensity == 6.0f);
+
+    system->bind(nullptr);
+    system.reset();
+    std::error_code ignored;
+    std::filesystem::remove_all(cache, ignored);
+}

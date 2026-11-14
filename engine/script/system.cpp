@@ -115,8 +115,9 @@ void write_props(const ScriptBuildDesc& desc) {
                     "<Project>\n  <PropertyGroup>\n"
                     "    <NgineScriptingDir Condition=\"'$(NgineScriptingDir)' == "
                     "''\">{}/</NgineScriptingDir>\n"
+                    "    <NgineBindings Condition=\"'$(NgineBindings)' == ''\">{}</NgineBindings>\n"
                     "  </PropertyGroup>\n</Project>\n",
-                    desc.scripting_dir);
+                    desc.scripting_dir, desc.bindings);
     const std::string path = filesystem::join(desc.output_dir, "ngine.props");
     if (auto current = filesystem::read_text(path); current && *current == text) {
         return;
@@ -146,6 +147,7 @@ BuildResult run_build(const ScriptBuildDesc& desc) {
         filesystem::join(desc.output_dir, "artifacts"),
         // Mit Schrägstrich am Ende: dotnet verschluckt Argumente, die auf „dotnet“ enden.
         "-p:NgineScriptingDir=" + desc.scripting_dir + "/",
+        "-p:NgineBindings=" + desc.bindings,
         "-clp:NoSummary",
     };
     auto ran = platform::run_process(desc.dotnet, arguments);
@@ -328,6 +330,23 @@ struct ScriptSystem::Impl {
         return true;
     }
 
+    // Komponenten, die NGine.Scripting nicht mitbringt (Anwendung), als C# für das Projekt.
+    void write_bindings() {
+        const std::string path = filesystem::join(desc.cache_dir, "Komponenten.g.cs");
+        BindingOptions options{.name_space = "NGine",
+                               .base = nullptr,
+                               .skip = runtime->bound_types(),
+                               .layout_report = false};
+        const std::string text = generate_bindings(*types, options);
+        if (auto current = filesystem::read_text(path); current && *current == text) {
+            return;
+        }
+        static_cast<void>(filesystem::create_directories(desc.cache_dir));
+        if (auto written = filesystem::write_text(path, text); !written) {
+            log::error("Skripte: {}", written.error());
+        }
+    }
+
     void run(ScriptPhase phase, f32 delta) {
         if (!active || world == nullptr || !runtime->scripts_loaded()) {
             return;
@@ -348,10 +367,12 @@ ScriptSystem::ScriptSystem(ScriptRuntime& runtime, reflect::TypeRegistry& types,
     impl_->desc = std::move(desc);
     runtime.use_types(&types);
     if (!impl_->desc.project.empty()) {
-        impl_->builder.emplace(ScriptBuildDesc{.project = impl_->desc.project,
-                                               .output_dir = impl_->desc.cache_dir,
-                                               .scripting_dir = runtime.assembly_dir(),
-                                               .dotnet = impl_->desc.dotnet});
+        impl_->builder.emplace(
+            ScriptBuildDesc{.project = impl_->desc.project,
+                            .output_dir = impl_->desc.cache_dir,
+                            .scripting_dir = runtime.assembly_dir(),
+                            .bindings = filesystem::join(impl_->desc.cache_dir, "Komponenten.g.cs"),
+                            .dotnet = impl_->desc.dotnet});
     }
 }
 
@@ -368,6 +389,12 @@ void ScriptSystem::start(bool wait) {
     if (!impl_->builder) {
         return;
     }
+    // Die Anordnung der Structs in NGine.Scripting muss zur Engine passen (gleicher Build).
+    if (auto verified = impl_->runtime->verify_bindings(*impl_->types); !verified) {
+        log::error("Skripte: {}", verified.error());
+        return;
+    }
+    impl_->write_bindings();
     const std::string cached = impl_->builder->assembly_path();
     if (impl_->desc.build && wait) {
         impl_->handle(impl_->builder->build());

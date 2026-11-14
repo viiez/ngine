@@ -78,11 +78,18 @@ struct GameApi {
     // Anzahl der Treffer; höchstens capacity Kennungen in out.
     std::int32_t (*overlap)(const NativeShape* shape, const f64* position, const f32* rotation,
                             const NativeFilter* filter, u64* out, std::int32_t capacity);
+    // Kugel an point (Weltkoordinaten) aus dem Terrain abtragen (add = 0) oder auftragen, mit
+    // material für Neues. 1: geändert, 0: keine Änderung, -1: kein Terrain.
+    std::int32_t (*terrain_edit)(u64 terrain, const f64* point, f32 radius, std::int32_t add,
+                                 std::int32_t material);
 };
 
 [[nodiscard]] GameApi make_game_api();
 
 void bind_script_input(const input::ActionState* actions);
+// Im festen Schritt liefern Aktionen ActionState::fixed(): Flanken bleiben, bis ein Schritt sie
+// gesehen hat.
+void set_script_input_fixed(bool fixed);
 void bind_script_physics(const physics::PhysicsWorld* physics);
 // Meldet die Ereignisse der Physik am Bus an; sie sammeln sich bis take_script_events().
 void bind_script_events(events::EventBus* bus);

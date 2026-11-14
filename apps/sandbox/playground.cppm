@@ -6,6 +6,7 @@ module;
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,6 +22,10 @@ export module sandbox.playground;
 
 import ngine.core;
 import ngine.asset;
+import ngine.filesystem;
+import ngine.input;
+import ngine.platform;
+import ngine.script;
 import ngine.jobs;
 import ngine.math;
 import ngine.physics;
@@ -28,8 +33,10 @@ import ngine.profile;
 import ngine.reflect;
 import ngine.render;
 import ngine.world;
+import app.paths;
 import app.physics;
 import app.player;
+import app.scripting;
 
 namespace sandbox {
 
@@ -72,8 +79,30 @@ app::PlayerControls scripted_controls(u64 frame) {
     return controls;
 }
 
-export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bodies,
-                                   u32 characters) {
+// Dieselbe Spur als Ereignisse der Eingabe für die Skripte (Spielersteuerung.cs, R4.4): W, Shift,
+// Leertaste, Maus und Strg nach der Standardbelegung.
+std::vector<platform::Event> scripted_events(u64 frame) {
+    std::vector<platform::Event> events;
+    const auto edge = [&](u64 from, u64 to, platform::Key key) {
+        if (frame == from) {
+            events.emplace_back(platform::event::KeyPressed{key});
+        } else if (frame == to) {
+            events.emplace_back(platform::event::KeyReleased{key});
+        }
+    };
+    edge(0, 540, platform::Key::W);
+    edge(120, 240, platform::Key::Shift);
+    edge(150, 151, platform::Key::Space);
+    edge(400, 401, platform::Key::Space);
+    edge(420, 480, platform::Key::Ctrl);
+    if (frame >= 240 && frame < 360) {
+        events.emplace_back(platform::event::MouseMoved{.x = 0.0f, .y = 0.0f, .dx = 5.5f});
+    }
+    return events;
+}
+
+export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bodies, u32 characters,
+                                   bool use_scripts) {
     reflect::TypeRegistry types;
     world::register_types(types);
     render::register_types(types);
@@ -104,12 +133,38 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
     shapes.add(app::playground_id, app::playground_model());
     physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
     physics.set_shape_source(shapes.source());
-    physics::add_to(simulation, physics);
     u64 landed = 0;
     u64 steps = 0;
     u64 dug = 0;
     events::EventBus bus;
     physics.set_events(&bus);
+
+    // Skripte (R4.4): Gibt es .NET und assets/skripte, steuert Spielersteuerung.cs die Figur mit
+    // der Spur als Eingabe; sonst die Steuerung in C++. Auf den Bau wird gewartet, damit die Spur
+    // ab dem ersten Bild gilt.
+    input::ActionState actions{input::ActionMap::standard()};
+    const std::unique_ptr<script::ScriptRuntime> runtime =
+        use_scripts ? app::start_script_runtime() : nullptr;
+    std::unique_ptr<script::ScriptSystem> scripts;
+    const auto assets = app::find_upwards("assets", "skripte/Skripte.csproj");
+    if (runtime && assets) {
+        scripts = std::make_unique<script::ScriptSystem>(
+            *runtime, types,
+            script::ScriptSystemDesc{.project = filesystem::join(*assets, "skripte/Skripte.csproj"),
+                                     .cache_dir = filesystem::join(*assets, ".cache/skripte"),
+                                     .watch = false});
+        scripts->bind(&world, &actions, &physics, &bus);
+        scripts->start(true);
+        scripts->add_to(simulation);
+        simulation.set_after_fixed_step([&actions] { actions.end_fixed_step(); });
+    }
+    const reflect::TypeInfo* steering = types.find("Spielersteuerung");
+    const bool scripted = scripts && runtime->scripts_loaded() && steering != nullptr;
+    if (scripted) {
+        (void)world.ensure(player.id(), world.component(*steering));
+    }
+    log::info("Spielplatz: Steuerung {}", scripted ? "aus C# (Spielersteuerung.cs)" : "in C++");
+    physics::add_to(simulation, physics);
     const auto on_landed =
         bus.subscribe<physics::CharacterLanded>([&](const physics::CharacterLanded&) { ++landed; });
     const auto on_step =
@@ -124,7 +179,15 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
     const auto start = std::chrono::steady_clock::now();
     for (u64 frame = 0; frame < frames; ++frame) {
         NGINE_PROFILE_ZONE("Frame");
-        app::apply_controls(player, scripted_controls(frame));
+        if (scripted) {
+            actions.begin_frame();
+            for (const platform::Event& event : scripted_events(frame)) {
+                actions.handle(event);
+            }
+            actions.end_frame(1.0f / 60.0f);
+        } else {
+            app::apply_controls(player, scripted_controls(frame));
+        }
         // Nach sechs Sekunden: unter der ersten losen Kiste graben, sie fällt in die Grube.
         if (frame == 360 && !layout.loose_boxes.empty()) {
             const math::DVec3 box = layout.loose_boxes.front().get<world::Transform>()->position;
@@ -179,6 +242,9 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
                   ? "auf dem Boden"
                   : "nicht auf dem Boden");
     log::info("Prüfsumme der Lagen: {:016x}", physics::checksum(world));
+    if (scripts) {
+        scripts->bind(nullptr);
+    }
     return 0;
 }
 
@@ -205,8 +271,29 @@ export int save_playground(const std::string& path, const asset::AssetDatabase* 
     }
     const u64 prefab_id = info != nullptr ? info->id : 0;
     (void)app::spawn_player(world, layout.spawn, prefab ? &*prefab : nullptr, prefab_id);
+    // Laterne neben dem Start (R4.4), schaltbar mit light (Laterne.cs).
+    const asset::AssetInfo* lantern_info =
+        database != nullptr ? database->find_path("prefabs/laterne.prefab") : nullptr;
+    std::optional<world::Prefab> lantern;
+    if (lantern_info != nullptr) {
+        if (auto loaded = world::load_prefab_file(lantern_info->file)) {
+            lantern = *std::move(loaded);
+            if (auto placed = world::instantiate(world, *lantern, lantern_info->id)) {
+                world::Transform transform = *placed->get<world::Transform>();
+                transform.position = layout.lantern;
+                placed->set(transform);
+            } else {
+                log::warn("Laterne: {}", placed.error());
+            }
+        } else {
+            log::warn("Laterne: {}", loaded.error());
+        }
+    }
     const world::PrefabLookup lookup = [&](u64 id) -> const world::Prefab* {
-        return prefab && id == prefab_id ? &*prefab : nullptr;
+        if (prefab && id == prefab_id) {
+            return &*prefab;
+        }
+        return lantern && lantern_info != nullptr && id == lantern_info->id ? &*lantern : nullptr;
     };
     if (auto saved = world::save_scene_file(world, path, lookup); !saved) {
         log::error("Spielplatz: {}", saved.error());

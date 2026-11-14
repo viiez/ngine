@@ -57,6 +57,9 @@
           "dig_radius": 0.8,
           "dig_reach": 6.0,
           "look_speed": 0.0025
+        },
+        "Spielersteuerung": {
+          "Grabpause": 0.15
         }
       }
     },

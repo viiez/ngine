@@ -16,7 +16,7 @@ ngine_set_compiler_options(ngine_sandbox)
 if(NGINE_WITH_DOTNET)
     ngine_add_dotnet_project(ngine_sandbox_scripts
         PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/Sandbox.Scripts.csproj"
-        SOURCES scripts/Orbit.cs
+        SOURCES scripts/Orbit.cs scripts/Kreisel.cs
         DEPENDS ngine_script_managed)
     ngine_copy_dotnet_assemblies(ngine_sandbox DEPENDS ngine_sandbox_scripts)
     target_compile_definitions(ngine_sandbox PRIVATE NGINE_WITH_DOTNET=1)

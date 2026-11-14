@@ -25,6 +25,11 @@
             "y": 1,
             "z": 1
           }
+        },
+        "Laterne": {
+          "An": true,
+          "Flackern": 0.15,
+          "Reichweite": 4.0
         }
       }
     },

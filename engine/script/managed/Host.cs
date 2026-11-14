@@ -172,6 +172,7 @@ public static unsafe class Host
         scripts.Clear();
         StopInstances();
         classes.Clear();
+        runOrder.Clear();
         var weak = new WeakReference(context);
         context!.Unload();
         context = null;
@@ -221,7 +222,7 @@ public static unsafe class Host
                 Time.Elapsed += delta;
             }
             ++tick;
-            var order = new List<Script>();
+            List<Script> order = runOrder;
             foreach (ScriptClass cls in classes)
             {
                 if (cls.TypeIndex < 0)
@@ -247,22 +248,44 @@ public static unsafe class Host
                         order.Add(script);
                     }
                 }
-                // Verschwundene zuerst stoppen, in fester Reihenfolge.
-                foreach (ulong gone in cls.Instances.Where(p => p.Value.seen != tick).Select(p => p.Key).OrderBy(k => k).ToList())
+                // Verschwundene zuerst stoppen, in fester Reihenfolge. Sind alle bekannten in order,
+                // fehlt keine (der übliche Fall, ohne Suche).
+                if (cls.Instances.Count != order.Count)
                 {
-                    errors += Call(cls.Instances[gone], s => s.Stop());
-                    cls.Instances.Remove(gone);
-                }
-                foreach (Script script in order)
-                {
-                    if (!script.started)
+                    foreach (ulong gone in cls.Instances.Where(p => p.Value.seen != tick).Select(p => p.Key).OrderBy(k => k).ToList())
                     {
-                        script.started = true;
-                        errors += Call(script, s => s.Start());
+                        errors += Call(cls.Instances[gone], s => s.Stop());
+                        cls.Instances.Remove(gone);
                     }
-                    errors += phase == 0 ? Call(script, s => s.FixedUpdate()) : Call(script, s => s.Update());
+                }
+                for (int i = 0; i < order.Count; ++i)
+                {
+                    Script script = order[i];
+                    try
+                    {
+                        if (!script.started)
+                        {
+                            script.started = true;
+                            script.Start();
+                        }
+                        if (phase == 0)
+                        {
+                            script.FixedUpdate();
+                        }
+                        else
+                        {
+                            script.Update();
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Error($"Fehler in {script.GetType().Name} an {script.Entity}: {e}");
+                        ++errors;
+                    }
                 }
             }
+            // Keine Verweise auf Skripte behalten, sonst lässt sich ihr Kontext nicht entladen.
+            order.Clear();
             return errors;
         }
         catch (Exception e)
@@ -402,6 +425,9 @@ public static unsafe class Host
     private static long SizeOf(ScriptClass cls) => Api->Script.FieldOffset(cls.TypeIndex, -1);
 
     // Ruft eine Methode eines Skripts auf; ein Fehler darin hält die übrigen nicht auf.
+    // Reihenfolge eines Laufs, wiederverwendet.
+    private static readonly List<Script> runOrder = new();
+
     private static int Call(Script script, Action<Script> action)
     {
         try
