@@ -52,6 +52,14 @@
         { "source": "Key.Space" },
         { "source": "Gamepad.South" }
       ]
+    },
+    {
+      "name": "throw",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Mouse.Left" },
+        { "source": "Gamepad.West" }
+      ]
     }
   ]
 }

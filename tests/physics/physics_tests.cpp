@@ -11,6 +11,7 @@ import ngine.reflect;
 import ngine.jobs;
 import ngine.world;
 import ngine.physics;
+import ngine.edit;
 
 using namespace ngine;
 using Catch::Matchers::WithinAbs;
@@ -465,4 +466,38 @@ TEST_CASE("Layer table is symmetric", "[physics]") {
     CHECK(physics::layers_collide(physics::PhysicsLayer::Debris, physics::PhysicsLayer::Static));
     CHECK_FALSE(
         physics::layers_collide(physics::PhysicsLayer::Sensor, physics::PhysicsLayer::Static));
+}
+
+TEST_CASE("Play in the editor topples a stack and stop restores it bit for bit", "[physics]") {
+    const auto types = make_types();
+    world::World world{types};
+    events::EventBus bus;
+    edit::SceneDocument document{world, &bus};
+    add_floor(world, {});
+    add_stack(world, {}, 8);
+    (void)world::update_transforms(world);
+    const std::vector<std::byte> before = world::save_scene_binary(world);
+
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs};
+    physics::add_to(simulation, physics);
+    const auto play = [&] {
+        REQUIRE(document.begin_play());
+        for (i32 i = 0; i < 180; ++i) {
+            simulation.advance(1.0 / 60.0);
+        }
+        const u64 sum = physics::checksum(world);
+        CHECK(world::save_scene_binary(world) != before);
+        REQUIRE(document.end_play());
+        // Wie im Editor: Uhr zurück, Körper verwerfen.
+        simulation.reset_clock();
+        physics.clear();
+        return sum;
+    };
+    const u64 first = play();
+    CHECK(world::save_scene_binary(world) == before);
+    // Noch einmal spielen ergibt dasselbe.
+    CHECK(play() == first);
+    CHECK(world::save_scene_binary(world) == before);
 }

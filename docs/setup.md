@@ -412,6 +412,25 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R4.2 testen: Physik mit Jolt
+
+1. **Tests:** `ctest` meldet auch `[physics]` als bestanden, unter ThreadSanitizer ebenso.
+2. **Spielplatz:** `ngine_sandbox --playground` zeigt einen Boden mit einer Rampe, vier Türmen aus
+   Kisten, einem schiefen Turm, der nach dem Start umfällt, und drei Kugeln. Die linke Maustaste
+   (am Gamepad X bzw. Quadrat) wirft eine Kugel in Blickrichtung. F3 zeigt die Kollisionsformen:
+   grün wach, blau schlafend, grau unbewegt. Eine kleine rote Kugel mit Normale zeigt, was der
+   Strahl aus der Bildmitte trifft.
+3. **Weit weg vom Ursprung:** `ngine_sandbox --playground --far` baut denselben Spielplatz 10 000 km
+   vom Ursprung entfernt. Die Kisten liegen genauso ruhig wie am Ursprung und zittern nicht.
+4. **Ohne Fenster:** `ngine_sandbox --headless --playground` rechnet 300 Schritte und meldet am Ende
+   eine „Prüfsumme der Lagen“. Zwei Läufe mit demselben Build ergeben dieselbe Summe.
+5. **Messung:** Im Release-Build `ngine_sandbox --headless --playground --bodies 2000 --frames 600`.
+   Das Log meldet den Schritt der Physik (Median und 99. Perzentil), Abgleich, Rückschrieb und
+   `update_transforms()`. Die Zahlen gehören ins Iterationsdokument.
+6. **Editor:** Im Menü „Physik“ die „Kollisionsformen“ einschalten. Eine Entity mit `RigidBody` und
+   `Collider` anlegen (oder die Szene des Spielplatzes laden), Spielen (F5): Die Körper fallen.
+   Stoppen stellt die Welt bitgenau wieder her; zweimal Spielen ergibt dasselbe Bild.
+
 Aktuelle Validation Layers lassen sich auch über vcpkg bauen, wenn die Pakete des Systems zu alt
 sind: beim Konfigurieren `-DVCPKG_MANIFEST_FEATURES=validation` angeben und `VK_ADD_LAYER_PATH` auf
 `build/<preset>/vcpkg_installed/<triplet>/share/vulkan/explicit_layer.d` setzen (unter Windows auf

@@ -39,6 +39,18 @@ struct SimulationOptions {
     u32 max_steps = 4;
 };
 
+// Zeiten des letzten Bildes in Millisekunden (für Messungen, R4.2).
+struct SimulationStats {
+    u32 steps = 0;
+    // Alle festen Schritte samt Stufen (Physik).
+    f64 fixed_ms = 0.0;
+    // Phase::Frame und Phase::Late.
+    f64 frame_ms = 0.0;
+    // update_transforms() samt Interpolation, und wie viele Entities es neu berechnet hat.
+    f64 transforms_ms = 0.0;
+    usize transforms = 0;
+};
+
 // Spielschleife (WORLD-10, ADR 0044): besitzt den Schedule und eine Uhr und treibt die Welt pro
 // Bild durch die Phasen. advance(dt) rechnet so viele feste Schritte, wie in die angesammelte Zeit
 // passen (Phase::Fixed, nach jedem Schritt die Befehlspuffer), dann einmal Phase::Frame und
@@ -107,6 +119,9 @@ public:
     [[nodiscard]] const SimulationOptions& options() const noexcept {
         return options_;
     }
+    [[nodiscard]] const SimulationStats& stats() const noexcept {
+        return stats_;
+    }
 
 private:
     void fixed_step();
@@ -119,6 +134,7 @@ private:
     Query<Interpolated, const Transform> interpolated_;
     std::vector<std::function<void()>> fixed_stages_;
     std::function<void()> after_fixed_step_;
+    SimulationStats stats_;
     f64 accumulator_ = 0.0;
     f64 time_scale_ = 1.0;
     bool paused_ = false;

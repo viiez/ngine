@@ -6,7 +6,7 @@
 // halten und Maus bewegen, W/A/S/D fliegen, E/Q hoch und runter, Shift schneller; mit dem Gamepad
 // linker Stick fliegen, rechter Stick drehen, Schultertasten hoch und runter, rechter Trigger
 // schneller (Belegung in assets/eingabe/standard.input, neu geladen beim Speichern). F1 schaltet
-// Debug-Zeichnen um, F2 färbt die Kaskaden der Schatten ein.
+// Debug-Zeichnen um, F2 färbt die Kaskaden der Schatten ein, F3 zeigt die Kollisionsformen.
 //
 // Optionen:
 //   --model <pfad>  glTF-Modell (.gltf oder .glb) statt des Kugelrasters
@@ -31,6 +31,12 @@
 //                   automatisch; mit --headless ohne GPU, dann misst die Demo Erzeugen und
 //                   Meshing vieler Chunks seriell und parallel.
 //   --seed <n>      Startwert der Welt für --voxel-demo (Standard 1)
+//   --playground    Spielplatz der Physik (R4.2): Boden, Rampe, Kistenstapel und Kugeln; linke
+//                   Maustaste bzw. X am Gamepad wirft eine Kugel, F3 zeigt die Kollisionsformen.
+//                   Mit --headless ohne Fenster und GPU: rechnet den Spielplatz und meldet eine
+//                   Prüfsumme der Lagen
+//   --bodies <n>    auf dem Spielplatz n weitere Körper herabregnen lassen und die Zeiten von
+//                   Physik und update_transforms() messen
 //   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
 //                   64-Bit-Positionen nicht zittert
 //   --script-demo   C#-Scripting vorführen: .NET starten, Skripte laden, Daten ändern, neu laden
@@ -72,6 +78,7 @@ import ngine.input;
 import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
+import sandbox.playground;
 import ngine.voxel;
 #if NGINE_WITH_WINDOW
 import ngine.platform;
@@ -104,6 +111,9 @@ struct Options {
     bool far = false;
     bool debug_draw = false;
     bool no_cache = false;
+    // Spielplatz der Physik und weitere Körper zum Messen (R4.2).
+    bool playground = false;
+    ngine::u32 bodies = 0;
     std::optional<ngine::u64> frames;
 };
 
@@ -182,6 +192,16 @@ Options parse_options(std::span<char*> args) {
             options.baseline = true;
         } else if (arg == "--far") {
             options.far = true;
+        } else if (arg == "--playground") {
+            options.playground = true;
+        } else if (arg == "--bodies" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 bodies = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), bodies).ec ==
+                std::errc{}) {
+                options.bodies = bodies;
+                options.playground = true;
+            }
         } else if (arg == "--debug-draw") {
             options.debug_draw = true;
         } else if (arg == "--no-cache") {
@@ -258,9 +278,15 @@ int run_windowed(const Options& options) {
             }
         } else {
             auto created =
-                app::ModelScene::create(**device, (*device)->swapchain_format(), options.model_path,
-                                        sandbox::voxel_origin(options.far), app::SceneMode::Game,
-                                        sandbox_assets.scene_assets());
+                options.playground
+                    ? app::ModelScene::create_playground(**device, (*device)->swapchain_format(),
+                                                         sandbox::voxel_origin(options.far),
+                                                         sandbox_assets.scene_assets(),
+                                                         options.bodies)
+                    : app::ModelScene::create(**device, (*device)->swapchain_format(),
+                                              options.model_path,
+                                              sandbox::voxel_origin(options.far),
+                                              app::SceneMode::Game, sandbox_assets.scene_assets());
             if (!created) {
                 ngine::log::fatal("{}", created.error());
                 return 1;
@@ -303,11 +329,17 @@ int run_windowed(const Options& options) {
                     running = false;
                 }
             } else {
+                if (options.playground && actions.pressed("throw")) {
+                    scene->throw_ball();
+                }
                 scene->update(dt, fly);
             }
             if (now - last_report > std::chrono::seconds{3}) {
                 ngine::log::info("{}", voxels ? "Voxel-Terrain: " + voxels->stats()
                                               : "Szene: " + scene->stats());
+                if (options.playground) {
+                    ngine::log::info("{}", scene->physics_stats());
+                }
                 last_report = now;
             }
 
@@ -373,6 +405,8 @@ int run_windowed(const Options& options) {
                                 scene->toggle_debug_draw();
                             } else if (ev.key == Key::F2 && scene) {
                                 scene->toggle_cascades();
+                            } else if (ev.key == Key::F3 && scene) {
+                                scene->toggle_draw_colliders();
                             }
                         } else if constexpr (std::is_same_v<T, event::GamepadAdded>) {
                             ngine::log::info("Gamepad angesteckt: {}", ev.name);
@@ -479,11 +513,15 @@ int main(int argc, char** argv) {
             options.frames.value_or(60), *options.image_path, options.baseline, options.far,
             options.seed, options.view, sandbox_assets.database());
     } else if (options.image_path && !options.voxel_demo) {
-        exit_code = sandbox::run_model_offscreen(
-            options.model_path, *options.image_path, options.baseline,
-            sandbox::voxel_origin(options.far), options.debug_draw, options.no_cache);
+        exit_code =
+            sandbox::run_model_offscreen(options.model_path, *options.image_path, options.baseline,
+                                         sandbox::voxel_origin(options.far), options.debug_draw,
+                                         options.no_cache, options.playground);
     } else if (options.scene_demo) {
         exit_code = sandbox::run_scene_demo(options.frames.value_or(120), options.scene_path);
+    } else if (options.headless && options.playground) {
+        exit_code = sandbox::run_playground_headless(
+            options.frames.value_or(300), sandbox::voxel_origin(options.far), options.bodies);
     } else if (options.headless) {
         exit_code = sandbox::run_headless(options.frames.value_or(60));
     } else {

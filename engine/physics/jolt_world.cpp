@@ -112,6 +112,21 @@ void ensure_runtime() {
 // ---------------------------------------------------------------------------------------------
 // Job-System: Jolts Jobs laufen als Jobs von ngine.jobs, damit nicht zwei Thread-Pools um die
 // Kerne streiten. Auf Barrieren wartet Jolt selbst und rechnet dabei bereite Jobs mit.
+//
+// Unter ThreadSanitizer rechnet Jolt nur im wartenden Thread: Die Bibliothek aus vcpkg ist nicht
+// instrumentiert, ThreadSanitizer sähe ihre Synchronisation nicht und meldete Wettläufe, die es
+// nicht gibt (TD-47).
+#if defined(__SANITIZE_THREAD__)
+constexpr bool jolt_on_workers = false;
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+constexpr bool jolt_on_workers = false;
+#else
+constexpr bool jolt_on_workers = true;
+#endif
+#else
+constexpr bool jolt_on_workers = true;
+#endif
 
 class JobAdapter final : public JPH::JobSystemWithBarrier {
 public:
@@ -126,7 +141,7 @@ public:
     JobAdapter& operator=(const JobAdapter&) = delete;
 
     int GetMaxConcurrency() const override {
-        return static_cast<int>(jobs_->worker_count()) + 1;
+        return jolt_on_workers ? static_cast<int>(jobs_->worker_count()) + 1 : 1;
     }
 
     JobHandle CreateJob(const char* name, JPH::ColorArg color, const JobFunction& function,
@@ -157,6 +172,10 @@ public:
 
 protected:
     void QueueJob(Job* job) override {
+        if constexpr (!jolt_on_workers) {
+            // Die Barriere rechnet den Job, sobald jemand auf sie wartet.
+            return;
+        }
         job->AddRef();
         jobs_->run(
             [job] {

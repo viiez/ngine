@@ -142,7 +142,7 @@ jobs:
           # Ältere TSan-Laufzeiten scheitern an der hohen ASLR-Entropie aktueller Kernel.
           sudo sysctl -w vm.mmap_rnd_bits=28
           for run in 1 2 3 4 5; do
-            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world],[voxel]"
+            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world],[voxel],[physics]"
           done
 
       # Asset-Pipeline (R2.5): ngine_cook kocht die Modelle des Asset-Ordners in den Cache
