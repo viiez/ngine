@@ -272,6 +272,87 @@ public static unsafe class Host
         }
     }
 
+    // Stellt Ereignisse der Physik den Skripten der beteiligten Entities zu.
+    [UnmanagedCallersOnly]
+    public static int DeliverEvents(NativeEvent* events, int count)
+    {
+        int errors = 0;
+        try
+        {
+            if (count <= 0)
+            {
+                return 0;
+            }
+            var byEntity = new Dictionary<ulong, List<Script>>();
+            foreach (ScriptClass cls in classes)
+            {
+                foreach (var (entity, script) in cls.Instances)
+                {
+                    if (!byEntity.TryGetValue(entity, out var list))
+                    {
+                        byEntity[entity] = list = new List<Script>();
+                    }
+                    list.Add(script);
+                }
+            }
+            if (byEntity.Count == 0)
+            {
+                return 0;
+            }
+            foreach (var list in byEntity.Values)
+            {
+                list.Sort((a, b) => string.CompareOrdinal(a.GetType().Name, b.GetType().Name));
+            }
+            void Each(ulong entity, Action<Script> action)
+            {
+                if (byEntity.TryGetValue(entity, out var list))
+                {
+                    foreach (Script script in list)
+                    {
+                        errors += Call(script, action);
+                    }
+                }
+            }
+            for (int i = 0; i < count; ++i)
+            {
+                NativeEvent e = events[i];
+                var a = new Entity(e.A);
+                var b = new Entity(e.B);
+                switch (e.Kind)
+                {
+                    case EventKind.ContactBegan:
+                        Each(e.A, s => s.OnContactBegan(new Contact { Other = b, Point = e.Point, Normal = e.Normal }));
+                        Each(e.B, s => s.OnContactBegan(new Contact { Other = a, Point = e.Point, Normal = -e.Normal }));
+                        break;
+                    case EventKind.ContactEnded:
+                        Each(e.A, s => s.OnContactEnded(b));
+                        Each(e.B, s => s.OnContactEnded(a));
+                        break;
+                    case EventKind.TriggerEntered:
+                        Each(e.A, s => s.OnTriggerEntered(b));
+                        Each(e.B, s => s.OnTriggerEntered(a));
+                        break;
+                    case EventKind.TriggerLeft:
+                        Each(e.A, s => s.OnTriggerLeft(b));
+                        Each(e.B, s => s.OnTriggerLeft(a));
+                        break;
+                    case EventKind.Landed:
+                        Each(e.A, s => s.OnLanded(e.Value, e.Material));
+                        break;
+                    case EventKind.Step:
+                        Each(e.A, s => s.OnStep(e.Point, e.Material, e.Value != 0));
+                        break;
+                }
+            }
+            return errors;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Ereignisse lassen sich nicht zustellen: {e}");
+            return errors + 1;
+        }
+    }
+
     // Schreibt die Felder aller Instanzen in ihre Komponenten (vor dem Speichern, Snapshot, ...).
     [UnmanagedCallersOnly]
     public static int StoreFields() => Guard(() => ForEachInstance((cls, script, data) => cls.Store(script, data), write: true));

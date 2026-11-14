@@ -1,3 +1,4 @@
+using System.Globalization;
 using NGine;
 
 namespace Tests.Scripts;
@@ -122,4 +123,49 @@ public class Spawner : Script
             World.Create("Gespawnt").Set(new Transform());
         }
     }
+}
+
+// Eingabe und Physik aus C# (Aufruf über ScriptRuntime::invoke).
+public static class GameTests
+{
+    public static void CheckInput()
+    {
+        if (!Input.Down("jump") || !Input.Pressed("jump") || Input.Down("Gibt es nicht"))
+        {
+            throw new System.InvalidOperationException("Sprung fehlt");
+        }
+        Log.Info(string.Create(CultureInfo.InvariantCulture, $"GameTests: Bewegung {Input.Value("move").X}"));
+    }
+
+    public static void CheckPhysics()
+    {
+        RayHit? hit = Physics.Raycast(new DVec3(0, 1, 0), new Vec3(0, 0, -1), 100.0f);
+        if (hit is not RayHit h)
+        {
+            throw new System.InvalidOperationException("Kein Treffer");
+        }
+        RayHit? none = Physics.Raycast(new DVec3(0, 1, 0), new Vec3(0, 0, -1), 100.0f,
+                                       new QueryFilter { Ignore = h.Entity });
+        RayHit? cast = Physics.ShapeCast(QueryShape.Sphere(0.5f), new DVec3(0, 1, 0), Quat.Identity,
+                                         new Vec3(0, 0, -1), 100.0f);
+        Entity[] touched = Physics.Overlap(QueryShape.Box(new Vec3(1, 1, 1)), new DVec3(0, 1, -5), Quat.Identity);
+        Log.Info(string.Create(CultureInfo.InvariantCulture,
+            $"GameTests: Treffer {h.Entity.Name} bei {h.Distance:F2}, ohne {none.HasValue}, Kugel {cast?.Distance:F2}, Overlap {touched.Length}"));
+    }
+}
+
+// Zählt Berührungen und Auslöser seiner Entity.
+public class Bumper : Script
+{
+    public int Touches;
+    public int Triggers;
+    public float LastNormalY;
+
+    public override void OnContactBegan(Contact contact)
+    {
+        Touches += 1;
+        LastNormalY = contact.Normal.Y;
+    }
+
+    public override void OnTriggerEntered(Entity other) => Triggers += 1;
 }

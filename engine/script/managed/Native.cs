@@ -15,6 +15,8 @@ public unsafe struct NativeApi
     public WorldApi World;
     // Skript-Komponenten (R4.4).
     public ScriptApi Script;
+    // Eingabe und Physik (R4.4).
+    public GameApi Game;
 }
 
 // Funktionen der Welt; Aufbau wie WorldApi in engine/script/world_api.cppm. Komponenten heißen

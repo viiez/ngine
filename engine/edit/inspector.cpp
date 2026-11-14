@@ -219,8 +219,9 @@ std::vector<const reflect::TypeInfo*> addable_components(SceneDocument& document
     }
     world::World& world = document.world();
     for (const TypeInfo* type : types) {
-        if (type->kind != Kind::Struct || type->transient || type->fields.empty() ||
-            value_type[type->index]) {
+        // Ersetzte Typen (Skripte mit geänderten Feldern, R4.4) bietet der Editor nicht mehr an.
+        if (type->kind != Kind::Struct || type->transient || type->retired ||
+            type->fields.empty() || value_type[type->index]) {
             continue;
         }
         if (world.has(world_entity, world.component(*type))) {

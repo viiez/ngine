@@ -29,6 +29,7 @@ import ngine.core;
 import ngine.profile;
 import ngine.reflect;
 import ngine.world;
+import :game_api;
 import :native;
 import :script_api;
 import :world_api;
@@ -93,6 +94,7 @@ struct NativeApi {
     std::int32_t (*add)(std::int32_t a, std::int32_t b);
     WorldApi world;
     ScriptApi script;
+    GameApi game;
 };
 
 void native_log(std::int32_t level, const u8* text, std::int32_t length) {
@@ -124,6 +126,7 @@ struct ManagedApi {
     std::int32_t (*store_fields)() = nullptr;
     std::int32_t (*load_fields)() = nullptr;
     std::int32_t (*reset_instances)() = nullptr;
+    std::int32_t (*deliver_events)(const NativeEvent*, std::int32_t) = nullptr;
 };
 
 // Anordnung der Structs, wie C# sie meldet: Typ → Größe und Offsets der Felder.
@@ -218,7 +221,7 @@ struct ScriptRuntime::Impl {
     // hostfxr bleibt geladen, solange der Prozess läuft; .NET hängt daran.
     void* library = nullptr;
     ManagedApi managed;
-    NativeApi native{native_log, native_add, make_world_api(), make_script_api()};
+    NativeApi native{native_log, native_add, make_world_api(), make_script_api(), make_game_api()};
     bool scripts_loaded = false;
 };
 
@@ -348,7 +351,8 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         !function(m.describe_layout, "DescribeLayout") || !function(m.invoke, "Invoke") ||
         !function(m.register_scripts, "RegisterScripts") ||
         !function(m.run_scripts, "RunScripts") || !function(m.store_fields, "StoreFields") ||
-        !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances")) {
+        !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances") ||
+        !function(m.deliver_events, "DeliverEvents")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
     if (m.initialize(&impl->native, static_cast<std::int32_t>(sizeof(NativeApi))) != 0) {
@@ -369,6 +373,9 @@ ScriptRuntime::~ScriptRuntime() {
         (void)unload_scripts();
     }
     bind_script_world(nullptr);
+    bind_script_input(nullptr);
+    bind_script_physics(nullptr);
+    bind_script_events(nullptr);
     impl_.reset();
     runtime_alive = false;
 }
@@ -409,13 +416,30 @@ Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
     if (script_world() == nullptr) {
         return {};
     }
-    const std::int32_t errors =
-        impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
+    std::int32_t errors = 0;
+    if (phase == ScriptPhase::Fixed) {
+        // Ereignisse des letzten Schritts der Physik vor FixedUpdate.
+        const std::vector<NativeEvent> events = take_script_events();
+        if (!events.empty()) {
+            errors += impl_->managed.deliver_events(events.data(),
+                                                    static_cast<std::int32_t>(events.size()));
+        }
+    }
+    errors += impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
     apply_script_commands();
     if (errors != 0) {
         return std::unexpected(std::format("{} Fehler in Skripten", errors));
     }
     return {};
+}
+
+void ScriptRuntime::bind_input(const input::ActionState* actions) {
+    bind_script_input(actions);
+}
+
+void ScriptRuntime::bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus) {
+    bind_script_physics(physics);
+    bind_script_events(bus);
 }
 
 void ScriptRuntime::store_fields() {

@@ -12,6 +12,8 @@ module;
 export module ngine.script;
 
 import ngine.core;
+import ngine.input;
+import ngine.physics;
 import ngine.reflect;
 import ngine.world;
 export import :bindings;
@@ -67,6 +69,10 @@ public:
     // Ruft FixedUpdate bzw. Update aller Skript-Komponenten der gebundenen Welt auf (neue bekommen
     // vorher Start, verschwundene Stop) und führt danach ihre Strukturänderungen aus.
     [[nodiscard]] Result<void> run(ScriptPhase phase, f32 delta_time);
+    // Aktionen für NGine.Input und Physik für NGine.Physics; nullptr löst sie. Mit bus erreichen
+    // Kontakte, Auslöser, Landungen und Schritte die Skripte (vor dem nächsten FixedUpdate).
+    void bind_input(const input::ActionState* actions);
+    void bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus = nullptr);
     // Felder der laufenden Skripte in ihre Komponenten schreiben (vor Speichern, Snapshot,
     // Inspector) bzw. aus ihnen lesen (nach Änderungen im Inspector, Undo).
     void store_fields();

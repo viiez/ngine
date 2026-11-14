@@ -46,6 +46,17 @@ public abstract class Script
     // Wenn die Komponente oder die Entity verschwindet, beim Stoppen und vor dem Neuladen.
     public virtual void Stop() { }
 
+    // Ereignisse der Physik aus dem letzten Schritt, vor FixedUpdate zugestellt, in fester
+    // Reihenfolge. Kontakte und Auslöser erreichen die Skripte beider Entities.
+    public virtual void OnContactBegan(Contact contact) { }
+    public virtual void OnContactEnded(Entity other) { }
+    // Diese Entity ist der Auslöser (Sensor) oder hat einen betreten bzw. verlassen.
+    public virtual void OnTriggerEntered(Entity other) { }
+    public virtual void OnTriggerLeft(Entity other) { }
+    // Nur Spielfiguren: aufgesetzt nach einem Fall von height Metern, Schritt am Boden.
+    public virtual void OnLanded(float height, uint material) { }
+    public virtual void OnStep(DVec3 position, uint material, bool run) { }
+
     // Bequemer Zugriff auf Komponenten der eigenen Entity.
     protected ref T Get<T>() where T : unmanaged, IComponent => ref Entity.Get<T>();
     protected ref readonly T Read<T>() where T : unmanaged, IComponent => ref Entity.Read<T>();

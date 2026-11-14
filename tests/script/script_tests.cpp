@@ -10,10 +10,13 @@
 
 import ngine.core;
 import ngine.filesystem;
+import ngine.input;
+import ngine.jobs;
 import ngine.math;
 import ngine.reflect;
 import ngine.world;
 import ngine.physics;
+import ngine.platform;
 import ngine.render;
 import ngine.script;
 
@@ -84,8 +87,10 @@ std::shared_ptr<CaptureSink> capture() {
 // .NET lässt sich im Prozess nur einmal starten; alle Tests teilen sich eine Laufzeit.
 script::ScriptRuntime& runtime() {
     static std::unique_ptr<script::ScriptRuntime> instance;
+    // Andere Tests (log_tests) ersetzen die Sinks; vor jedem Test wieder anhängen.
+    log::remove_sink(capture());
+    log::add_sink(capture());
     if (!instance) {
-        capture();
         if (dotnet_directory().empty()) {
             if (dotnet_required()) {
                 FAIL("Ohne .NET-SDK gebaut (NGINE_WITH_DOTNET=OFF)");
@@ -128,8 +133,9 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
     auto& rt = runtime();
     const auto count = rt.load_scripts(test_scripts());
     REQUIRE(count);
-    // Greeter und Mover (D2), Spawner und Spinner (Skript-Komponenten), nicht die abstrakte Klasse.
-    CHECK(*count == 4);
+    // Greeter und Mover (D2), Bumper, Spawner und Spinner (Skript-Komponenten), nicht die
+    // abstrakte Klasse.
+    CHECK(*count == 5);
 
     REQUIRE(rt.start());
     CHECK(capture()->contains("Hallo aus C#"));
@@ -149,7 +155,7 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
     // Neu laden wie beim Hot Reload.
     const auto again = rt.load_scripts(test_scripts());
     REQUIRE(again);
-    CHECK(*again == 4);
+    CHECK(*again == 5);
     REQUIRE(rt.unload_scripts());
 }
 
@@ -320,9 +326,10 @@ TEST_CASE("Script classes become components with fields and a life cycle", "[scr
     REQUIRE(rt.load_scripts(test_scripts()));
 
     // Jede Skript-Klasse ist ein Typ der Registry, sortiert nach Namen.
-    REQUIRE(rt.script_types().size() == 2);
-    CHECK(rt.script_types()[0]->name == "Spawner");
-    CHECK(rt.script_types()[1]->name == "Spinner");
+    REQUIRE(rt.script_types().size() == 3);
+    CHECK(rt.script_types()[0]->name == "Bumper");
+    CHECK(rt.script_types()[1]->name == "Spawner");
+    CHECK(rt.script_types()[2]->name == "Spinner");
     const reflect::TypeInfo* spinner = types.find("Spinner");
     REQUIRE(spinner != nullptr);
     CHECK(spinner->fields.size() == 5); // ohne privates Feld
@@ -382,6 +389,68 @@ TEST_CASE("Script classes become components with fields and a life cycle", "[scr
     REQUIRE(rt.load_scripts(test_scripts()));
     CHECK(types.find("Spinner") == spinner);
 
+    REQUIRE(rt.unload_scripts());
+    rt.use_types(nullptr);
+}
+
+TEST_CASE("Scripts read input, query physics and get physics events", "[script]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    rt.use_types(&types);
+    REQUIRE(rt.load_scripts(test_scripts()));
+
+    // Eingabe: Aktionen aus dem ActionState des Spiels.
+    input::ActionState actions{input::ActionMap::standard()};
+    actions.begin_frame();
+    actions.handle(platform::Event{platform::event::KeyPressed{platform::Key::Space}});
+    actions.handle(platform::Event{platform::event::KeyPressed{platform::Key::D}});
+    actions.end_frame(0.016f);
+    CHECK_FALSE(rt.invoke("Tests.Scripts.GameTests.CheckInput")); // ohne Eingabe nichts gedrückt
+    rt.bind_input(&actions);
+    REQUIRE(rt.invoke("Tests.Scripts.GameTests.CheckInput"));
+    CHECK(capture()->contains("GameTests: Bewegung 1"));
+
+    // Physik: Abfragen wie in C++.
+    world::World w{types};
+    world::Entity box = w.create("Kiste");
+    box.set(world::Transform{.position = {0.0, 1.0, -5.0}})
+        .set(physics::RigidBody{.motion = physics::MotionType::Static})
+        .set(physics::Collider{.shape = physics::ShapeType::Box});
+    world::Entity ball = w.create("Kugel");
+    ball.set(world::Transform{.position = {5.0, 1.0, 0.0}});
+    (void)w.ensure(ball.id(), w.component(*types.find("Bumper")));
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    physics::PhysicsWorld physics{w, jobs};
+    physics.sync();
+    events::EventBus bus;
+    rt.bind_world(&w);
+    rt.bind_physics(&physics, &bus);
+    REQUIRE(rt.invoke("Tests.Scripts.GameTests.CheckPhysics"));
+    CHECK(capture()->contains(
+        "GameTests: Treffer Kiste bei 4.50, ohne False, Kugel 4.00, Overlap 1"));
+
+    // Ereignisse: gesammelt und vor FixedUpdate an die Skripte der beteiligten Entities.
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.02f)); // Start
+    bus.publish(physics::ContactBegan{.a = box.id(), .b = ball.id(), .normal = {0.0f, 1.0f, 0.0f}});
+    bus.publish(physics::TriggerEntered{.sensor = box.id(), .other = ball.id()});
+    bus.publish(physics::TriggerEntered{.sensor = ball.id(), .other = box.id()});
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.02f));
+    rt.store_fields();
+    const reflect::TypeInfo* bumper = types.find("Bumper");
+    void* data = w.get_mut(ball.id(), w.component(*bumper));
+    CHECK(field<i32>(data, *bumper, "Touches") == 1);
+    CHECK(field<i32>(data, *bumper, "Triggers") == 2);
+    CHECK(field<f32>(data, *bumper, "LastNormalY") == -1.0f); // vom Skript zum anderen Körper
+    // Ohne Bus kommen keine Ereignisse mehr an.
+    rt.bind_physics(nullptr);
+    bus.publish(physics::TriggerEntered{.sensor = box.id(), .other = ball.id()});
+    REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.02f));
+    rt.store_fields();
+    CHECK(field<i32>(w.get_mut(ball.id(), w.component(*bumper)), *bumper, "Triggers") == 2);
+
+    rt.bind_input(nullptr);
+    rt.bind_world(nullptr);
     REQUIRE(rt.unload_scripts());
     rt.use_types(nullptr);
 }
