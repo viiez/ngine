@@ -75,6 +75,8 @@ struct RayHit {
     math::DVec3 point{0.0, 0.0, 0.0};
     math::Vec3 normal{0.0f, 1.0f, 0.0f};
     f32 distance = 0.0f;
+    // Voxel-Material des getroffenen Dreiecks auf dem Terrain (R4.3), sonst 0.
+    u32 material = 0;
 };
 
 // Form für shape_cast() und overlap().
@@ -170,6 +172,9 @@ public:
     void set_shape_source(ShapeSource source);
     // Ereignisse gehen an bus; ohne Bus werden sie nicht gesammelt.
     void set_events(events::EventBus* bus) noexcept;
+    // Reibung und Rückprall der Materialien des Terrains (Asset, R4.3); gilt ab dem nächsten
+    // Schritt, auch für schon gebaute Formen. Ohne Aufruf gilt world::standard_terrain_materials().
+    void set_terrain_materials(const world::TerrainMaterials& table);
     // Wie PhysicsSettings::wait_for_terrain, z. B. für Bilder ohne Fenster.
     void set_wait_for_terrain(bool wait) noexcept;
 

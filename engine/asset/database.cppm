@@ -52,11 +52,21 @@ struct AssetRef {
 // Neue zufällige Kennung (nie 0).
 [[nodiscard]] AssetId random_id();
 
-enum class AssetType : u8 { Unknown, Model, Texture, Shader, Scene, Prefab, Input };
+enum class AssetType : u8 {
+    Unknown,
+    Model,
+    Texture,
+    Shader,
+    Scene,
+    Prefab,
+    Input,
+    TerrainMaterials
+};
 
 // Art nach der Endung: .gltf/.glb Modell, .png/.jpg/.jpeg/.tga/.bmp Textur, .slang Shader,
-// .json und .nscene Szene, .prefab Prefab (R2.5), .input Belegung der Eingabe (R4.1). Dateien
-// unbekannter Art bekommen keine Kennung.
+// .json und .nscene Szene, .prefab Prefab (R2.5), .input Belegung der Eingabe (R4.1),
+// .terrain-materials Materialtabelle des Terrains (R4.3). Dateien unbekannter Art bekommen keine
+// Kennung.
 [[nodiscard]] AssetType type_of(std::string_view path);
 [[nodiscard]] std::string_view to_string(AssetType type);
 

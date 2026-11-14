@@ -23,15 +23,24 @@ namespace ngine::render {
 using math::Vec3;
 using math::Vec4;
 
+std::vector<TerrainMaterial> terrain_materials_from(const world::TerrainMaterials& table) {
+    std::vector<TerrainMaterial> result;
+    result.reserve(table.materials.size());
+    for (const world::TerrainMaterial& material : table.materials) {
+        result.push_back({.name = material.name,
+                          .color = material.color,
+                          .roughness = material.roughness,
+                          .scale = material.scale,
+                          .normal_scale = material.normal_scale,
+                          .albedo = material.albedo,
+                          .normal = material.normal});
+    }
+    return result;
+}
+
 std::vector<TerrainMaterial> default_terrain_materials() {
-    // Farben linear; mit Textur Faktoren darauf (die Texturen bringen die eigentliche Farbe).
-    return {
-        {.name = "Luft"},
-        {.name = "Gras", .color = {0.045f, 0.13f, 0.02f}, .roughness = 0.95f, .scale = 3.0f},
-        {.name = "Fels", .color = {0.16f, 0.15f, 0.135f}, .roughness = 0.85f, .scale = 6.0f},
-        {.name = "Erde", .color = {0.15f, 0.075f, 0.03f}, .roughness = 0.95f, .scale = 3.0f},
-        {.name = "Sand", .color = {0.45f, 0.38f, 0.24f}, .roughness = 0.9f, .scale = 4.0f},
-    };
+    // Seit R4.3 aus der eingebauten Tabelle der Welt (eine Quelle für Renderer und Physik).
+    return terrain_materials_from(world::standard_terrain_materials());
 }
 
 void RendererCore::collect_terrain(world::World& world, math::DVec3 origin) {

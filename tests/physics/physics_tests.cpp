@@ -844,3 +844,51 @@ TEST_CASE("Characters on terrain are reproducible", "[physics]") {
     CHECK(first.y == second.y);
     CHECK(first.z == second.z);
 }
+
+TEST_CASE("Terrain materials set friction, ray hits and the ground of characters", "[physics]") {
+    // Das ebene Terrain liegt unter der Sandgrenze, oben ist also Sand. Eine Kiste rutscht mit
+    // Anfangsgeschwindigkeit darüber; rutschiger Sand trägt sie weiter.
+    const auto slide = [](f32 friction) {
+        const auto types = make_types();
+        world::World world{types};
+        add_flat_terrain(world, {});
+        world::Entity box = world.create();
+        box.set(world::Transform{.position = {-4.0, 8.52, 0.0}})
+            .set(physics::RigidBody{.friction = 1.0f, .linear_velocity = {6.0f, 0.0f, 0.0f}})
+            .set(physics::Collider{.shape = physics::ShapeType::Box});
+        jobs::JobSystem jobs{{.worker_count = 2}};
+        world::Simulation simulation{world, jobs};
+        physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
+        physics::add_to(simulation, physics);
+        world::TerrainMaterials table = world::standard_terrain_materials();
+        table.materials[voxel::sand].friction = friction;
+        physics.set_terrain_materials(table);
+        for (i32 i = 0; i < 120; ++i) {
+            frame(world, jobs, simulation);
+        }
+        return box.get<world::Transform>()->position.x;
+    };
+    const f64 slippery = slide(0.02f);
+    const f64 rough = slide(1.0f);
+    CHECK(slippery > rough + 1.0);
+
+    // Strahl und Figur kennen das Material unter sich.
+    const auto types = make_types();
+    world::World world{types};
+    add_flat_terrain(world, {});
+    world::Entity character = add_character(world, {0.0, 8.5, 0.0});
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
+    physics::add_to(simulation, physics);
+    for (i32 i = 0; i < 60; ++i) {
+        frame(world, jobs, simulation);
+    }
+    const auto hit = physics.raycast({3.0, 12.0, 3.0}, {0.0f, -1.0f, 0.0f}, 10.0f);
+    REQUIRE(hit);
+    CHECK(hit->material == voxel::sand);
+    const auto* motion = character.get<physics::CharacterMotion>();
+    REQUIRE(motion != nullptr);
+    CHECK(motion->ground == physics::GroundState::Ground);
+    CHECK(motion->ground_material == voxel::sand);
+}

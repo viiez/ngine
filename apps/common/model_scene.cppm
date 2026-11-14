@@ -38,8 +38,9 @@ module;
 // Modelle kommen gekocht aus dem Cache, wenn er aktuell ist (ASSET-03); ohne Asset-Ordner bleibt
 // alles erzeugt wie bisher.
 //
-// Seit R3.2 bekommt der Renderer die Materialtabelle des Terrains mit den Texturen aus
-// texturen/terrain/ (terrain_materials(), auch für die Voxel-Demo der Sandbox).
+// Seit R3.2 bekommt der Renderer die Materialtabelle des Terrains (terrain_materials(), auch für
+// die Voxel-Demo der Sandbox); seit R4.3 ist sie ein Asset, das Renderer und Physik teilen und das
+// beim Speichern neu lädt.
 //
 // Seit R4.2 rechnet die Szene Physik (ngine.physics) als Stufe der festen Simulation. Der
 // Spielplatz (create_playground()) zeigt sie: Rampe, Kistenstapel, Würfe; F3 zeigt die
@@ -66,6 +67,7 @@ import ngine.world;
 import app.prefabs;
 import app.physics;
 import app.player;
+import app.terrain_materials;
 
 namespace app {
 
@@ -73,31 +75,12 @@ using namespace ngine;
 using math::DVec3;
 using math::Vec3;
 
-// Materialtabelle des Terrains (R3.2): die Standardtabelle des Renderers, dazu Grundfarbe und
-// Normalen aus texturen/terrain/<name>_farbe.jpg und <name>_normal.jpg im Asset-Ordner. Fehlt ein
-// Bild (oder der Ordner), bleibt das Material bei seiner Farbe.
+// Materialtabelle des Terrains für den Renderer: seit R4.3 aus terrain/standard.terrain-materials
+// im Asset-Ordner (Texturen über Asset-Kennungen), ohne Ordner die eingebaute Tabelle.
 export std::vector<render::TerrainMaterial>
 terrain_materials(const asset::AssetDatabase* database) {
-    std::vector<render::TerrainMaterial> table = render::default_terrain_materials();
-    if (database == nullptr) {
-        return table;
-    }
-    // Index wie voxel::grass, voxel::rock, voxel::earth, voxel::sand.
-    constexpr std::array<std::string_view, 5> files{"", "gras", "fels", "erde", "sand"};
-    for (usize i = 1; i < files.size() && i < table.size(); ++i) {
-        const auto find = [&](std::string_view kind) -> asset::AssetId {
-            const asset::AssetInfo* info =
-                database->find_path(std::format("texturen/terrain/{}_{}.jpg", files[i], kind));
-            return info != nullptr ? info->id : 0;
-        };
-        table[i].albedo = find("farbe");
-        table[i].normal = find("normal");
-        if (table[i].albedo != 0) {
-            // Die Textur bringt die Farbe mit.
-            table[i].color = {1.0f, 1.0f, 1.0f};
-        }
-    }
-    return table;
+    const TerrainMaterialLibrary library{database};
+    return render::terrain_materials_from(library.table());
 }
 
 // Zustand der Eingabe für die freie Kamera, unabhängig von der Plattformschicht.
@@ -410,6 +393,17 @@ public:
         }
     }
 
+    // Materialtabelle des Terrains (R4.3), z. B. für das Fenster des Editors.
+    [[nodiscard]] TerrainMaterialLibrary& terrain_materials() noexcept {
+        return terrain_materials_;
+    }
+    // Gibt die Tabelle an Renderer und Physik (nach TerrainMaterialLibrary::set()).
+    void apply_terrain_materials() {
+        renderer_->set_terrain_materials(
+            render::terrain_materials_from(terrain_materials_.table()));
+        physics_.set_terrain_materials(terrain_materials_.table());
+    }
+
     // Wartet, bis die Terrains um die Kamera geladen und gemesht sind (Bilder ohne Fenster).
     void wait_for_terrain() {
         (void)world::update_transforms(world_);
@@ -492,6 +486,10 @@ public:
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
         NGINE_PROFILE_ZONE("ModelScene::add_passes");
         resources_->update();
+        // Geänderte Materialtabelle (Hot Reload, R4.3): Farbe, Texturen und Reibung gelten sofort.
+        if (terrain_materials_.poll()) {
+            apply_terrain_materials();
+        }
         // Im Editor zieht die Hauptschleife die Instanzen selbst nach (update_prefabs()), damit
         // sie das Dokument benachrichtigen kann.
         if (mode_ == SceneMode::Game) {
@@ -622,10 +620,10 @@ private:
           resources_{std::make_unique<asset::ResourceManager>(assets.database, &jobs_)},
           prefabs_{*resources_}, simulation_{world_, jobs_},
           shapes_{assets.database, assets.loading.cache}, physics_{world_, jobs_}, origin_{origin},
-          mode_{mode}, database_{assets.database} {
+          mode_{mode}, database_{assets.database}, terrain_materials_{assets.database} {
         renderer_->set_resources(resources_.get());
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
-        renderer_->set_terrain_materials(terrain_materials(database_));
+        apply_terrain_materials();
         // Feste Simulation mit Interpolation: Die Lichter laufen bei jeder Bildrate gleich schnell
         // und ruckeln trotzdem nicht (R4.1).
         simulation_.add<Orbit, world::Transform>("Kreisbahnen",
@@ -1020,6 +1018,7 @@ private:
     DVec3 origin_;
     SceneMode mode_;
     const asset::AssetDatabase* database_ = nullptr;
+    TerrainMaterialLibrary terrain_materials_;
     world::Entity camera_;
     render::Camera camera_settings_;
     DVec3 position_{0.0, 0.0, 0.0};

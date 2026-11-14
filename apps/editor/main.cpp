@@ -31,7 +31,7 @@
 // Seit R4.3: Hat die Szene eine Spielfigur (Komponente PlayerInput, z. B. szenen/spielplatz.json),
 // steuert man sie beim Spielen: Ein Klick ins Bild fängt die Maus, Esc gibt sie frei, das Bild
 // zeigt die Kamera der Figur, F4 schaltet in den Flugmodus. Ohne Figur fliegt die Kamera wie
-// bisher.
+// bisher. Das Fenster „Terrain-Materialien“ (Menü Ansicht) bearbeitet die Materialtabelle.
 //
 // Optionen:
 //   --scene <pfad>  Szene öffnen statt der Standardszene
@@ -92,6 +92,7 @@ import editor.inspector;
 import editor.menu;
 import editor.overlay;
 import editor.scene_tree;
+import editor.terrain_materials;
 import editor.terrain_tools;
 import editor.viewport_tools;
 
@@ -356,6 +357,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         std::string title;
         ViewportTools tools;
         TerrainTools terrain_tools;
+        TerrainMaterialsPanel terrain_materials_panel;
         // Dauer des laufenden Frames für Werkzeuge, die pro Sekunde wirken (Pinsel).
         f32 frame_dt = 0.0f;
         PlayControls play;
@@ -427,6 +429,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                          ui::WindowFlags::NoScrollWithMouse);
                 if (visible) {
                     tools.draw_toolbar(document, play);
+                    terrain_tools.materials = &(*scene)->terrain_materials().table();
                     terrain_tools.draw_toolbar(document, selection);
                     const ui::Size available = ui::content_region_available();
                     viewport_size.request(available.width, available.height);
@@ -519,6 +522,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 }
                 ui::end_window();
             }
+            terrain_materials_panel.draw(**scene, database ? &*database : nullptr,
+                                         panels.terrain_materials);
             if (panels.stats) {
                 if (ui::begin_window(stats_window, &panels.stats)) {
                     const render::RenderStats& stats = (*scene)->renderer().stats();
@@ -545,6 +550,10 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text(std::format("Verlauf: {} von {}", document.history().position(),
                                          document.history().size()));
                     ui::text(std::format("Neu berechnete Weltlagen: {}", transforms_updated));
+                    // Terrain-Kollision und Spielfigur beim Spielen (R4.3).
+                    if (document.playing()) {
+                        ui::text_wrapped((*scene)->character_stats());
+                    }
                     // Deltas des ausgewählten Terrains (R3.4).
                     if (const edit::EntityId terrain =
                             TerrainTools::selected_terrain(document, selection);

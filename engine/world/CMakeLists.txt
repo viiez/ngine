@@ -17,6 +17,7 @@ target_sources(ngine_world
             prefab.cppm
             scene.cppm
             terrain.cppm
+            terrain_materials.cppm
     PRIVATE
         world.cpp
         schedule.cpp
@@ -25,7 +26,8 @@ target_sources(ngine_world
         scene.cpp
         prefab.cpp
         transform.cpp
-        terrain.cpp)
+        terrain.cpp
+        terrain_materials.cpp)
 
 # flecs steckt nur in world.cpp (ADR 0009). Alle anderen sehen World, Entity und Query.
 target_link_libraries(ngine_world

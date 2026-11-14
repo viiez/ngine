@@ -39,6 +39,8 @@ export struct Panels {
     bool console = true;
     bool stats = true;
     bool assets = true;
+    // Materialtabelle des Terrains (R4.3), anfangs zu.
+    bool terrain_materials = false;
 };
 
 export ui::DockLayout default_layout() {
@@ -235,6 +237,7 @@ public:
             ui::menu_item(console_window, {}, &panels.console);
             ui::menu_item(stats_window, {}, &panels.stats);
             ui::menu_item(assets_window, {}, &panels.assets);
+            ui::menu_item("Terrain-Materialien", {}, &panels.terrain_materials);
             ui::separator();
             if (ui::menu_item("Layout zurücksetzen")) {
                 panels = {};

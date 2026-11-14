@@ -19,3 +19,4 @@ export import :simulation;
 export import :prefab;
 export import :scene;
 export import :terrain;
+export import :terrain_materials;

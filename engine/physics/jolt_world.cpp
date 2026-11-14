@@ -334,6 +334,34 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------
+// Materialien des Terrains (R4.3): Jedes Dreieck einer Chunk-Form trägt die Nummer seines
+// Voxel-Materials; Reibung und Rückprall kommen aus der Materialtabelle (world::TerrainMaterials).
+
+class TerrainSurface final : public JPH::PhysicsMaterial {
+public:
+    explicit TerrainSurface(voxel::Material material) : material{material} {}
+    [[nodiscard]] const char* GetDebugName() const override {
+        return "Terrain";
+    }
+    voxel::Material material;
+};
+
+struct SurfaceValues {
+    f32 friction = 0.7f;
+    f32 restitution = 0.0f;
+};
+using SurfaceTable = std::array<SurfaceValues, world::max_terrain_materials>;
+
+// Nummer des Voxel-Materials an einer Stelle einer Form, wenn sie zum Terrain gehört.
+std::optional<voxel::Material> terrain_material(const JPH::Shape& shape, JPH::SubShapeID id) {
+    const auto* surface = dynamic_cast<const TerrainSurface*>(shape.GetMaterial(id));
+    if (surface == nullptr) {
+        return std::nullopt;
+    }
+    return surface->material;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Kontakte: Jolt meldet sie aus mehreren Threads; gesammelt und nach dem Schritt sortiert.
 
 struct ContactRecord {
@@ -346,8 +374,13 @@ struct ContactRecord {
 
 class ContactCollector final : public JPH::ContactListener {
 public:
+    // Tabelle der Oberflächen; ändert sich nur zwischen den Schritten.
+    const SurfaceTable* surfaces = nullptr;
+
     void OnContactAdded(const JPH::Body& body1, const JPH::Body& body2,
-                        const JPH::ContactManifold& manifold, JPH::ContactSettings&) override {
+                        const JPH::ContactManifold& manifold,
+                        JPH::ContactSettings& settings) override {
+        apply_surface(body1, body2, manifold, settings);
         const JPH::RVec3 point = manifold.GetWorldSpaceContactPointOn1(0);
         const std::scoped_lock lock{mutex_};
         records_.push_back(ContactRecord{.body1 = body1.GetID().GetIndexAndSequenceNumber(),
@@ -355,6 +388,11 @@ public:
                                          .added = true,
                                          .point = point,
                                          .normal = manifold.mWorldSpaceNormal});
+    }
+    void OnContactPersisted(const JPH::Body& body1, const JPH::Body& body2,
+                            const JPH::ContactManifold& manifold,
+                            JPH::ContactSettings& settings) override {
+        apply_surface(body1, body2, manifold, settings);
     }
     void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
         const std::scoped_lock lock{mutex_};
@@ -371,6 +409,28 @@ public:
     }
 
 private:
+    // Berührt ein Körper das Terrain, gelten Reibung und Rückprall des Materials unter ihm (wie
+    // Jolt sie sonst aus den Körpern mischt: Wurzel des Produkts bzw. das Größere).
+    void apply_surface(const JPH::Body& body1, const JPH::Body& body2,
+                       const JPH::ContactManifold& manifold, JPH::ContactSettings& settings) const {
+        if (surfaces == nullptr) {
+            return;
+        }
+        const auto mix = [&](const JPH::Body& terrain, JPH::SubShapeID id, const JPH::Body& other) {
+            const auto material = terrain_material(*terrain.GetShape(), id);
+            if (!material) {
+                return false;
+            }
+            const SurfaceValues& surface = (*surfaces)[*material];
+            settings.mCombinedFriction = std::sqrt(surface.friction * other.GetFriction());
+            settings.mCombinedRestitution = std::max(surface.restitution, other.GetRestitution());
+            return true;
+        };
+        if (!mix(body1, manifold.mSubShapeID1, body2)) {
+            (void)mix(body2, manifold.mSubShapeID2, body1);
+        }
+    }
+
     std::mutex mutex_;
     std::vector<ContactRecord> records_;
 };
@@ -502,6 +562,10 @@ struct ShapeKey {
 // Eine Form im Bau. Der Job schreibt shape und setzt done; der Hauptthread liest erst danach.
 struct TerrainBuild {
     u64 version = 0;
+    // Eingaben des Jobs; er verbraucht sie.
+    JPH::VertexList vertices;
+    JPH::IndexedTriangleList input;
+    JPH::PhysicsMaterialList materials;
     std::atomic<bool> done{false};
     JPH::Ref<JPH::Shape> shape;
     u32 triangles = 0;
@@ -581,13 +645,15 @@ public:
     }
 };
 
-// Baut die Form eines Chunks aus seinem Netz (Positionen in Metern relativ zur Ecke). nullptr bei
-// einem Netz ohne brauchbare Dreiecke.
-JPH::Ref<JPH::Shape> terrain_shape(JPH::VertexList vertices, JPH::IndexedTriangleList triangles) {
+// Baut die Form eines Chunks aus seinem Netz (Positionen in Metern relativ zur Ecke) mit einem
+// Material pro Dreieck (Index in materials). nullptr bei einem Netz ohne brauchbare Dreiecke.
+JPH::Ref<JPH::Shape> terrain_shape(JPH::VertexList vertices, JPH::IndexedTriangleList triangles,
+                                   JPH::PhysicsMaterialList materials) {
     if (triangles.empty()) {
         return nullptr;
     }
-    JPH::MeshShapeSettings settings{std::move(vertices), std::move(triangles)};
+    JPH::MeshShapeSettings settings{std::move(vertices), std::move(triangles),
+                                    std::move(materials)};
     JPH::ShapeSettings::ShapeResult result = settings.Create();
     if (result.HasError()) {
         return nullptr;
@@ -610,6 +676,9 @@ struct PhysicsWorld::Impl {
     ObjectPairs object_pairs;
     ContactCollector contacts;
     std::unique_ptr<JPH::PhysicsSystem> system;
+    // Ein Material pro Voxel-Material und ihre Werte aus der Tabelle (R4.3).
+    std::array<JPH::Ref<TerrainSurface>, world::max_terrain_materials> surfaces;
+    SurfaceTable surface_values{};
 
     world::ComponentId transform_id{};
     world::ComponentId body_id{};
@@ -679,6 +748,11 @@ struct PhysicsWorld::Impl {
                      settings.max_contact_constraints, broad_layers, object_vs_broad, object_pairs);
         system->SetGravity(to_jolt(settings.gravity));
         system->SetContactListener(&contacts);
+        for (usize i = 0; i < surfaces.size(); ++i) {
+            surfaces[i] = new TerrainSurface{static_cast<voxel::Material>(i)};
+        }
+        set_terrain_materials(world::standard_terrain_materials());
+        contacts.surfaces = &surface_values;
     }
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -1427,6 +1501,12 @@ struct PhysicsWorld::Impl {
             motion->ground_entity =
                 character.IsSupported() ? entity_of(character.GetGroundBodyID()) : 0;
             motion->ground_material = 0;
+            if (character.IsSupported()) {
+                if (const auto* surface =
+                        dynamic_cast<const TerrainSurface*>(character.GetGroundMaterial())) {
+                    motion->ground_material = surface->material;
+                }
+            }
             motion->crouched = record.crouched;
 
             const f64 y = static_cast<f64>(after.GetY());
@@ -1567,18 +1647,43 @@ struct PhysicsWorld::Impl {
         for (const voxel::Vertex& v : mesh.mesh.vertices) {
             vertices.push_back(JPH::Float3{v.px * scale, v.py * scale, v.pz * scale});
         }
-        JPH::IndexedTriangleList triangles;
-        triangles.reserve(mesh.mesh.indices.size() / 3);
-        for (usize i = 0; i + 2 < mesh.mesh.indices.size(); i += 3) {
-            triangles.push_back(JPH::IndexedTriangle{mesh.mesh.indices[i], mesh.mesh.indices[i + 1],
-                                                     mesh.mesh.indices[i + 2], 0});
+        // Material eines Dreiecks: der Platz der Palette mit dem größten Gewicht an seinen drei
+        // Ecken (höchstens acht Plätze, Jolt erlaubt 32 Materialien pro Form).
+        const voxel::Mesh& source = mesh.mesh;
+        const u32 slots = std::max(source.palette_count, 1u);
+        JPH::PhysicsMaterialList materials;
+        for (u32 slot = 0; slot < slots; ++slot) {
+            materials.push_back(
+                JPH::RefConst<JPH::PhysicsMaterial>{surfaces[source.palette[slot]]});
         }
+        JPH::IndexedTriangleList triangles;
+        triangles.reserve(source.indices.size() / 3);
+        for (usize i = 0; i + 2 < source.indices.size(); i += 3) {
+            const u32 a = source.indices[i];
+            const u32 b = source.indices[i + 1];
+            const u32 c = source.indices[i + 2];
+            u32 best = 0;
+            u32 best_weight = 0;
+            for (u32 slot = 0; slot < source.palette_count; ++slot) {
+                const u32 weight = source.vertices[a].weight(slot) +
+                                   source.vertices[b].weight(slot) +
+                                   source.vertices[c].weight(slot);
+                if (weight > best_weight) {
+                    best = slot;
+                    best_weight = weight;
+                }
+            }
+            triangles.push_back(JPH::IndexedTriangle{a, b, c, best});
+        }
+        build->vertices = std::move(vertices);
+        build->input = std::move(triangles);
+        build->materials = std::move(materials);
         chunk.build = build;
-        auto work = [build, vertices = std::move(vertices),
-                     triangles = std::move(triangles)]() mutable {
+        auto work = [build] {
             const auto start = std::chrono::steady_clock::now();
-            build->triangles = static_cast<u32>(triangles.size());
-            build->shape = terrain_shape(std::move(vertices), std::move(triangles));
+            build->triangles = static_cast<u32>(build->input.size());
+            build->shape = terrain_shape(std::move(build->vertices), std::move(build->input),
+                                         std::move(build->materials));
             build->ms =
                 std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
                     .count();
@@ -1849,6 +1954,16 @@ struct PhysicsWorld::Impl {
                                {1.0f, 1.0f, 1.0f});
     }
 
+    void set_terrain_materials(const world::TerrainMaterials& table) {
+        for (usize i = 0; i < surface_values.size(); ++i) {
+            const world::TerrainMaterial* material = table.find(static_cast<u32>(i));
+            surface_values[i] = material != nullptr
+                                    ? SurfaceValues{.friction = material->friction,
+                                                    .restitution = material->restitution}
+                                    : SurfaceValues{};
+        }
+    }
+
     [[nodiscard]] u64 entity_of(JPH::BodyID id) const {
         const JPH::uint32 key = id.GetIndexAndSequenceNumber();
         if (const auto found = entity_of_body.find(key); found != entity_of_body.end()) {
@@ -1869,6 +1984,10 @@ struct PhysicsWorld::Impl {
         if (lock.Succeeded()) {
             hit.normal =
                 from_jolt(lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, point));
+            if (const auto material =
+                    terrain_material(*lock.GetBody().GetShape(), result.mSubShapeID2)) {
+                hit.material = *material;
+            }
         }
         return hit;
     }
@@ -1884,6 +2003,10 @@ PhysicsWorld::~PhysicsWorld() = default;
 void PhysicsWorld::set_shape_source(ShapeSource source) {
     impl_->shape_source = std::move(source);
     impl_->shape_cache.clear();
+}
+
+void PhysicsWorld::set_terrain_materials(const world::TerrainMaterials& table) {
+    impl_->set_terrain_materials(table);
 }
 
 void PhysicsWorld::set_wait_for_terrain(bool wait) noexcept {
