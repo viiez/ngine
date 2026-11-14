@@ -1,6 +1,4 @@
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/reporters/catch_reporter_event_listener.hpp>
-#include <catch2/reporters/catch_reporter_registrars.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -91,46 +89,27 @@ std::shared_ptr<CaptureSink> capture() {
     return sink;
 }
 
-// .NET lässt sich im Prozess nur einmal starten; alle Tests teilen sich eine Laufzeit.
-std::unique_ptr<script::ScriptRuntime>& shared_runtime() {
-    static std::unique_ptr<script::ScriptRuntime> instance;
-    return instance;
-}
-
-// Gibt die Laufzeit am Ende des Laufs frei, solange die statischen Kontexte der Engine noch
-// leben. Beim Abbau der statischen Objekte wäre die Reihenfolge offen: Der Destruktor der Laufzeit
-// räumte dann Kontexte auf, die schon abgebaut sind (unter MSVC ein Absturz beim Beenden).
-class ReleaseRuntime final : public Catch::EventListenerBase {
-public:
-    using Catch::EventListenerBase::EventListenerBase;
-    void testRunEnded(const Catch::TestRunStats& /*stats*/) override {
-        shared_runtime().reset();
-    }
-};
-CATCH_REGISTER_LISTENER(ReleaseRuntime)
-
+// .NET lässt sich im Prozess nur einmal starten; alle Tests teilen sich eine Laufzeit. Sie entsteht
+// beim ersten Aufruf mit dynamischer Initialisierung: create() legt die statischen Kontexte der
+// Engine vorher an, also baut das Programm die Laufzeit beim Beenden vor ihnen ab.
 script::ScriptRuntime& runtime() {
-    std::unique_ptr<script::ScriptRuntime>& instance = shared_runtime();
     // Andere Tests (log_tests) ersetzen die Sinks; vor jedem Test wieder anhängen.
     log::remove_sink(capture());
     log::add_sink(capture());
-    if (!instance) {
-        if (dotnet_directory().empty()) {
-            if (dotnet_required()) {
-                FAIL("Ohne .NET-SDK gebaut (NGINE_WITH_DOTNET=OFF)");
-            }
-            SKIP("Ohne .NET-SDK gebaut");
+    if (dotnet_directory().empty()) {
+        if (dotnet_required()) {
+            FAIL("Ohne .NET-SDK gebaut (NGINE_WITH_DOTNET=OFF)");
         }
-        auto created = script::ScriptRuntime::create({.assembly_dir = dotnet_directory()});
-        if (!created) {
-            if (dotnet_required()) {
-                FAIL(".NET-Laufzeit startet nicht: " + created.error());
-            }
-            SKIP(".NET-Laufzeit startet nicht: " + created.error());
-        }
-        instance = std::move(*created);
+        SKIP("Ohne .NET-SDK gebaut");
     }
-    return *instance;
+    static const auto created = script::ScriptRuntime::create({.assembly_dir = dotnet_directory()});
+    if (!created) {
+        if (dotnet_required()) {
+            FAIL(".NET-Laufzeit startet nicht: " + created.error());
+        }
+        SKIP(".NET-Laufzeit startet nicht: " + created.error());
+    }
+    return **created;
 }
 
 std::string test_scripts() {

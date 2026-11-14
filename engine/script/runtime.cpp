@@ -240,6 +240,14 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
             }
         }
     } guard;
+    // Die statischen Kontexte der API vor der Laufzeit anlegen: Statische Objekte werden in
+    // umgekehrter Reihenfolge abgebaut, so überleben sie auch eine Laufzeit in einer statischen
+    // Variable, deren Destruktor sie noch aufräumt.
+    bind_script_world(nullptr);
+    bind_script_input(nullptr);
+    bind_script_physics(nullptr);
+    bind_script_events(nullptr);
+    static_cast<void>(script_registry());
 
     // 1. hostfxr finden und laden.
     std::vector<std::string> roots;
