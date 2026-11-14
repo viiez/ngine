@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <memory>
@@ -27,6 +28,8 @@ struct Context {
     // Ersetzte Typen und ihre Nachfolger, die noch umzuziehen sind.
     std::vector<std::pair<const reflect::TypeInfo*, const reflect::TypeInfo*>> pending;
     std::vector<const reflect::TypeInfo*> registered;
+    // Anmeldung vor dem letzten Laden; was darin fehlt, ist gelöscht.
+    std::vector<const reflect::TypeInfo*> previous;
 };
 
 Context& context() {
@@ -145,6 +148,38 @@ void api_string_set(void* string, const u8* data, std::int32_t length) {
     static_cast<std::string*>(string)->assign(text(data, length));
 }
 
+// Entities der gegebenen Welt mit diesem Typ.
+std::vector<u64> entities_with(world::World& world, const reflect::TypeInfo& type) {
+    const world::detail::Term term{.component = world.component(type), .size = type.size};
+    world::detail::QueryBase query{world, std::span{&term, 1}};
+    std::vector<world::detail::Chunk> chunks;
+    query.collect(chunks);
+    std::vector<u64> entities;
+    for (const auto& chunk : chunks) {
+        entities.insert(entities.end(), chunk.entities, chunk.entities + chunk.count);
+    }
+    return entities;
+}
+
+// Verschiebt die Komponenten eines Typs nach UnknownComponents.
+usize keep_as_json(world::World& world, const reflect::TypeInfo& type) {
+    const world::ComponentId from = world.component(type);
+    const world::ComponentId to = world.component<world::UnknownComponents>();
+    const std::vector<u64> entities = entities_with(world, type);
+    for (const u64 entity : entities) {
+        json::Value values = serialize::to_json(world.get(entity, from), type);
+        world.remove(entity, from);
+        auto* unknown = static_cast<world::UnknownComponents*>(world.ensure(entity, to));
+        auto stored = json::parse(unknown->json);
+        json::Value all = stored && stored->object() != nullptr ? *std::move(stored)
+                                                                : json::Value{json::Object{}};
+        all[type.name] = std::move(values);
+        unknown->json = json::write(all);
+        world.modified(entity, to);
+    }
+    return entities.size();
+}
+
 } // namespace
 
 ScriptApi make_script_api() {
@@ -161,6 +196,7 @@ void set_script_registry(reflect::TypeRegistry* types) {
     context().types = types;
     context().pending.clear();
     context().registered.clear();
+    context().previous.clear();
 }
 
 reflect::TypeRegistry* script_registry() noexcept {
@@ -175,14 +211,7 @@ usize migrate_script_types() {
         for (const auto& [old_type, new_type] : c.pending) {
             const world::ComponentId from = world->component(*old_type);
             const world::ComponentId to = world->component(*new_type);
-            std::vector<u64> entities;
-            const world::detail::Term term{.component = from, .size = old_type->size};
-            world::detail::QueryBase query{*world, std::span{&term, 1}};
-            std::vector<world::detail::Chunk> chunks;
-            query.collect(chunks);
-            for (const auto& chunk : chunks) {
-                entities.insert(entities.end(), chunk.entities, chunk.entities + chunk.count);
-            }
+            const std::vector<u64> entities = entities_with(*world, *old_type);
             for (const u64 entity : entities) {
                 const json::Value values = serialize::to_json(world->get(entity, from), *old_type);
                 world->remove(entity, from);
@@ -197,6 +226,23 @@ usize migrate_script_types() {
         }
     }
     c.pending.clear();
+    // Gelöschte Skript-Klassen: Typ ausmustern, Werte bleiben als JSON an der Entity.
+    for (const reflect::TypeInfo* old_type : c.previous) {
+        if (std::ranges::find(c.registered, old_type) != c.registered.end() || old_type->retired) {
+            continue;
+        }
+        log::warn("Skript {} gibt es nicht mehr; seine Werte bleiben als JSON erhalten",
+                  old_type->name);
+        if (world != nullptr) {
+            moved += keep_as_json(*world, *old_type);
+        }
+        c.types->retire(*old_type);
+    }
+    c.previous.clear();
+    // Werte aus Szenen, die vor den Skripten geladen wurden.
+    if (world != nullptr) {
+        moved += world::adopt_unknown_components(*world);
+    }
     return moved;
 }
 
@@ -205,7 +251,9 @@ const std::vector<const reflect::TypeInfo*>& registered_script_types() noexcept 
 }
 
 void clear_registered_script_types() {
-    context().registered.clear();
+    Context& c = context();
+    c.previous = std::move(c.registered);
+    c.registered.clear();
 }
 
 } // namespace ngine::script

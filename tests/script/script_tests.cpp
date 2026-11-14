@@ -454,3 +454,36 @@ TEST_CASE("Scripts read input, query physics and get physics events", "[script]"
     REQUIRE(rt.unload_scripts());
     rt.use_types(nullptr);
 }
+
+TEST_CASE("Script values from a scene loaded before the scripts are kept and adopted", "[script]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    world::World w{types};
+    // Szene vor den Skripten (Editor startet, Bau läuft noch): Werte bleiben als JSON.
+    REQUIRE(world::load_scene(w, R"({
+        "format": "ngine.scene", "version": 1,
+        "entities": [ {"id": 1, "components": {
+            "Name": {"value": "Alt"}, "Spinner": {"Speed": 5, "Label": "Aus der Szene"} } } ]
+    })"));
+    rt.bind_world(&w);
+    rt.use_types(&types);
+    REQUIRE(rt.load_scripts(test_scripts()));
+    const reflect::TypeInfo* spinner = types.find("Spinner");
+    REQUIRE(spinner != nullptr);
+    usize found = 0;
+    w.each<const world::Name>([&](world::Entity e, const world::Name&) {
+        void* data = w.get_mut(e.id(), w.component(*spinner));
+        REQUIRE(data != nullptr);
+        CHECK(field<f32>(data, *spinner, "Speed") == 5.0f);
+        CHECK(field<std::string>(data, *spinner, "Label") == "Aus der Szene");
+        CHECK(field<i32>(data, *spinner, "Calls") == 0); // Standardwert für Fehlendes
+        CHECK_FALSE(e.has<world::UnknownComponents>());
+        ++found;
+    });
+    CHECK(found == 1);
+
+    rt.bind_world(nullptr);
+    REQUIRE(rt.unload_scripts());
+    rt.use_types(nullptr);
+}

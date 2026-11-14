@@ -51,6 +51,13 @@ struct PrefabOverrides {
     std::string json;
 };
 
+// Komponenten, deren Typ beim Laden unbekannt war (z. B. ein Skript, dessen Klasse fehlt), als
+// JSON-Objekt (Name → Werte). Szenen und Prefabs speichern sie unverändert zurück; taucht der Typ
+// später auf, übernimmt adopt_unknown_components() die Werte.
+struct UnknownComponents {
+    std::string json;
+};
+
 // Eine Vorlage im Speicher: Knoten in der Reihenfolge der Datei, Eltern vor Kindern, der erste
 // ist die Wurzel. components ist ein JSON-Objekt wie in Szenen.
 struct Prefab {
@@ -86,8 +93,10 @@ using PrefabLookup = std::function<const Prefab*(u64 prefab)>;
 // Reflektierte, nicht transiente Komponenten einer Entity als JSON-Objekt (Name → Werte), in der
 // Reihenfolge der Registrierung.
 [[nodiscard]] json::Value components_to_json(const World& world, u64 entity);
+// Setzt die Werte aus UnknownComponents, deren Typ es inzwischen gibt; Anzahl der Komponenten.
+usize adopt_unknown_components(World& world);
 // Setzt Komponenten aus einem JSON-Objekt; Teilobjekte ändern nur die genannten Felder.
-// Unbekannte Komponenten werden mit Warnung übersprungen. context steht in Meldungen.
+// Unbekannte Komponenten bleiben als UnknownComponents erhalten. context steht in Meldungen.
 [[nodiscard]] Result<void> components_from_json(World& world, u64 entity,
                                                 const json::Value& components,
                                                 std::string_view context);

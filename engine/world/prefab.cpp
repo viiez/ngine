@@ -175,7 +175,62 @@ json::Value components_to_json(const World& world, u64 entity) {
     for (const auto& [type, data] : found) {
         components[type->name] = serialize::to_json(data, *type);
     }
+    // Unbekannte Komponenten unverändert dahinter, in ihrer Reihenfolge.
+    if (const auto* unknown = static_cast<const UnknownComponents*>(
+            find_component(world, entity, world.types().find<UnknownComponents>()));
+        unknown != nullptr && !unknown->json.empty()) {
+        if (auto parsed = json::parse(unknown->json); parsed && parsed->object() != nullptr) {
+            for (json::Member& member : *parsed->object()) {
+                if (components.find(member.key) == nullptr) {
+                    components[member.key] = std::move(member.value);
+                }
+            }
+        }
+    }
     return components;
+}
+
+usize adopt_unknown_components(World& world) {
+    const reflect::TypeInfo* unknown_type = world.types().find<UnknownComponents>();
+    if (unknown_type == nullptr) {
+        return 0;
+    }
+    const ComponentId unknown = world.component(*unknown_type);
+    std::vector<std::pair<u64, std::string>> stored;
+    world.each<const UnknownComponents>([&](Entity entity, const UnknownComponents& value) {
+        stored.emplace_back(entity.id(), value.json);
+    });
+    usize adopted = 0;
+    for (auto& [entity, text] : stored) {
+        auto parsed = json::parse(text);
+        if (!parsed || parsed->object() == nullptr) {
+            continue;
+        }
+        json::Value rest{json::Object{}};
+        for (json::Member& member : *parsed->object()) {
+            const reflect::TypeInfo* type = world.types().find(member.key);
+            if (type == nullptr || type->kind != reflect::Kind::Struct || type->retired) {
+                rest[member.key] = std::move(member.value);
+                continue;
+            }
+            const ComponentId component = world.component(*type);
+            void* data = world.ensure(entity, component);
+            if (auto result = serialize::from_json(member.value, data, *type); !result) {
+                log::warn("Entity {}: Komponente '{}' passt nicht mehr: {}", entity, member.key,
+                          result.error());
+            }
+            world.modified(entity, component);
+            ++adopted;
+        }
+        if (rest.object()->empty()) {
+            world.remove(entity, unknown);
+        } else {
+            static_cast<UnknownComponents*>(world.get_mut(entity, unknown))->json =
+                json::write(rest);
+            world.modified(entity, unknown);
+        }
+    }
+    return adopted;
 }
 
 Result<void> components_from_json(World& world, u64 entity, const json::Value& components,
@@ -183,11 +238,13 @@ Result<void> components_from_json(World& world, u64 entity, const json::Value& c
     if (components.object() == nullptr) {
         return std::unexpected(std::format("{}: \"components\" ist kein Objekt", context));
     }
+    json::Value unknown{json::Object{}};
     for (const json::Member& member : *components.object()) {
         const reflect::TypeInfo* type = world.types().find(member.key);
-        if (type == nullptr || type->kind != reflect::Kind::Struct) {
-            log::warn("{}: Komponente '{}' ist unbekannt und wird übersprungen", context,
+        if (type == nullptr || type->kind != reflect::Kind::Struct || type->retired) {
+            log::warn("{}: Komponente '{}' ist unbekannt und bleibt als JSON erhalten", context,
                       member.key);
+            unknown[member.key] = member.value;
             continue;
         }
         const ComponentId component = world.component(*type);
@@ -195,6 +252,19 @@ Result<void> components_from_json(World& world, u64 entity, const json::Value& c
         if (auto result = serialize::from_json(member.value, data, *type); !result) {
             return std::unexpected(std::format("{}: {}", context, result.error()));
         }
+        world.modified(entity, component);
+    }
+    if (!unknown.object()->empty()) {
+        // Zu schon vorhandenen unbekannten Komponenten dazu (Überschreibungen einer Vorlage).
+        const ComponentId component = world.component<UnknownComponents>();
+        auto* stored = static_cast<UnknownComponents*>(world.ensure(entity, component));
+        if (auto parsed = json::parse(stored->json); parsed && parsed->object() != nullptr) {
+            for (json::Member& member : *unknown.object()) {
+                (*parsed)[member.key] = std::move(member.value);
+            }
+            unknown = *std::move(parsed);
+        }
+        stored->json = json::write(unknown);
         world.modified(entity, component);
     }
     return {};
@@ -509,6 +579,11 @@ void register_prefab_types(reflect::TypeRegistry& types) {
         types.add<PrefabOverrides>("PrefabOverrides")
             .transient()
             .field("json", &PrefabOverrides::json);
+    }
+    if (types.find<UnknownComponents>() == nullptr) {
+        types.add<UnknownComponents>("UnknownComponents")
+            .transient()
+            .field("json", &UnknownComponents::json);
     }
 }
 
