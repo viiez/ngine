@@ -108,6 +108,82 @@ struct Collider {
     bool sensor = false;
 };
 
+// Spielfigur (PHYS-03, R4.3): eine aufrechte Kapsel, die läuft, Hänge und Stufen nimmt, springt
+// und Kisten schiebt. Die Lage der Entity (Transform::position) ist der Fußpunkt; die Physik dreht
+// die Figur nicht, die Steuerung setzt die Drehung um die Hochachse selbst. Gesteuert wird über
+// CharacterMotion. Zusammen mit RigidBody oder Collider ergibt sie keinen zweiten Körper; dann
+// gilt nur die Figur.
+struct CharacterController {
+    // Kapsel: Radius und ganze Höhe in Metern (stehend und geduckt).
+    f32 radius = 0.35f;
+    f32 height = 1.8f;
+    f32 crouch_height = 1.1f;
+    // Steilster begehbarer Hang (Bogenmaß).
+    f32 max_slope = 0.8727f;
+    // Höchste Stufe, die die Figur ohne Springen nimmt.
+    f32 step_height = 0.4f;
+    // Sprunghöhe in Metern.
+    f32 jump_height = 1.2f;
+    // Geschwindigkeiten in m/s.
+    f32 walk_speed = 4.0f;
+    f32 run_speed = 7.0f;
+    f32 crouch_speed = 2.0f;
+    // Wie schnell die Figur ihre Wunschgeschwindigkeit erreicht (m/s²), am Boden und in der Luft.
+    f32 ground_acceleration = 40.0f;
+    f32 air_acceleration = 6.0f;
+    f32 gravity_factor = 1.0f;
+    // Masse in kg (drückt auf Kisten, auf denen sie steht) und größte Schubkraft in N.
+    f32 mass = 70.0f;
+    f32 push_strength = 200.0f;
+    // Weg am Boden zwischen zwei Schritten (CharacterStep) in Metern.
+    f32 step_length = 0.7f;
+};
+
+// Ob und worauf eine Spielfigur steht.
+enum class GroundState : u8 {
+    // In der Luft.
+    Air,
+    // Auf begehbarem Boden.
+    Ground,
+    // Auf zu steilem Boden: rutscht.
+    Steep,
+};
+
+// Laufzeitzustand einer Spielfigur (transient): Die Steuerung schreibt die Wünsche, die Physik
+// den Rest. Szenen speichern ihn nicht; die Physik legt ihn an.
+struct CharacterMotion {
+    // Gewünschte Bewegung in Weltrichtungen auf der Ebene (Länge 0 bis 1, y zählt nicht).
+    math::Vec3 move{0.0f, 0.0f, 0.0f};
+    bool run = false;
+    bool crouch = false;
+    // Springen, sobald die Figur steht; die Physik setzt es danach zurück.
+    bool jump = false;
+    // Von der Physik: Geschwindigkeit, Boden, ob sie geduckt ist.
+    math::Vec3 velocity{0.0f, 0.0f, 0.0f};
+    GroundState ground = GroundState::Air;
+    math::Vec3 ground_normal{0.0f, 1.0f, 0.0f};
+    // Entity unter der Figur (Terrain oder Körper), 0 in der Luft.
+    u64 ground_entity = 0;
+    // Material des Bodens (Nummer der Materialtabelle des Terrains, 0 bei Körpern).
+    u32 ground_material = 0;
+    bool crouched = false;
+};
+
+// Ereignisse der Spielfiguren nach jedem Schritt über den EventBus, nach Kennung sortiert.
+struct CharacterLanded {
+    u64 entity = 0;
+    // Höhe des Falls in Metern und Geschwindigkeit beim Aufsetzen in m/s.
+    f32 height = 0.0f;
+    f32 speed = 0.0f;
+    u32 material = 0;
+};
+struct CharacterStep {
+    u64 entity = 0;
+    math::DVec3 position{0.0, 0.0, 0.0};
+    u32 material = 0;
+    bool run = false;
+};
+
 // Registriert die Komponenten der Physik in der Reflection (nach world::register_types()).
 void register_types(reflect::TypeRegistry& types);
 

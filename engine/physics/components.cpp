@@ -61,6 +61,59 @@ void register_types(reflect::TypeRegistry& types) {
             .field("mesh", &Collider::mesh)
             .field("sensor", &Collider::sensor);
     }
+    if (types.find<CharacterController>() == nullptr) {
+        types.add<CharacterController>("CharacterController")
+            .field("radius", &CharacterController::radius)
+            .range(0.05, 5.0, 0.01)
+            .field("height", &CharacterController::height)
+            .range(0.2, 10.0, 0.01)
+            .field("crouch_height", &CharacterController::crouch_height)
+            .range(0.2, 10.0, 0.01)
+            .field("max_slope", &CharacterController::max_slope)
+            .hint(reflect::Hint::Angle)
+            .range(0.0, 1.5)
+            .field("step_height", &CharacterController::step_height)
+            .range(0.0, 2.0, 0.01)
+            .field("jump_height", &CharacterController::jump_height)
+            .range(0.0, 20.0, 0.01)
+            .field("walk_speed", &CharacterController::walk_speed)
+            .range(0.0, 100.0, 0.1)
+            .field("run_speed", &CharacterController::run_speed)
+            .range(0.0, 100.0, 0.1)
+            .field("crouch_speed", &CharacterController::crouch_speed)
+            .range(0.0, 100.0, 0.1)
+            .field("ground_acceleration", &CharacterController::ground_acceleration)
+            .range(0.0, 1000.0, 0.5)
+            .field("air_acceleration", &CharacterController::air_acceleration)
+            .range(0.0, 1000.0, 0.5)
+            .field("gravity_factor", &CharacterController::gravity_factor)
+            .field("mass", &CharacterController::mass)
+            .range(0.0, 100000.0)
+            .field("push_strength", &CharacterController::push_strength)
+            .range(0.0, 100000.0)
+            .field("step_length", &CharacterController::step_length)
+            .range(0.05, 10.0, 0.01);
+    }
+    if (types.find<GroundState>() == nullptr) {
+        types.add<GroundState>("GroundState")
+            .value("Air", GroundState::Air)
+            .value("Ground", GroundState::Ground)
+            .value("Steep", GroundState::Steep);
+    }
+    if (types.find<CharacterMotion>() == nullptr) {
+        types.add<CharacterMotion>("CharacterMotion")
+            .transient()
+            .field("move", &CharacterMotion::move)
+            .field("run", &CharacterMotion::run)
+            .field("crouch", &CharacterMotion::crouch)
+            .field("jump", &CharacterMotion::jump)
+            .field("velocity", &CharacterMotion::velocity)
+            .field("ground", &CharacterMotion::ground)
+            .field("ground_normal", &CharacterMotion::ground_normal)
+            .field("ground_entity", &CharacterMotion::ground_entity)
+            .field("ground_material", &CharacterMotion::ground_material)
+            .field("crouched", &CharacterMotion::crouched);
+    }
 }
 
 } // namespace ngine::physics

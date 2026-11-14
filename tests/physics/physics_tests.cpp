@@ -641,3 +641,206 @@ TEST_CASE("Bodies stay frozen until the terrain below has collision", "[physics]
 TEST_CASE("Terrain collision is bit-equal with 1 and 4 threads when waiting", "[physics]") {
     CHECK(simulate_on_terrain(1) == simulate_on_terrain(4));
 }
+
+// --- Spielfiguren (R4.3) ----------------------------------------------------------------------
+
+namespace {
+
+world::Entity add_character(world::World& world, math::DVec3 position,
+                            physics::CharacterController controller = {}) {
+    world::Entity character = world.create("Figur");
+    character.set(world::Transform{.position = position}).set(controller);
+    return character;
+}
+
+// Unbewegter Quader mit Unterkante, Mitte und Drehung um z.
+world::Entity add_static_box(world::World& world, math::DVec3 center, math::Vec3 half,
+                             f32 angle_z = 0.0f) {
+    world::Entity box = world.create();
+    box.set(world::Transform{.position = center,
+                             .rotation = math::angle_axis(angle_z, {0.0f, 0.0f, 1.0f})})
+        .set(physics::RigidBody{.motion = physics::MotionType::Static})
+        .set(physics::Collider{.shape = physics::ShapeType::Box, .half_extents = half});
+    return box;
+}
+
+struct CharacterScene {
+    reflect::TypeRegistry types = make_types();
+    world::World world{types};
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs};
+    events::EventBus bus;
+
+    CharacterScene() {
+        physics::add_to(simulation, physics);
+        physics.set_events(&bus);
+    }
+    void run(world::Entity character, math::Vec3 move, i32 frames, bool jump = false) {
+        for (i32 i = 0; i < frames; ++i) {
+            if (character.has<physics::CharacterMotion>()) {
+                auto* motion = character.get_mut<physics::CharacterMotion>();
+                motion->move = move;
+                motion->jump = jump && i == 0;
+            }
+            simulation.advance(1.0 / 60.0);
+        }
+    }
+    [[nodiscard]] static math::DVec3 position(world::Entity e) {
+        return e.get<world::Transform>()->position;
+    }
+};
+
+} // namespace
+
+TEST_CASE("Character stands on the floor and walks", "[physics]") {
+    CharacterScene scene;
+    add_floor(scene.world, {});
+    world::Entity character = add_character(scene.world, {0.0, 1.0, 0.0});
+    scene.run(character, {}, 60);
+    REQUIRE(character.has<physics::CharacterMotion>());
+    CHECK(character.has<world::Interpolated>());
+    CHECK(character.get<physics::CharacterMotion>()->ground == physics::GroundState::Ground);
+    CHECK_THAT(CharacterScene::position(character).y, WithinAbs(0.0, 0.05));
+
+    // Eine Sekunde vorwärts mit 4 m/s, nach einer Zehntelsekunde Anlauf.
+    scene.run(character, {1.0f, 0.0f, 0.0f}, 60);
+    CHECK_THAT(CharacterScene::position(character).x, WithinAbs(3.8, 0.25));
+    CHECK_THAT(CharacterScene::position(character).y, WithinAbs(0.0, 0.05));
+    // Ein Strahl trifft die Figur über ihren inneren Körper.
+    const auto hit =
+        scene.physics.raycast(CharacterScene::position(character) + math::DVec3{0.0, 5.0, 0.0},
+                              {0.0f, -1.0f, 0.0f}, 10.0f);
+    REQUIRE(hit);
+    CHECK(hit->entity == character.id());
+}
+
+TEST_CASE("Character climbs gentle slopes and steps but not walls", "[physics]") {
+    SECTION("gentle slope") {
+        CharacterScene scene;
+        add_floor(scene.world, {});
+        // Rampe mit 25 Grad, beginnt bei x = 2.
+        add_static_box(scene.world, {6.0, 0.0, 0.0}, {4.5f, 0.5f, 3.0f}, 0.4363f);
+        world::Entity character = add_character(scene.world, {0.0, 0.1, 0.0});
+        scene.run(character, {1.0f, 0.0f, 0.0f}, 150);
+        CHECK(CharacterScene::position(character).y > 1.0);
+    }
+    SECTION("steep slope") {
+        CharacterScene scene;
+        add_floor(scene.world, {});
+        // 65 Grad: zu steil.
+        add_static_box(scene.world, {4.0, 0.0, 0.0}, {3.0f, 0.5f, 3.0f}, 1.1345f);
+        world::Entity character = add_character(scene.world, {0.0, 0.1, 0.0});
+        scene.run(character, {1.0f, 0.0f, 0.0f}, 150);
+        CHECK(CharacterScene::position(character).y < 0.7);
+    }
+    SECTION("low step") {
+        CharacterScene scene;
+        add_floor(scene.world, {});
+        add_static_box(scene.world, {4.0, 0.15, 0.0}, {2.0f, 0.15f, 2.0f});
+        world::Entity character = add_character(scene.world, {0.0, 0.1, 0.0});
+        scene.run(character, {1.0f, 0.0f, 0.0f}, 60);
+        CHECK_THAT(CharacterScene::position(character).y, WithinAbs(0.3, 0.05));
+    }
+    SECTION("high step") {
+        CharacterScene scene;
+        add_floor(scene.world, {});
+        add_static_box(scene.world, {4.0, 0.4, 0.0}, {2.0f, 0.4f, 2.0f});
+        world::Entity character = add_character(scene.world, {0.0, 0.1, 0.0});
+        scene.run(character, {1.0f, 0.0f, 0.0f}, 60);
+        CHECK(CharacterScene::position(character).x < 1.8);
+        CHECK(CharacterScene::position(character).y < 0.1);
+    }
+}
+
+TEST_CASE("Character jumps and reports the landing", "[physics]") {
+    CharacterScene scene;
+    add_floor(scene.world, {});
+    world::Entity character = add_character(scene.world, {0.0, 0.05, 0.0});
+    scene.run(character, {}, 30);
+    std::vector<physics::CharacterLanded> landings;
+    auto subscription = scene.bus.subscribe<physics::CharacterLanded>(
+        [&](const physics::CharacterLanded& event) { landings.push_back(event); });
+
+    f64 top = 0.0;
+    for (i32 i = 0; i < 120; ++i) {
+        scene.run(character, {}, 1, i == 0);
+        top = std::max(top, CharacterScene::position(character).y);
+    }
+    CHECK_THAT(top, WithinAbs(1.2, 0.08));
+    REQUIRE(landings.size() == 1);
+    CHECK(landings[0].entity == character.id());
+    CHECK_THAT(landings[0].height, WithinAbs(1.2, 0.08));
+    CHECK(landings[0].speed > 4.0f);
+}
+
+TEST_CASE("Character walking reports steps", "[physics]") {
+    CharacterScene scene;
+    add_floor(scene.world, {});
+    world::Entity character = add_character(scene.world, {0.0, 0.05, 0.0});
+    scene.run(character, {}, 30);
+    usize steps = 0;
+    auto subscription = scene.bus.subscribe<physics::CharacterStep>(
+        [&](const physics::CharacterStep&) { ++steps; });
+    // Rund 3,8 m in einer Sekunde, also fünf Schritte zu 0,7 m.
+    scene.run(character, {0.0f, 0.0f, -1.0f}, 60);
+    CHECK(steps >= 4);
+    CHECK(steps <= 6);
+}
+
+TEST_CASE("Character pushes a box", "[physics]") {
+    CharacterScene scene;
+    add_floor(scene.world, {});
+    world::Entity box = add_box(scene.world, {2.0, 0.5, 0.0});
+    box.get_mut<physics::RigidBody>()->mass = 20.0f;
+    world::Entity character = add_character(scene.world, {0.0, 0.05, 0.0});
+    scene.run(character, {1.0f, 0.0f, 0.0f}, 120);
+    CHECK(box.get<world::Transform>()->position.x > 2.5);
+}
+
+TEST_CASE("Character crouches and stands up only with room above", "[physics]") {
+    CharacterScene scene;
+    add_floor(scene.world, {});
+    // Decke in 1,4 m Höhe ab x = 2.
+    add_static_box(scene.world, {5.0, 1.65, 0.0}, {3.0f, 0.25f, 3.0f});
+    world::Entity character = add_character(scene.world, {0.0, 0.05, 0.0});
+    scene.run(character, {}, 10);
+    character.get_mut<physics::CharacterMotion>()->crouch = true;
+    // Geduckt mit 2 m/s unter die Decke.
+    scene.run(character, {1.0f, 0.0f, 0.0f}, 120);
+    CHECK(character.get<physics::CharacterMotion>()->crouched);
+    CHECK(CharacterScene::position(character).x > 2.5);
+    // Unter der Decke bleibt sie geduckt.
+    character.get_mut<physics::CharacterMotion>()->crouch = false;
+    scene.run(character, {}, 5);
+    CHECK(character.get<physics::CharacterMotion>()->crouched);
+}
+
+TEST_CASE("Characters on terrain are reproducible", "[physics]") {
+    const auto run = [] {
+        const auto types = make_types();
+        world::World world{types};
+        add_flat_terrain(world, {});
+        world::Entity character = add_character(world, {0.0, 9.0, 0.0});
+        jobs::JobSystem jobs{{.worker_count = 3}};
+        world::Simulation simulation{world, jobs};
+        physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
+        physics::add_to(simulation, physics);
+        for (i32 i = 0; i < 180; ++i) {
+            if (character.has<physics::CharacterMotion>()) {
+                auto* motion = character.get_mut<physics::CharacterMotion>();
+                motion->move = {0.7f, 0.0f, 0.7f};
+                motion->jump = i == 90;
+            }
+            frame(world, jobs, simulation);
+        }
+        return character.get<world::Transform>()->position;
+    };
+    const math::DVec3 first = run();
+    const math::DVec3 second = run();
+    CHECK(first.y > 7.9);
+    CHECK(first.x > 4.0);
+    CHECK(first.x == second.x);
+    CHECK(first.y == second.y);
+    CHECK(first.z == second.z);
+}

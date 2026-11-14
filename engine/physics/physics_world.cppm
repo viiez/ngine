@@ -134,6 +134,9 @@ struct StepStats {
     usize terrain_bytes = 0;
     // Körper, die ohne Form des Terrains unter sich eingefroren sind.
     u32 frozen_bodies = 0;
+    // Spielfiguren und die Zeit für ihre Bewegung im letzten Schritt.
+    u32 characters = 0;
+    f64 characters_ms = 0.0;
 };
 
 // Physik-Welt (PHYS-01, ADR 0045): Jolt mit Positionen in doppelter Genauigkeit, gerechnet auf dem
