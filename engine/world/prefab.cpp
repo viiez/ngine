@@ -5,7 +5,9 @@ module;
 #include <algorithm>
 #include <expected>
 #include <format>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -150,6 +152,22 @@ void set_value(World& world, u64 entity, const T& value) {
     Entity{world, entity}.set(value);
 }
 
+// Warnt einmal pro Name; danach nur noch zur Fehlersuche (z. B. Skripte, die noch bauen).
+void warn_unknown(std::string_view context, const std::string& name) {
+    static std::mutex mutex;
+    static std::set<std::string, std::less<>> warned;
+    bool first = false;
+    {
+        const std::scoped_lock lock{mutex};
+        first = warned.insert(name).second;
+    }
+    if (first) {
+        log::warn("{}: Komponente '{}' ist unbekannt und bleibt als JSON erhalten", context, name);
+    } else {
+        log::debug("{}: Komponente '{}' ist unbekannt und bleibt als JSON erhalten", context, name);
+    }
+}
+
 } // namespace
 
 json::Value components_to_json(const World& world, u64 entity) {
@@ -242,8 +260,7 @@ Result<void> components_from_json(World& world, u64 entity, const json::Value& c
     for (const json::Member& member : *components.object()) {
         const reflect::TypeInfo* type = world.types().find(member.key);
         if (type == nullptr || type->kind != reflect::Kind::Struct || type->retired) {
-            log::warn("{}: Komponente '{}' ist unbekannt und bleibt als JSON erhalten", context,
-                      member.key);
+            warn_unknown(context, member.key);
             unknown[member.key] = member.value;
             continue;
         }

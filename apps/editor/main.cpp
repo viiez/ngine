@@ -329,6 +329,14 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     log::debug("Ausgewählt: {}", change.current);
                 }
             });
+        // Eingabe als Aktionen (R4.1): Tastatur und Maus nur beim Fliegen, das Gamepad immer.
+        app::InputBindings bindings{database ? std::optional{database->root()} : std::nullopt};
+        input::ActionState actions{bindings.load()};
+        // Skripte aus assets/skripte: Bau im Hintergrund, Hot Reload; laufen beim Spielen. Vor dem
+        // Öffnen der Szene, damit die Skript-Typen aus dem Cache schon bekannt sind.
+        if (script_runtime) {
+            (*scene)->enable_scripts(*script_runtime, &actions);
+        }
         if (options.scene_path) {
             if (auto opened = document.open(*options.scene_path); opened) {
                 log::info("Szene geöffnet: {} ({} Entities)", *options.scene_path, *opened);
@@ -354,13 +362,6 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         render::TexturePool pool{**device};
         render::GpuProfiler gpu_profiler{**device};
-        // Eingabe als Aktionen (R4.1): Tastatur und Maus nur beim Fliegen, das Gamepad immer.
-        app::InputBindings bindings{database ? std::optional{database->root()} : std::nullopt};
-        input::ActionState actions{bindings.load()};
-        // Skripte aus assets/skripte: Bau im Hintergrund, Hot Reload; laufen beim Spielen.
-        if (script_runtime) {
-            (*scene)->enable_scripts(*script_runtime, &actions);
-        }
         editor::ScriptsPanel scripts_panel;
         Panels panels;
         FrameTimes times;
