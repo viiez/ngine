@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <chrono>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 import ngine.core;
@@ -500,4 +502,142 @@ TEST_CASE("Play in the editor topples a stack and stop restores it bit for bit",
     // Noch einmal spielen ergibt dasselbe.
     CHECK(play() == first);
     CHECK(world::save_scene_binary(world) == before);
+}
+
+// --- Kollision des Terrains (R4.3) ------------------------------------------------------------
+
+namespace {
+
+// Ebenes Terrain fester Größe (2 × 1 × 2 Chunks, also 32 m × 16 m × 32 m) mit Oberfläche bei 8 m.
+world::Entity add_flat_terrain(world::World& world, math::DVec3 origin) {
+    world::Entity terrain = world.create("Terrain");
+    terrain.set(world::Transform{.position = origin})
+        .set(world::Terrain{.size_x = 2,
+                            .size_y = 1,
+                            .size_z = 2,
+                            .shape = world::TerrainShape::Flat,
+                            .ground = 8.0f});
+    return terrain;
+}
+
+world::Entity add_box(world::World& world, math::DVec3 position) {
+    world::Entity box = world.create();
+    box.set(world::Transform{.position = position})
+        .set(physics::RigidBody{})
+        .set(physics::Collider{.shape = physics::ShapeType::Box});
+    return box;
+}
+
+// Ein Bild: Terrain aktuell halten, dann die Simulation.
+void frame(world::World& world, jobs::JobSystem& jobs, world::Simulation& simulation) {
+    world::update_transforms(world);
+    (void)world::update_terrains(world, jobs);
+    simulation.advance(1.0 / 60.0);
+}
+
+u64 simulate_on_terrain(u32 workers) {
+    const auto types = make_types();
+    world::World world{types};
+    add_flat_terrain(world, {});
+    for (i32 i = 0; i < 6; ++i) {
+        add_box(world, {0.3 * i, 10.0 + 1.1 * i, 0.2 * i});
+    }
+    jobs::JobSystem jobs{{.worker_count = workers}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
+    physics::add_to(simulation, physics);
+    for (i32 i = 0; i < 180; ++i) {
+        frame(world, jobs, simulation);
+    }
+    return physics::checksum(world);
+}
+
+} // namespace
+
+TEST_CASE("Bodies land on terrain collision built from chunk meshes", "[physics]") {
+    const auto types = make_types();
+    world::World world{types};
+    const world::Entity terrain = add_flat_terrain(world, {});
+    const world::Entity box = add_box(world, {1.0, 12.0, 1.0});
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
+    physics::add_to(simulation, physics);
+
+    for (i32 i = 0; i < 180; ++i) {
+        frame(world, jobs, simulation);
+    }
+    CHECK_THAT(box.get<world::Transform>()->position.y, WithinAbs(8.5, 0.05));
+    CHECK_FALSE(physics.is_frozen(box.id()));
+    // Nur die Chunks in der Nähe der Kiste haben eine Form, und ein Strahl trifft das Terrain.
+    const std::vector<physics::TerrainChunkShape> shapes = physics.terrain_shapes();
+    CHECK_FALSE(shapes.empty());
+    CHECK(shapes.size() < 16);
+    CHECK(physics.stats().terrain_bytes > 0);
+    const auto hit = physics.raycast({-5.0, 12.0, -5.0}, {0.0f, -1.0f, 0.0f}, 10.0f);
+    REQUIRE(hit);
+    CHECK(hit->entity == terrain.id());
+    CHECK_THAT(hit->point.y, WithinAbs(8.0, 0.05));
+}
+
+TEST_CASE("Digging under a box lets it fall", "[physics]") {
+    const auto types = make_types();
+    world::World world{types};
+    world::Entity terrain = add_flat_terrain(world, {});
+    const world::Entity box = add_box(world, {2.0, 12.0, 2.0});
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs, {.wait_for_terrain = true}};
+    physics::add_to(simulation, physics);
+    for (i32 i = 0; i < 180; ++i) {
+        frame(world, jobs, simulation);
+    }
+    REQUIRE_THAT(box.get<world::Transform>()->position.y, WithinAbs(8.5, 0.05));
+    REQUIRE_FALSE(physics.is_active(box.id()));
+
+    // Eine Grube von 3 m Radius unter der Kiste: Die Form wird ersetzt, die Kiste wacht auf.
+    const math::DVec3 center = world::terrain_voxels(terrain, {2.0, 8.0, 2.0});
+    const voxel::Brush brush{.mode = voxel::BrushMode::Remove,
+                             .center = {static_cast<f32>(center.x), static_cast<f32>(center.y),
+                                        static_cast<f32>(center.z)},
+                             .radius = 6.0f};
+    (void)world::edit_terrain(terrain, brush);
+    for (i32 i = 0; i < 120; ++i) {
+        frame(world, jobs, simulation);
+    }
+    CHECK(box.get<world::Transform>()->position.y < 7.0);
+}
+
+TEST_CASE("Bodies stay frozen until the terrain below has collision", "[physics]") {
+    const auto types = make_types();
+    world::World world{types};
+    add_flat_terrain(world, {});
+    const world::Entity box = add_box(world, {1.0, 12.0, 1.0});
+    // Die Form entsteht in einem Job; ist sie im ersten Schritt noch nicht fertig, bleibt die
+    // Kiste stehen, statt zu fallen.
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs};
+    physics::add_to(simulation, physics);
+
+    frame(world, jobs, simulation);
+    if (physics.stats().terrain_built == 0) {
+        CHECK(physics.is_frozen(box.id()));
+        CHECK(box.get<world::Transform>()->position.y == 12.0);
+    }
+    // Wie im Spiel: Bilder zu 16 ms, bis die Formen fertig sind (in Debug einige Millisekunden pro
+    // Chunk), dann noch drei Sekunden zum Fallen.
+    for (i32 i = 0; i < 600 && physics.is_frozen(box.id()); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{16});
+        frame(world, jobs, simulation);
+    }
+    for (i32 i = 0; i < 180; ++i) {
+        frame(world, jobs, simulation);
+    }
+    CHECK_FALSE(physics.is_frozen(box.id()));
+    CHECK_THAT(box.get<world::Transform>()->position.y, WithinAbs(8.5, 0.05));
+}
+
+TEST_CASE("Terrain collision is bit-equal with 1 and 4 threads when waiting", "[physics]") {
+    CHECK(simulate_on_terrain(1) == simulate_on_terrain(4));
 }

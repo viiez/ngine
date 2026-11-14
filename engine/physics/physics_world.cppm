@@ -25,6 +25,14 @@ struct PhysicsSettings {
     usize temp_memory = usize{16} << 20;
     // Teilschritte der Kollision pro festem Schritt (mehr hilft bei schnellen Körpern).
     u32 collision_steps = 1;
+    // Kollision des Terrains (R4.3): Formen entstehen für Chunks der Stufe 0 in diesem Abstand
+    // (Meter) um dynamische Körper, Spielfiguren und TerrainObserver.
+    f32 terrain_radius = 24.0f;
+    // So viele Schritte bleibt eine Form stehen, nachdem nichts sie mehr braucht.
+    u32 terrain_keep_steps = 120;
+    // Wartet im Abgleich, bis alle nötigen Formen gebaut sind. Dann ist ein Lauf bitgleich (Tests,
+    // --headless, Server); im Spiel bleiben Körper ohne Form unter sich solange eingefroren.
+    bool wait_for_terrain = false;
 };
 
 // Dreiecke eines Meshes für ConvexHull und Mesh. Indizes zu dritt, gegen den Uhrzeigersinn von
@@ -38,6 +46,20 @@ struct TriangleMesh {
 // Die Physik lädt keine Assets selbst; Sandbox und Editor geben eine Quelle aus dem Koch-Cache.
 using ShapeSource = std::function<std::optional<TriangleMesh>(u64 model, u32 mesh)>;
 
+// Ein Chunk mit Form der Kollision (terrain_shapes()).
+struct TerrainChunkShape {
+    u64 terrain = 0;
+    i32 x = 0;
+    i32 y = 0;
+    i32 z = 0;
+    // Ecke des Chunks in der Welt und Kantenlänge in Metern.
+    math::DVec3 corner{0.0, 0.0, 0.0};
+    f32 size = 0.0f;
+    u32 triangles = 0;
+    // Eine neuere Fassung wird gerade gebaut.
+    bool rebuilding = false;
+};
+
 // Welche Körper eine Abfrage sieht.
 struct QueryFilter {
     u32 layers = all_layers;
@@ -48,6 +70,7 @@ struct QueryFilter {
 };
 
 struct RayHit {
+    // Bei Treffern auf dem Terrain die Entity des Terrains.
     u64 entity = 0;
     math::DVec3 point{0.0, 0.0, 0.0};
     math::Vec3 normal{0.0f, 1.0f, 0.0f};
@@ -102,6 +125,15 @@ struct StepStats {
     u32 bodies = 0;
     u32 active_bodies = 0;
     u32 contacts = 0;
+    // Kollision des Terrains (R4.3): Chunks mit Form, Formen im Bau, im letzten Schritt
+    // eingesetzte Formen, mittlere Bauzeit einer Form, Speicher aller Formen.
+    u32 terrain_chunks = 0;
+    u32 terrain_building = 0;
+    u32 terrain_built = 0;
+    f64 terrain_build_ms = 0.0;
+    usize terrain_bytes = 0;
+    // Körper, die ohne Form des Terrains unter sich eingefroren sind.
+    u32 frozen_bodies = 0;
 };
 
 // Physik-Welt (PHYS-01, ADR 0045): Jolt mit Positionen in doppelter Genauigkeit, gerechnet auf dem
@@ -116,6 +148,10 @@ struct StepStats {
 //   als die Physik geändert hat, versetzt den Körper und weckt ihn.
 // - Nach dem Schritt schreibt die Physik Lage und Geschwindigkeit aktiver dynamischer Körper in
 //   Transform und RigidBody; kinematische Körper fahren zu ihrem Transform.
+// - Terrains (world::Terrain) bekommen Formen aus den Netzen ihrer Chunks der Stufe 0, aber nur in
+//   PhysicsSettings::terrain_radius um Körper, Spielfiguren und Beobachter (R4.3, VOX-08). Gebaut
+//   wird in Jobs; ein dynamischer Körper, unter dem eine Form noch fehlt, bleibt eingefroren, statt
+//   durchzufallen. Nach einem Pinsel ersetzt die neue Form die alte und weckt Körper in der Nähe.
 //
 // Läuft im Hauptthread nach den Systemen der festen Phase (add_to()). Kein Code außerhalb des
 // Adapters kennt Jolt.
@@ -159,6 +195,10 @@ public:
     [[nodiscard]] bool has_body(u64 entity) const noexcept;
     // Ob ihr Körper wach ist (statische und fehlende Körper: false).
     [[nodiscard]] bool is_active(u64 entity) const noexcept;
+    // Ob ihr Körper eingefroren ist, weil unter ihm die Form des Terrains noch fehlt.
+    [[nodiscard]] bool is_frozen(u64 entity) const noexcept;
+    // Chunks eines Terrains mit fertiger Form (für Debug-Zeichnen und Tests), sortiert.
+    [[nodiscard]] std::vector<TerrainChunkShape> terrain_shapes() const;
     [[nodiscard]] usize body_count() const noexcept;
     [[nodiscard]] const StepStats& stats() const noexcept;
 
