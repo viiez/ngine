@@ -96,7 +96,7 @@ export void report_load(const app::LoadReport& report) {
 // Offscreen auf der GPU zeichnen und als PPM speichern (für die CI): Kugelraster oder Modell.
 export int run_model_offscreen(const std::optional<std::string>& model_path,
                                const std::string& image_path, bool baseline, DVec3 origin,
-                               bool debug_draw, bool no_cache) {
+                               bool debug_draw, bool no_cache, bool playground = false) {
     auto device = rhi::vulkan::create_device({
         .application_name = "NGine Sandbox",
 #ifdef NDEBUG
@@ -120,14 +120,24 @@ export int run_model_offscreen(const std::optional<std::string>& model_path,
             return 1;
         }
         SandboxAssets assets{no_cache};
-        auto scene = ModelScene::create(**device, format, model_path, origin, app::SceneMode::Game,
-                                        assets.scene_assets());
+        auto scene = playground ? ModelScene::create_playground(**device, format, origin,
+                                                                assets.scene_assets())
+                                : ModelScene::create(**device, format, model_path, origin,
+                                                     app::SceneMode::Game, assets.scene_assets());
         if (!scene) {
             log::fatal("{}", scene.error());
             return 1;
         }
         (*scene)->set_debug_draw(debug_draw);
         report_load((*scene)->load_all(**device));
+        if (playground) {
+            // Zwei Sekunden Physik: Kugeln rollen die Rampe hinab, Kollisionsformen sichtbar.
+            (*scene)->set_draw_colliders(true);
+            for (u32 i = 0; i < 120; ++i) {
+                (*scene)->update(1.0f / 60.0f, {});
+            }
+            log::info("{}", (*scene)->physics_stats());
+        }
         render::TexturePool pool{**device};
         render::RenderGraph graph;
         const auto output = graph.import_texture("Bild", **target, rhi::ResourceState::Undefined,

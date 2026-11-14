@@ -115,10 +115,10 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| PHYS-01 | Physik-Welt | Jolt hinter `PhysicsWorld` | R4 | geplant |
-| PHYS-02 | Starre Körper | Kollision und Dynamik | R4 | geplant |
+| PHYS-01 | Physik-Welt | Jolt hinter `PhysicsWorld` mit Positionen in doppelter Genauigkeit, auf dem Job-System, Schritt als Stufe der festen Simulation, reproduzierbar im selben Build ([ADR 0045](adr/0045-physics-jolt-double-precision.md)) | R4.2 | fertig |
+| PHYS-02 | Starre Körper | Kollision und Dynamik: Komponenten `RigidBody` und `Collider` (Kugel, Quader, Kapsel, konvexe Hülle und Dreiecksnetz aus Modellen), unbewegt, kinematisch und dynamisch, Kontakte und Auslöser über den `EventBus`, Kollisionsformen im Editor | R4.2 | fertig |
 | PHYS-03 | Character Controller | Bewegung von Spielfiguren | R4 | geplant |
-| PHYS-04 | Raycasts und Abfragen | Für Gameplay, Bauen, KI | R4 | geplant |
+| PHYS-04 | Raycasts und Abfragen | Für Gameplay, Bauen, KI: Strahl (nächster und alle Treffer), Form, Überlappung, mit Ebenen, Sensoren und ausgenommener Entity | R4.2 | fertig |
 
 ## Animation
 

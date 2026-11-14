@@ -40,6 +40,10 @@ module;
 //
 // Seit R3.2 bekommt der Renderer die Materialtabelle des Terrains mit den Texturen aus
 // texturen/terrain/ (terrain_materials(), auch für die Voxel-Demo der Sandbox).
+//
+// Seit R4.2 rechnet die Szene Physik (ngine.physics) als Stufe der festen Simulation. Der
+// Spielplatz (create_playground()) zeigt sie: Boden, Rampe, Kistenstapel, Würfe; F3 zeigt die
+// Kollisionsformen.
 export module app.model_scene;
 
 import ngine.core;
@@ -48,12 +52,14 @@ import ngine.filesystem;
 import ngine.input;
 import ngine.jobs;
 import ngine.math;
+import ngine.physics;
 import ngine.profile;
 import ngine.reflect;
 import ngine.render;
 import ngine.rhi;
 import ngine.world;
 import app.prefabs;
+import app.physics;
 
 namespace app {
 
@@ -273,6 +279,24 @@ public:
         return scene;
     }
 
+    // Spielplatz der Physik (R4.2): Boden, Rampe, 20 Kisten und Kugeln; extra_bodies weitere Körper
+    // regnen für Messungen herab (--bodies). origin wie bei create().
+    [[nodiscard]] static rhi::Result<std::unique_ptr<ModelScene>>
+    create_playground(rhi::Device& device, rhi::Format target_format, DVec3 origin,
+                      SceneAssets assets = {}, u32 extra_bodies = 0) {
+        auto renderer = render::Renderer::create(device, target_format);
+        if (!renderer) {
+            return std::unexpected(renderer.error());
+        }
+        auto scene = std::unique_ptr<ModelScene>{
+            new ModelScene{*std::move(renderer), origin, SceneMode::Game, std::move(assets)}};
+        scene->add_sun();
+        if (auto result = scene->build_playground(extra_bodies); !result) {
+            return std::unexpected(result.error());
+        }
+        return scene;
+    }
+
     // F1: Hüllquader, Lichter und Achsenkreuz zeichnen.
     void set_debug_draw(bool enabled) {
         debug_draw_ = enabled;
@@ -284,6 +308,24 @@ public:
     void toggle_cascades() {
         renderer_->show_cascades = !renderer_->show_cascades;
     }
+    // F3: Kollisionsformen der Physik zeichnen.
+    void set_draw_colliders(bool enabled) {
+        draw_colliders_ = enabled;
+    }
+    void toggle_draw_colliders() {
+        draw_colliders_ = !draw_colliders_;
+    }
+    [[nodiscard]] bool draws_colliders() const noexcept {
+        return draw_colliders_;
+    }
+
+    // Wirft eine Kugel aus der Kamera in Blickrichtung (Aktion throw auf dem Spielplatz).
+    void throw_ball() {
+        const Vec3 forward = view_rotation() * Vec3{0.0f, 0.0f, -1.0f};
+        world::Entity ball =
+            app::add_ball(world_, position_ + math::to_f64(forward * 0.8f), forward * 18.0f);
+        ball.set(world::Name{"Wurf"});
+    }
 
     // Bewegt die freie Kamera: W/S vor und zurück, A/D seitwärts, E/Q hoch und runter, Shift
     // schneller; die Maus dreht (oder das Gamepad, siehe fly_input()). Im Spiel rechnet danach die
@@ -291,8 +333,7 @@ public:
     void update(f32 dt, const FlyInput& input) {
         yaw_ -= input.look_x * 0.0025f;
         pitch_ = std::clamp(pitch_ - input.look_y * 0.0025f, -1.5f, 1.5f);
-        const math::Quat rotation = math::angle_axis(yaw_, {0.0f, 1.0f, 0.0f}) *
-                                    math::angle_axis(pitch_, {1.0f, 0.0f, 0.0f});
+        const math::Quat rotation = view_rotation();
         const Vec3 forward = rotation * Vec3{0.0f, 0.0f, -1.0f};
         const Vec3 right = rotation * Vec3{1.0f, 0.0f, 0.0f};
         Vec3 move = forward * input.forward + right * input.right;
@@ -325,6 +366,39 @@ public:
     [[nodiscard]] world::Simulation& simulation() noexcept {
         return simulation_;
     }
+    // Physik der Szene; beim Stoppen des Spielmodus verwirft der Editor ihre Körper (clear()).
+    [[nodiscard]] physics::PhysicsWorld& physics() noexcept {
+        return physics_;
+    }
+    [[nodiscard]] ModelShapes& shapes() noexcept {
+        return shapes_;
+    }
+    // Was der Strahl aus der Bildmitte trifft (Spielplatz), als Text für die Anzeige.
+    [[nodiscard]] std::string aimed_at() {
+        const Vec3 forward = view_rotation() * Vec3{0.0f, 0.0f, -1.0f};
+        const auto hit = physics_.raycast(position_, forward, 200.0f);
+        if (!hit) {
+            return "nichts";
+        }
+        const world::Entity entity = world_.entity(hit->entity);
+        const std::string_view name = entity.name();
+        return std::format("{} in {:.1f} m",
+                           name.empty() ? std::format("Entity {}", hit->entity) : std::string{name},
+                           hit->distance);
+    }
+    // Ziel aus der Bildmitte, Zeiten von Physik und Spielschleife des letzten Bildes.
+    [[nodiscard]] std::string physics_stats() {
+        aimed_target_ = aimed_at();
+        const physics::StepStats& step = physics_.stats();
+        const world::SimulationStats& loop = simulation_.stats();
+        return std::format(
+            "Physik: Ziel {}; {} Körper ({} wach, {} Kontakte), Schritt {:.2f} ms (Abgleich "
+            "{:.2f}, Jolt {:.2f}, Rückschrieb {:.2f}); feste Schritte {:.2f} ms, "
+            "update_transforms {:.2f} ms für {} Entities",
+            aimed_target_, step.bodies, step.active_bodies, step.contacts,
+            step.sync_ms + step.update_ms + step.write_back_ms, step.sync_ms, step.update_ms,
+            step.write_back_ms, loop.fixed_ms, loop.transforms_ms, loop.transforms);
+    }
 
     // Geänderte Vorlagen auf ihre Instanzen übertragen (Hot Reload); Zahl der nachgezogenen.
     usize update_prefabs() {
@@ -345,6 +419,20 @@ public:
         (void)world::update_transforms(world_);
         if (debug_draw_) {
             draw_debug();
+        }
+        if (draw_colliders_) {
+            app::draw_colliders(world_, physics_.body_count() > 0 ? &physics_ : nullptr, &shapes_,
+                                renderer_->debug());
+        }
+        if (playground_) {
+            // Ziel des Strahls aus der Bildmitte: kleine Kugel mit Normale (Abfrage der Physik).
+            const Vec3 forward = view_rotation() * Vec3{0.0f, 0.0f, -1.0f};
+            if (const auto hit = physics_.raycast(position_, forward, 200.0f)) {
+                render::DebugDraw& debug = renderer_->debug();
+                debug.sphere(hit->point, 0.08f, {1.0f, 0.3f, 0.2f}, 12);
+                debug.line(hit->point, hit->point + math::to_f64(hit->normal * 0.5f),
+                           {1.0f, 0.3f, 0.2f});
+            }
         }
         renderer_->add_passes(graph, world_, target);
     }
@@ -436,6 +524,7 @@ private:
         reflect::TypeRegistry types;
         world::register_types(types);
         render::register_types(types);
+        physics::register_types(types);
         app::register_types(types);
         return types;
     }
@@ -445,8 +534,9 @@ private:
         : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)},
           jobs_{{.worker_count = 2}},
           resources_{std::make_unique<asset::ResourceManager>(assets.database, &jobs_)},
-          prefabs_{*resources_}, simulation_{world_, jobs_}, origin_{origin}, mode_{mode},
-          database_{assets.database} {
+          prefabs_{*resources_}, simulation_{world_, jobs_},
+          shapes_{assets.database, assets.loading.cache}, physics_{world_, jobs_}, origin_{origin},
+          mode_{mode}, database_{assets.database} {
         renderer_->set_resources(resources_.get());
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
         renderer_->set_terrain_materials(terrain_materials(database_));
@@ -458,6 +548,10 @@ private:
                                                      transform.position = orbit_position(orbit);
                                                  },
                                                  {.phase = world::Phase::Fixed});
+        // Physik nach den Systemen jedes festen Schritts (R4.2). Im Editor nur beim Spielen, weil
+        // dann erst die Spielschleife läuft.
+        physics_.set_shape_source(shapes_.source());
+        physics::add_to(simulation_, physics_);
         if (mode_ == SceneMode::Game) {
             camera_ = world_.create("Kamera");
             camera_.set(world::Transform{}).set(render::Camera{});
@@ -642,6 +736,33 @@ private:
         return {};
     }
 
+    // Spielplatz (R4.2), siehe create_playground().
+    rhi::Result<void> build_playground(u32 extra_bodies) {
+        renderer_->shadows.distance = 80.0f;
+        asset::Model model = playground_model();
+        if (auto result = add_generated(playground_id, model); !result) {
+            return result;
+        }
+        shapes_.add(playground_id, std::move(model));
+        app::build_playground(world_, origin_);
+        if (extra_bodies > 0) {
+            app::rain_bodies(world_, origin_ + DVec3{0.0, 0.0, 14.0}, extra_bodies);
+        }
+        playground_ = true;
+        position_ = origin_ + DVec3{6.0, 5.0, 14.0};
+        const Vec3 forward = math::normalize(Vec3{-6.0f, -3.5f, -15.0f});
+        yaw_ = std::atan2(-forward.x, -forward.z);
+        pitch_ = std::asin(forward.y);
+        speed_ = 6.0f;
+        update(0.0f, {});
+        return {};
+    }
+
+    [[nodiscard]] math::Quat view_rotation() const noexcept {
+        return math::angle_axis(yaw_, {0.0f, 1.0f, 0.0f}) *
+               math::angle_axis(pitch_, {1.0f, 0.0f, 0.0f});
+    }
+
     // Kennung eines Assets im Asset-Ordner, 0 ohne Datenbank oder wenn es fehlt.
     [[nodiscard]] asset::AssetId asset_id(std::string_view path) const {
         const asset::AssetInfo* info = database_ != nullptr ? database_->find_path(path) : nullptr;
@@ -766,6 +887,10 @@ private:
     std::unique_ptr<asset::ResourceManager> resources_;
     PrefabLibrary prefabs_;
     world::Simulation simulation_;
+    // Nach der Simulation angelegt, also vor ihr zerstört; die Stufe der Physik läuft danach nicht
+    // mehr.
+    ModelShapes shapes_;
+    physics::PhysicsWorld physics_;
     DVec3 origin_;
     SceneMode mode_;
     const asset::AssetDatabase* database_ = nullptr;
@@ -776,6 +901,9 @@ private:
     f32 pitch_ = 0.0f;
     f32 speed_ = 3.0f;
     bool debug_draw_ = false;
+    bool draw_colliders_ = false;
+    bool playground_ = false;
+    std::string aimed_target_;
 };
 
 } // namespace app

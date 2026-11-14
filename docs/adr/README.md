@@ -53,3 +53,4 @@ betroffene Code einreichen.
 | [0042](0042-terrain-deltas-region-files.md) | Terrain-Änderungen als Deltas pro Chunk der Stufe 0, kodiert als Lauflängen, gespeichert in Regionen-Dateien neben der Szene | angenommen |
 | [0043](0043-gpu-driven-meshlets.md) | GPU-getriebenes Zeichnen: Meshlets, Culling gegen Stumpf, Kegel und Hi-Z in zwei Phasen, Mesh Shader mit Rückfallpfad über indirekte Draws | angenommen |
 | [0044](0044-game-loop-phases-fixed-step-commands.md) | Spielschleife mit Phasen, festem Zeitschritt, Interpolation nur für `Interpolated` und Befehlspuffer in fester Reihenfolge | angenommen |
+| [0045](0045-physics-jolt-double-precision.md) | Physik mit Jolt in doppelter Genauigkeit über einen eigenen Overlay-Port, die Welt als Quelle der Wahrheit, reproduzierbar im selben Build | angenommen |

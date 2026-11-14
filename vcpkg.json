@@ -8,6 +8,10 @@
     "fastgltf",
     "flecs",
     "glm",
+    {
+      "name": "joltphysics",
+      "features": ["rtti"]
+    },
     "ktx",
     "meshoptimizer",
     "mikktspace",

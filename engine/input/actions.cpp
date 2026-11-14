@@ -297,6 +297,10 @@ ActionMap ActionMap::standard() {
         Action{.name = "jump",
                .kind = ActionKind::Button,
                .bindings = {key("Key.Space"), key("Gamepad.South")}},
+        // Werfen auf dem Spielplatz (R4.2).
+        Action{.name = "throw",
+               .kind = ActionKind::Button,
+               .bindings = {key("Mouse.Left"), key("Gamepad.West")}},
     };
     for (const Action& action : actions) {
         const auto added = map.add(action);

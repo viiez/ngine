@@ -382,6 +382,14 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 }
                 ui::end_menu();
             }
+            if (ui::begin_menu("Physik")) {
+                // Kollisionsformen (R4.2): grün wach, blau schlafend, grau unbewegt, gelb Auslöser.
+                bool colliders = (*scene)->draws_colliders();
+                if (ui::menu_item("Kollisionsformen", {}, &colliders)) {
+                    (*scene)->set_draw_colliders(colliders);
+                }
+                ui::end_menu();
+            }
             if (ui::begin_menu("Assets")) {
                 const bool can_cook = database && cache && !asset_panel.cooking();
                 if (ui::menu_item("Alles kochen", {}, nullptr, can_cook)) {
@@ -604,6 +612,11 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 (*scene)->simulate(dt);
             } else {
                 (*scene)->simulation().reset_clock();
+                // Gestoppt: Die Welt kommt aus der Sicherung, die Körper der Physik sind veraltet.
+                // Das nächste Spielen legt sie in einer frischen Physik-Welt neu an (bitgleich).
+                if ((*scene)->physics().body_count() > 0) {
+                    (*scene)->physics().clear();
+                }
             }
             transforms_updated = world::update_transforms(document.world());
             render::DebugDraw& debug = (*scene)->renderer().debug();

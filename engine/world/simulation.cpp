@@ -3,6 +3,7 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <vector>
@@ -21,6 +22,12 @@ namespace {
 // Spielraum beim Vergleich der angesammelten Zeit mit dem festen Schritt: Bildzeiten wie 1/30 s
 // sind in f64 nicht exakt, und zwei Bilder zu 1/120 s sollen genau einen Schritt zu 1/60 s ergeben.
 constexpr f64 time_epsilon = 1e-9;
+
+using Clock = std::chrono::steady_clock;
+
+f64 milliseconds(Clock::duration duration) noexcept {
+    return std::chrono::duration<f64, std::milli>(duration).count();
+}
 
 bool same(const Transform& a, const Transform& b) noexcept {
     return a.position.x == b.position.x && a.position.y == b.position.y &&
@@ -104,9 +111,11 @@ u32 Simulation::advance(f64 dt) {
     time.paused = paused_;
     world_->set_time(time);
 
+    const auto start = Clock::now();
     for (u32 i = 0; i < steps; ++i) {
         fixed_step();
     }
+    const auto fixed_done = Clock::now();
 
     time = world_->time();
     time.alpha = paused_ ? 1.0f : static_cast<f32>(std::clamp(accumulator_ / fixed, 0.0, 1.0));
@@ -114,7 +123,12 @@ u32 Simulation::advance(f64 dt) {
     world_->set_time(time);
     schedule_.run(*jobs_, Phase::Frame);
     schedule_.run(*jobs_, Phase::Late);
+    const auto frame_done = Clock::now();
     interpolate();
+    stats_.steps = steps;
+    stats_.fixed_ms = milliseconds(fixed_done - start);
+    stats_.frame_ms = milliseconds(frame_done - fixed_done);
+    stats_.transforms_ms = milliseconds(Clock::now() - frame_done);
     return steps;
 }
 
@@ -132,6 +146,9 @@ void Simulation::fixed_step() {
     time.delta = time.fixed_delta;
     world_->set_time(time);
     schedule_.run(*jobs_, Phase::Fixed);
+    for (const auto& stage : fixed_stages_) {
+        stage();
+    }
     if (after_fixed_step_) {
         after_fixed_step_();
     }
@@ -176,7 +193,7 @@ void Simulation::interpolate() {
         *transform = mix(interpolated->previous, interpolated->simulated, alpha);
         world_->modified(entity, transform_id);
     }
-    (void)update_transforms(*world_);
+    stats_.transforms = update_transforms(*world_);
     for (const u64 entity : moving) {
         const auto* interpolated =
             static_cast<const Interpolated*>(world_->get(entity, interpolated_id));
