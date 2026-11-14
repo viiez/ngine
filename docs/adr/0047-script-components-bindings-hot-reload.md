@@ -72,8 +72,8 @@ Abstimmung zum Plan (#54) hat die Richtung festgelegt; dieses ADR hält fest, wi
   Strukturänderung falschen Speicher. Das steht in der API; eine Prüfung im Debug-Build fehlt noch.
 - Statische Felder in Skripten, die auf Objekte außerhalb des Skript-Kontexts zeigen, verhindern das
   Entladen; die Engine meldet dann, dass der alte Kontext nicht frei wurde.
-- Pro Skript und Bild kostet ein `Update` mit einem `Get` einige hundert Nanosekunden (Debug-Build
-  ohne Fenster); 10 000 Skripte misst `--scripts 10000`.
+- Pro Skript und Bild kostet ein `Update` mit einem `Get` rund 120 ns im Release-Build (10 000
+  Skripte 1,2 ms pro Bild im Container), einige hundert im Debug-Build; das misst `--scripts 10000`.
 - Die Steuerung der Figur in C++ (`apply_controls()`) bleibt als Rückfall für Builds ohne .NET.
 
 ## Erwogene Alternativen
