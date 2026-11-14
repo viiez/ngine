@@ -272,3 +272,33 @@ TEST_CASE("Cooking everything in the background reports progress", "[cook]") {
     }
     CHECK(cache.model_current(database->find_path("kiste.gltf")->id));
 }
+
+TEST_CASE("Cooking a single texture stores KTX2, BC7 and a stamp in the cache", "[cook]") {
+    const TempDir dir;
+    copy(NGINE_ASSET_SOURCE_DIR "/modelle/kiste.png", dir.file("bild.png"));
+    auto cooked = cook::cook_image(dir.file("bild.png"), false, {.textures = {.uastc_level = 0}});
+    REQUIRE(cooked);
+    CHECK_FALSE(cooked->texture.srgb);
+    CHECK(asset::decode_ktx2(cooked->texture.ktx2, asset::TextureFormat::RGBA8));
+    const asset::TextureData& bc7 = cooked->texture.bc7;
+    CHECK(bc7.format == asset::TextureFormat::BC7);
+    CHECK(bc7.levels > 1);
+    REQUIRE(cooked->sources.size() == 1);
+
+    // Über den Cache: je Farbraum eine Datei, veraltet, sobald sich das Bild ändert.
+    const asset::AssetCache cache{dir.file("cache")};
+    REQUIRE(cache.store_texture(42, false, *cooked));
+    auto loaded = cache.load_texture(42, false);
+    REQUIRE(loaded);
+    REQUIRE(loaded->has_value());
+    CHECK((*loaded)->texture.ktx2 == cooked->texture.ktx2);
+    CHECK((*loaded)->texture.bc7.data == bc7.data);
+    auto other = cache.load_texture(42, true);
+    REQUIRE(other);
+    CHECK_FALSE(other->has_value());
+    copy(NGINE_ASSET_SOURCE_DIR "/texturen/terrain/sand_farbe.jpg", dir.file("bild.png"));
+    auto stale = cache.load_texture(42, false);
+    REQUIRE(stale);
+    CHECK_FALSE(stale->has_value());
+    CHECK_FALSE(cook::cook_image(dir.file("fehlt.png"), true));
+}

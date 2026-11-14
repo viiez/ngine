@@ -5,21 +5,26 @@ module;
 #include <format>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 // Physik in Sandbox und Editor (R4.2): Formen aus Modellen für die Physik-Welt, Kollisionsformen
-// als Debug-Linien und der Spielplatz der Sandbox (Boden, Rampe, Kistenstapel, Würfe, Regen aus
-// vielen Körpern). Der Spielplatz entsteht ohne GPU, damit --headless dieselbe Welt rechnet.
+// als Debug-Linien und der Spielplatz der Sandbox (Rampe, Kistenstapel, Würfe, Regen aus vielen
+// Körpern). Der Spielplatz entsteht ohne GPU, damit --headless dieselbe Welt rechnet. Seit R4.3
+// steht er auf dem endlosen Terrain mit einer Spielfigur; F3 zeigt auch die Formen der Chunks und
+// die Kapsel der Figur.
 export module app.physics;
 
 import ngine.core;
 import ngine.asset;
+import ngine.jobs;
 import ngine.math;
 import ngine.physics;
 import ngine.render;
 import ngine.world;
+import app.player;
 
 namespace app {
 
@@ -206,6 +211,37 @@ export void draw_colliders(world::World& world, const physics::PhysicsWorld* phy
             }
             }
         });
+    // Spielfiguren (R4.3): Kapsel vom Fußpunkt aus, grün auf dem Boden, orange in der Luft.
+    world.each<const world::WorldTransform, const physics::CharacterController>(
+        [&](world::Entity entity, const world::WorldTransform& transform,
+            const physics::CharacterController& controller) {
+            const auto* motion = entity.get<physics::CharacterMotion>();
+            const bool crouched = motion != nullptr && motion->crouched;
+            const bool grounded =
+                motion != nullptr && motion->ground == physics::GroundState::Ground;
+            const Vec3 color = grounded ? awake : Vec3{1.0f, 0.55f, 0.15f};
+            const f32 height = crouched ? controller.crouch_height : controller.height;
+            const f32 radius = controller.radius;
+            const DVec3 foot = transform.position();
+            const DVec3 low = foot + DVec3{0.0, radius, 0.0};
+            const DVec3 high = foot + DVec3{0.0, std::max(height - radius, radius), 0.0};
+            debug.sphere(low, radius, color, 16);
+            debug.sphere(high, radius, color, 16);
+            for (const DVec3 side : {DVec3{1.0, 0.0, 0.0}, DVec3{-1.0, 0.0, 0.0},
+                                     DVec3{0.0, 0.0, 1.0}, DVec3{0.0, 0.0, -1.0}}) {
+                const DVec3 rim = side * static_cast<f64>(radius);
+                debug.line(low + rim, high + rim, color);
+            }
+        });
+    // Formen der Chunks des Terrains (R4.3) als Hüllquader: grau fertig, gelb im Bau.
+    if (physics != nullptr) {
+        for (const physics::TerrainChunkShape& chunk : physics->terrain_shapes()) {
+            const math::Affine frame =
+                math::Affine::from(chunk.corner, math::quat_identity(), {1.0f, 1.0f, 1.0f});
+            debug.box(frame, {0.0f, 0.0f, 0.0f}, {chunk.size, chunk.size, chunk.size},
+                      chunk.rebuilding ? trigger : still);
+        }
+    }
 }
 
 // Kennung des erzeugten Modells des Spielplatzes.
@@ -216,9 +252,20 @@ export enum PlaygroundMesh : u32 {
     playground_ground,
     playground_box,
     playground_ball,
-    playground_ramp
+    playground_ramp,
+    playground_platform,
+    playground_figure
 };
-enum PlaygroundMaterial : u32 { ground_material, wood_material, ball_material, ramp_material };
+enum PlaygroundMaterial : u32 {
+    ground_material,
+    wood_material,
+    ball_material,
+    ramp_material,
+    figure_material
+};
+
+// Ebene für Türme und Kugeln (R4.3): halbe Maße; sie reicht tief in den Hang hinein.
+constexpr Vec3 platform_half{11.0f, 4.0f, 5.0f};
 
 constexpr f32 ball_radius = 0.3f;
 
@@ -270,6 +317,16 @@ asset::Primitive make_ramp() {
     return primitive;
 }
 
+// Kapsel mit dem Fußpunkt im Ursprung: Kugel, deren obere Hälfte nach oben rückt.
+asset::Primitive make_capsule(f32 radius, f32 height) {
+    asset::Primitive primitive = asset::make_sphere(radius, 24, 12);
+    const f32 middle = std::max(height - 2.0f * radius, 0.0f);
+    for (asset::Vertex& vertex : primitive.vertices) {
+        vertex.position.y += radius + (vertex.position.y > 1e-4f ? middle : 0.0f);
+    }
+    return primitive;
+}
+
 asset::Mesh mesh_of(std::string name, asset::Primitive primitive, u32 material) {
     primitive.material = material;
     asset::Mesh mesh{.name = std::move(name), .primitives = {}};
@@ -286,10 +343,15 @@ export asset::Model playground_model() {
     model.meshes.push_back(
         mesh_of("Kugel", asset::make_sphere(ball_radius, 24, 12), ball_material));
     model.meshes.push_back(mesh_of("Rampe", make_ramp(), ramp_material));
+    model.meshes.push_back(mesh_of("Plattform", asset::make_box(platform_half), ramp_material));
+    const physics::CharacterController figure;
+    model.meshes.push_back(
+        mesh_of("Figur", make_capsule(figure.radius, figure.height), figure_material));
     model.materials.push_back(plain_material("Boden", {0.45f, 0.47f, 0.45f, 1.0f}, 0.9f));
     model.materials.push_back(plain_material("Holz", {0.62f, 0.42f, 0.24f, 1.0f}, 0.7f));
     model.materials.push_back(plain_material("Kugel", {0.85f, 0.2f, 0.15f, 1.0f}, 0.35f));
     model.materials.push_back(plain_material("Rampe", {0.55f, 0.55f, 0.6f, 1.0f}, 0.6f));
+    model.materials.push_back(plain_material("Figur", {0.2f, 0.45f, 0.85f, 1.0f}, 0.5f));
     return model;
 }
 
@@ -317,45 +379,176 @@ export world::Entity add_ball(world::World& world, DVec3 position, Vec3 velocity
     return ball;
 }
 
-// Spielplatz um origin (R4.2): Boden, Rampe als Dreiecksnetz, ein Stapel aus 20 Kisten (vier
-// Türme zu fünf), ein schiefer Turm aus sechs Kisten und drei Kugeln oben auf der Rampe. Ohne GPU;
-// die Meshes kommen aus playground_model().
-export void build_playground(world::World& world, DVec3 origin) {
-    world.create("Boden")
-        .set(world::Transform{.position = origin + DVec3{0.0, -0.5, 0.0}})
+// Terrain des Spielplatzes (R4.3): endlos mit festem Startwert, Hügel, Felsen und Höhlen. Die
+// Sichtweite ist kleiner als in der Voxel-Demo, damit der Start schnell bleibt.
+export world::Terrain playground_terrain() {
+    return world::Terrain{.shape = world::TerrainShape::Procedural,
+                          .seed = 7,
+                          .streaming = true,
+                          .view_distance = 600.0f};
+}
+
+// Lage der Dinge auf dem Spielplatz, wie build_playground() sie ausgerechnet hat.
+export struct PlaygroundLayout {
+    world::Entity terrain;
+    // Mitte der Oberseite der Ebene mit den Türmen.
+    DVec3 platform{0.0, 0.0, 0.0};
+    // Fußpunkt der Spielfigur.
+    DVec3 spawn{0.0, 0.0, 0.0};
+    // Lose Kisten auf dem Terrain (zum Graben).
+    std::vector<world::Entity> loose_boxes;
+};
+
+// Spielfigur aus Code: Kapsel mit CharacterController, PlayerInput und TerrainObserver, Körper als
+// Kind. Dasselbe steht im Prefab prefabs/spielfigur.prefab, das Szenen verwenden.
+export world::Entity add_player(world::World& world, DVec3 position, f32 yaw = 0.0f) {
+    world::Entity player = world.create("Spielfigur");
+    player.set(world::Transform{.position = position})
+        .set(physics::CharacterController{})
+        .set(PlayerInput{.yaw = yaw})
+        .set(world::TerrainObserver{})
+        .set(world::Interpolated{});
+    world::Entity body = world.create("Körper");
+    body.set(world::Transform{})
+        .set(render::MeshRenderer{.mesh = playground_ref(playground_figure)});
+    body.set_parent(player);
+    return player;
+}
+
+// Spielfigur an position: aus dem Prefab, wenn es da ist (Szenen speichern dann die Instanz),
+// sonst aus Code (add_player()).
+export world::Entity spawn_player(world::World& world, DVec3 position, const world::Prefab* prefab,
+                                  u64 prefab_id) {
+    if (prefab != nullptr) {
+        if (auto player = world::instantiate(world, *prefab, prefab_id)) {
+            world::Transform transform = *player->get<world::Transform>();
+            transform.position = position;
+            player->set(transform);
+            return *player;
+        } else {
+            log::warn("Spielfigur: {}", player.error());
+        }
+    }
+    return add_player(world, position);
+}
+
+// Sonne des Spielplatzes (wie in der Standardszene).
+void add_playground_sun(world::World& world) {
+    const Vec3 to_sun = math::normalize(Vec3{-0.55f, 0.65f, 0.5f});
+    world.create("Sonne")
+        .set(world::Transform{.rotation = math::look_rotation(-to_sun, {0.0f, 1.0f, 0.0f})})
+        .set(render::DirectionalLight{.color = {1.0f, 0.95f, 0.88f}, .intensity = 3.0f});
+}
+
+// Höhe der Oberfläche unter (x, z), von oben gesucht.
+std::optional<f64> surface_height(world::Entity terrain, f64 x, f64 z, f64 top) {
+    const auto hit = world::raycast_terrain(terrain, {x, top, z}, {0.0f, -1.0f, 0.0f}, 400.0);
+    if (!hit) {
+        return std::nullopt;
+    }
+    return hit->y;
+}
+
+// Spielplatz um origin (R4.2, seit R4.3 auf dem Terrain): Sonne, endloses Terrain, eine Ebene am
+// Hang mit einer Rampe als Dreiecksnetz, einem Stapel aus 20 Kisten (vier Türme zu fünf), einem
+// schiefen Turm aus sechs Kisten und drei Kugeln oben auf der Rampe, dazu lose Kisten im Gelände.
+// Ohne GPU; die Meshes kommen aus playground_model(). Die Ebene sucht sich die flachste Stelle in
+// der Nähe von origin; dafür entstehen die Chunks um origin hier schon (bitgleich überall, ADR
+// 0039). Die Spielfigur legt add_player() bzw. das Prefab an der Stelle spawn an.
+export PlaygroundLayout build_playground(world::World& world, DVec3 origin, jobs::JobSystem& jobs) {
+    PlaygroundLayout layout;
+    add_playground_sun(world);
+    const world::Terrain terrain = playground_terrain();
+    layout.terrain = world.create("Terrain");
+    layout.terrain.set(world::Transform{.position = origin - DVec3{0.0, terrain.ground, 0.0}})
+        .set(terrain);
+    (void)world::update_transforms(world);
+    (void)world::update_terrains(world, jobs, {.observers = std::span{&origin, 1}, .wait = true});
+
+    // Flachste Stelle für die Ebene: Höhen an den Ecken und in der Mitte der Grundfläche.
+    const f64 top = origin.y + 200.0;
+    const f64 hx = platform_half.x;
+    const f64 hz = platform_half.z;
+    f64 best_score = 1e30;
+    DVec3 best = origin;
+    for (i32 iz = -5; iz <= 5; ++iz) {
+        for (i32 ix = -5; ix <= 5; ++ix) {
+            const f64 cx = origin.x + ix * 8.0;
+            const f64 cz = origin.z + iz * 8.0;
+            f64 low = 1e30;
+            f64 high = -1e30;
+            bool complete = true;
+            for (const f64 dx : {-hx, 0.0, hx}) {
+                for (const f64 dz : {-hz, 0.0, hz}) {
+                    const auto h = surface_height(layout.terrain, cx + dx, cz + dz, top);
+                    if (!h) {
+                        complete = false;
+                        continue;
+                    }
+                    low = std::min(low, *h);
+                    high = std::max(high, *h);
+                }
+            }
+            if (!complete) {
+                continue;
+            }
+            // Flach geht vor, nah an origin danach.
+            const f64 score = (high - low) + 0.02 * std::sqrt((cx - origin.x) * (cx - origin.x) +
+                                                              (cz - origin.z) * (cz - origin.z));
+            if (score < best_score) {
+                best_score = score;
+                best = {cx, high + 0.2, cz};
+            }
+        }
+    }
+    layout.platform = best;
+    world.create("Plattform")
+        .set(world::Transform{.position = best - DVec3{0.0, platform_half.y, 0.0}})
         .set(physics::RigidBody{.motion = physics::MotionType::Static, .friction = 0.8f})
-        .set(physics::Collider{.shape = physics::ShapeType::Box,
-                               .half_extents = {40.0f, 0.5f, 40.0f}})
-        .set(render::MeshRenderer{.mesh = playground_ref(playground_ground)});
+        .set(physics::Collider{.shape = physics::ShapeType::Box, .half_extents = platform_half})
+        .set(render::MeshRenderer{.mesh = playground_ref(playground_platform)});
     world.create("Rampe")
-        .set(world::Transform{.position = origin + DVec3{-8.0, 0.0, 0.0}})
+        .set(world::Transform{.position = best + DVec3{-8.0, 0.0, 0.0}})
         .set(physics::RigidBody{.motion = physics::MotionType::Static})
         .set(physics::Collider{
             .shape = physics::ShapeType::Mesh, .model = playground_id, .mesh = playground_ramp})
         .set(render::MeshRenderer{.mesh = playground_ref(playground_ramp)});
     world::Entity stack = world.create("Stapel");
-    stack.set(world::Transform{.position = origin + DVec3{2.0, 0.0, -2.0}});
+    stack.set(world::Transform{.position = best + DVec3{2.0, 0.0, -2.0}});
     for (i32 tower = 0; tower < 4; ++tower) {
         for (i32 level = 0; level < 5; ++level) {
             const DVec3 place{static_cast<f64>(tower % 2) * 1.05,
                               0.5 + static_cast<f64>(level) * 1.0,
                               static_cast<f64>(tower / 2) * 1.05};
-            add_box(world, origin + DVec3{2.0, 0.0, -2.0} + place,
+            add_box(world, best + DVec3{2.0, 0.0, -2.0} + place,
                     std::format("Kiste {}", tower * 5 + level + 1));
         }
     }
     // Ein schiefer Turm daneben fällt von selbst um, sobald die Physik läuft.
     for (i32 level = 0; level < 6; ++level) {
         add_box(world,
-                origin + DVec3{6.0 + static_cast<f64>(level) * 0.22,
-                               0.5 + static_cast<f64>(level) * 1.0, -2.0},
+                best + DVec3{6.0 + static_cast<f64>(level) * 0.22,
+                             0.5 + static_cast<f64>(level) * 1.0, -2.0},
                 std::format("Schiefer Turm {}", level + 1));
     }
     for (i32 i = 0; i < 3; ++i) {
         world::Entity ball =
-            add_ball(world, origin + DVec3{-8.5 + static_cast<f64>(i) * 0.8, 2.0, -2.5}, {});
+            add_ball(world, best + DVec3{-8.5 + static_cast<f64>(i) * 0.8, 2.0, -2.5}, {});
         ball.set(world::Name{std::format("Kugel {}", i + 1)});
     }
+
+    // Vor der Ebene im Gelände: Startpunkt der Figur und lose Kisten.
+    const f64 front = best.z + hz + 4.0;
+    layout.spawn = {best.x, surface_height(layout.terrain, best.x, front, top).value_or(best.y),
+                    front};
+    for (i32 i = 0; i < 4; ++i) {
+        const f64 x = best.x - 4.5 + static_cast<f64>(i) * 3.0;
+        const f64 z = front + 4.0;
+        const f64 y = surface_height(layout.terrain, x, z, top).value_or(best.y);
+        layout.loose_boxes.push_back(
+            add_box(world, {x, y + 0.55, z}, std::format("Lose Kiste {}", i + 1)));
+    }
+    return layout;
 }
 
 // Regen aus count Körpern (Kisten und Kugeln im Wechsel) in einem Raster über dem Boden, für die

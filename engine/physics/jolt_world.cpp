@@ -11,6 +11,7 @@ module;
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollidePointResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
@@ -31,6 +32,7 @@ module;
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -42,10 +44,12 @@ module;
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -331,6 +335,34 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------
+// Materialien des Terrains (R4.3): Jedes Dreieck einer Chunk-Form trägt die Nummer seines
+// Voxel-Materials; Reibung und Rückprall kommen aus der Materialtabelle (world::TerrainMaterials).
+
+class TerrainSurface final : public JPH::PhysicsMaterial {
+public:
+    explicit TerrainSurface(voxel::Material material) : material{material} {}
+    [[nodiscard]] const char* GetDebugName() const override {
+        return "Terrain";
+    }
+    voxel::Material material;
+};
+
+struct SurfaceValues {
+    f32 friction = 0.7f;
+    f32 restitution = 0.0f;
+};
+using SurfaceTable = std::array<SurfaceValues, world::max_terrain_materials>;
+
+// Nummer des Voxel-Materials an einer Stelle einer Form, wenn sie zum Terrain gehört.
+std::optional<voxel::Material> terrain_material(const JPH::Shape& shape, JPH::SubShapeID id) {
+    const auto* surface = dynamic_cast<const TerrainSurface*>(shape.GetMaterial(id));
+    if (surface == nullptr) {
+        return std::nullopt;
+    }
+    return surface->material;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Kontakte: Jolt meldet sie aus mehreren Threads; gesammelt und nach dem Schritt sortiert.
 
 struct ContactRecord {
@@ -343,8 +375,13 @@ struct ContactRecord {
 
 class ContactCollector final : public JPH::ContactListener {
 public:
+    // Tabelle der Oberflächen; ändert sich nur zwischen den Schritten.
+    const SurfaceTable* surfaces = nullptr;
+
     void OnContactAdded(const JPH::Body& body1, const JPH::Body& body2,
-                        const JPH::ContactManifold& manifold, JPH::ContactSettings&) override {
+                        const JPH::ContactManifold& manifold,
+                        JPH::ContactSettings& settings) override {
+        apply_surface(body1, body2, manifold, settings);
         const JPH::RVec3 point = manifold.GetWorldSpaceContactPointOn1(0);
         const std::scoped_lock lock{mutex_};
         records_.push_back(ContactRecord{.body1 = body1.GetID().GetIndexAndSequenceNumber(),
@@ -352,6 +389,11 @@ public:
                                          .added = true,
                                          .point = point,
                                          .normal = manifold.mWorldSpaceNormal});
+    }
+    void OnContactPersisted(const JPH::Body& body1, const JPH::Body& body2,
+                            const JPH::ContactManifold& manifold,
+                            JPH::ContactSettings& settings) override {
+        apply_surface(body1, body2, manifold, settings);
     }
     void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
         const std::scoped_lock lock{mutex_};
@@ -368,6 +410,28 @@ public:
     }
 
 private:
+    // Berührt ein Körper das Terrain, gelten Reibung und Rückprall des Materials unter ihm (wie
+    // Jolt sie sonst aus den Körpern mischt: Wurzel des Produkts bzw. das Größere).
+    void apply_surface(const JPH::Body& body1, const JPH::Body& body2,
+                       const JPH::ContactManifold& manifold, JPH::ContactSettings& settings) const {
+        if (surfaces == nullptr) {
+            return;
+        }
+        const auto mix = [&](const JPH::Body& terrain, JPH::SubShapeID id, const JPH::Body& other) {
+            const auto material = terrain_material(*terrain.GetShape(), id);
+            if (!material) {
+                return false;
+            }
+            const SurfaceValues& surface = (*surfaces)[*material];
+            settings.mCombinedFriction = std::sqrt(surface.friction * other.GetFriction());
+            settings.mCombinedRestitution = std::max(surface.restitution, other.GetRestitution());
+            return true;
+        };
+        if (!mix(body1, manifold.mSubShapeID1, body2)) {
+            (void)mix(body2, manifold.mSubShapeID2, body1);
+        }
+    }
+
     std::mutex mutex_;
     std::vector<ContactRecord> records_;
 };
@@ -492,6 +556,112 @@ struct ShapeKey {
     }
 };
 
+// ---------------------------------------------------------------------------------------------
+// Kollision des Terrains (R4.3): eine Form pro Chunk der Stufe 0 aus dem Netz, das der Mesher
+// ohnehin baut.
+
+// Eine Form im Bau. Der Job schreibt shape und setzt done; der Hauptthread liest erst danach.
+struct TerrainBuild {
+    u64 version = 0;
+    // Eingaben des Jobs; er verbraucht sie.
+    JPH::VertexList vertices;
+    JPH::IndexedTriangleList input;
+    JPH::PhysicsMaterialList materials;
+    std::atomic<bool> done{false};
+    JPH::Ref<JPH::Shape> shape;
+    u32 triangles = 0;
+    f64 ms = 0.0;
+};
+
+struct TerrainChunk {
+    JPH::BodyID body;
+    // Fassung des Netzes, aus der die eingesetzte Form stammt (0: keine).
+    u64 version = 0;
+    u32 triangles = 0;
+    usize bytes = 0;
+    std::shared_ptr<TerrainBuild> build;
+    // Schritte, seit nichts die Form mehr braucht.
+    u32 unused = 0;
+};
+
+struct TerrainRecord {
+    // TerrainData::id; ändert er sich, entsteht das Terrain neu und alle Formen fallen weg.
+    u64 data_id = 0;
+    math::DVec3 base{0.0, 0.0, 0.0};
+    std::map<voxel::ChunkCoord, TerrainChunk> chunks;
+};
+
+// Eine Spielfigur (R4.3, PHYS-03).
+struct CharacterRecord {
+    JPH::Ref<JPH::CharacterVirtual> character;
+    JPH::RefConst<JPH::Shape> standing;
+    JPH::RefConst<JPH::Shape> crouching;
+    CharacterController settings;
+    // Zuletzt geschrieben; eine Abweichung ist eine Änderung von außen (Teleport).
+    world::Transform transform;
+    bool has_parent = false;
+    bool crouched = false;
+    bool supported = false;
+    bool frozen = false;
+    // Höchster Punkt seit dem Verlassen des Bodens (für CharacterLanded).
+    f64 fall_top = 0.0;
+    // Weg am Boden seit dem letzten Schritt.
+    f64 step_distance = 0.0;
+};
+
+bool same_character(const CharacterController& a, const CharacterController& b) noexcept {
+    return a.radius == b.radius && a.height == b.height && a.crouch_height == b.crouch_height &&
+           a.max_slope == b.max_slope && a.step_height == b.step_height &&
+           a.jump_height == b.jump_height && a.walk_speed == b.walk_speed &&
+           a.run_speed == b.run_speed && a.crouch_speed == b.crouch_speed &&
+           a.ground_acceleration == b.ground_acceleration &&
+           a.air_acceleration == b.air_acceleration && a.gravity_factor == b.gravity_factor &&
+           a.mass == b.mass && a.push_strength == b.push_strength && a.step_length == b.step_length;
+}
+
+// Aufrechte Kapsel mit dem Fußpunkt im Ursprung.
+JPH::RefConst<JPH::Shape> character_shape(f32 radius, f32 height) {
+    const f32 r = std::max(radius, 0.01f);
+    const f32 h = std::max(height, 2.0f * r);
+    const f32 half_cylinder = 0.5f * h - r;
+    JPH::Ref<JPH::Shape> capsule;
+    if (half_cylinder <= 0.001f) {
+        capsule = created(JPH::SphereShapeSettings{r}.Create(), "Figur");
+    } else {
+        capsule = created(JPH::CapsuleShapeSettings{half_cylinder, r}.Create(), "Figur");
+    }
+    if (capsule == nullptr) {
+        return nullptr;
+    }
+    JPH::RotatedTranslatedShapeSettings moved{JPH::Vec3{0.0f, 0.5f * h, 0.0f},
+                                              JPH::Quat::sIdentity(), capsule};
+    return created(moved.Create(), "Figur");
+}
+
+// Figuren laufen nicht gegen Sensoren.
+class CharacterBodyFilter final : public JPH::BodyFilter {
+public:
+    bool ShouldCollideLocked(const JPH::Body& body) const override {
+        return !body.IsSensor();
+    }
+};
+
+// Baut die Form eines Chunks aus seinem Netz (Positionen in Metern relativ zur Ecke) mit einem
+// Material pro Dreieck (Index in materials). nullptr bei einem Netz ohne brauchbare Dreiecke.
+JPH::Ref<JPH::Shape> terrain_shape(JPH::VertexList vertices, JPH::IndexedTriangleList triangles,
+                                   JPH::PhysicsMaterialList materials) {
+    if (triangles.empty()) {
+        return nullptr;
+    }
+    JPH::MeshShapeSettings settings{std::move(vertices), std::move(triangles),
+                                    std::move(materials)};
+    JPH::ShapeSettings::ShapeResult result = settings.Create();
+    if (result.HasError()) {
+        return nullptr;
+    }
+    return result.Get();
+}
+
 } // namespace
 
 // -------------------------------------------------------------------------------------------------
@@ -507,6 +677,9 @@ struct PhysicsWorld::Impl {
     ObjectPairs object_pairs;
     ContactCollector contacts;
     std::unique_ptr<JPH::PhysicsSystem> system;
+    // Ein Material pro Voxel-Material und ihre Werte aus der Tabelle (R4.3).
+    std::array<JPH::Ref<TerrainSurface>, world::max_terrain_materials> surfaces;
+    SurfaceTable surface_values{};
 
     world::ComponentId transform_id{};
     world::ComponentId body_id{};
@@ -524,6 +697,22 @@ struct PhysicsWorld::Impl {
     std::map<std::pair<u64, u64>, bool> touching;
     events::EventBus* bus = nullptr;
     StepStats stats;
+    // Kollision der Terrains nach Entity des Terrains.
+    std::map<u64, TerrainRecord> terrains;
+    // Körper der Chunks zu Entity des Terrains (für Abfragen; Kontakte melden sie nicht).
+    std::unordered_map<JPH::uint32, u64> terrain_of_body;
+    // Laufende Jobs, die Formen bauen.
+    jobs::Counter terrain_jobs;
+    // Eingefrorene Körper (ohne Form des Terrains unter sich), nach Kennung.
+    std::map<u64, bool> frozen;
+    // Spielfiguren nach Kennung.
+    std::map<u64, CharacterRecord> characters;
+    world::ComponentId character_id{};
+    world::ComponentId motion_id{};
+    std::vector<CharacterLanded> landed_events;
+    std::vector<CharacterStep> step_events;
+    world::ComponentId terrain_state_id{};
+    world::ComponentId world_transform_id{};
     // Einmal pro Entity warnen statt in jedem Schritt.
     std::unordered_map<u64, bool> warned;
 
@@ -539,9 +728,14 @@ struct PhysicsWorld::Impl {
         body_id = w.component<RigidBody>();
         collider_id = w.component<Collider>();
         interpolated_id = w.component<world::Interpolated>();
+        terrain_state_id = w.component<world::TerrainState>();
+        character_id = w.component<CharacterController>();
+        motion_id = w.component<CharacterMotion>();
+        world_transform_id = w.component<world::WorldTransform>();
     }
 
     ~Impl() {
+        jobs->wait(terrain_jobs);
         remove_all();
         job_adapter->drain();
     }
@@ -555,6 +749,11 @@ struct PhysicsWorld::Impl {
                      settings.max_contact_constraints, broad_layers, object_vs_broad, object_pairs);
         system->SetGravity(to_jolt(settings.gravity));
         system->SetContactListener(&contacts);
+        for (usize i = 0; i < surfaces.size(); ++i) {
+            surfaces[i] = new TerrainSurface{static_cast<voxel::Material>(i)};
+        }
+        set_terrain_materials(world::standard_terrain_materials());
+        contacts.surfaces = &surface_values;
     }
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -739,6 +938,7 @@ struct PhysicsWorld::Impl {
         body_interface().RemoveBody(id);
         body_interface().DestroyBody(id);
         entity_of_body.erase(id.GetIndexAndSequenceNumber());
+        frozen.erase(entity);
         // Laufende Kontakte des Körpers enden mit ihm.
         for (auto pair = touching.begin(); pair != touching.end();) {
             if (pair->first.first == entity || pair->first.second == entity) {
@@ -775,11 +975,22 @@ struct PhysicsWorld::Impl {
         while (!bodies.empty()) {
             destroy_body(bodies.begin(), ended, left);
         }
+        while (!characters.empty()) {
+            destroy_character(characters.begin(), ended, left);
+        }
+        for (auto& [entity, terrain] : terrains) {
+            for (auto& [coord, chunk] : terrain.chunks) {
+                remove_chunk_body(chunk);
+            }
+        }
+        terrains.clear();
+        frozen.clear();
         touching.clear();
         (void)contacts.take();
     }
 
     void clear() {
+        jobs->wait(terrain_jobs);
         remove_all();
         create_system();
         shape_cache.clear();
@@ -791,7 +1002,10 @@ struct PhysicsWorld::Impl {
         std::vector<u64> current;
         world->each<const RigidBody, const Collider, const world::Transform>(
             [&](world::Entity entity, const RigidBody&, const Collider&, const world::Transform&) {
-                current.push_back(entity.id());
+                // Eine Spielfigur ist ihr eigener Körper.
+                if (!world->has(entity.id(), character_id)) {
+                    current.push_back(entity.id());
+                }
             });
         std::ranges::sort(current);
 
@@ -873,6 +1087,12 @@ struct PhysicsWorld::Impl {
                                                   : JPH::EActivation::Activate);
             record.transform = transform;
         }
+        if (body.motion == MotionType::Dynamic && frozen.contains(entity)) {
+            // Eingefroren: Die Geschwindigkeit gilt beim Auftauen.
+            record.body.linear_velocity = body.linear_velocity;
+            record.body.angular_velocity = body.angular_velocity;
+            return;
+        }
         if (body.motion == MotionType::Dynamic &&
             (!same(record.body.linear_velocity, body.linear_velocity) ||
              !same(record.body.angular_velocity, body.angular_velocity))) {
@@ -892,7 +1112,7 @@ struct PhysicsWorld::Impl {
         JPH::BodyInterface& bodies_interface = body_interface();
         u32 active = 0;
         for (auto& [entity, record] : bodies) {
-            if (record.body.motion != MotionType::Dynamic) {
+            if (record.body.motion != MotionType::Dynamic || frozen.contains(entity)) {
                 continue;
             }
             const bool awake = bodies_interface.IsActive(record.id);
@@ -979,7 +1199,7 @@ struct PhysicsWorld::Impl {
         }
 
         JPH::BodyInterface& bodies_interface = body_interface();
-        const auto body_of = [&](u64 entity) { return bodies.at(entity).id; };
+        const auto body_of = [&](u64 entity) { return body_id_of(entity); };
         const auto in_contact = [&](u64 a, u64 b) {
             return system->WereBodiesInContact(body_of(a), body_of(b));
         };
@@ -1047,6 +1267,687 @@ struct PhysicsWorld::Impl {
         for (const TriggerEntered& event : entered) {
             bus->publish(event);
         }
+        for (const CharacterLanded& event : landed_events) {
+            bus->publish(event);
+        }
+        for (const CharacterStep& event : step_events) {
+            bus->publish(event);
+        }
+    }
+
+    // --- Spielfiguren (R4.3) ---------------------------------------------------------------------
+
+    [[nodiscard]] JPH::BodyID body_id_of(u64 entity) const {
+        if (const auto found = bodies.find(entity); found != bodies.end()) {
+            return found->second.id;
+        }
+        if (const auto found = characters.find(entity); found != characters.end()) {
+            return found->second.character->GetInnerBodyID();
+        }
+        return {};
+    }
+
+    void destroy_character(std::map<u64, CharacterRecord>::iterator it,
+                           std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
+        const u64 entity = it->first;
+        entity_of_body.erase(it->second.character->GetInnerBodyID().GetIndexAndSequenceNumber());
+        for (auto pair = touching.begin(); pair != touching.end();) {
+            if (pair->first.first == entity || pair->first.second == entity) {
+                emit_end(pair->first.first, pair->first.second, ended, left);
+                pair = touching.erase(pair);
+            } else {
+                ++pair;
+            }
+        }
+        // Der Destruktor nimmt den inneren Körper aus der Welt.
+        characters.erase(it);
+    }
+
+    bool create_character(u64 entity, const CharacterController& controller,
+                          const world::Transform& transform) {
+        bool has_parent = false;
+        const math::Decomposed pose = world_pose(entity, transform, has_parent);
+        CharacterRecord record;
+        record.standing = character_shape(controller.radius, controller.height);
+        record.crouching = character_shape(controller.radius,
+                                           std::min(controller.crouch_height, controller.height));
+        if (record.standing == nullptr || record.crouching == nullptr) {
+            warn_once(entity, "Spielfigur ohne gültige Form");
+            return false;
+        }
+        JPH::Ref<JPH::CharacterVirtualSettings> character_settings =
+            new JPH::CharacterVirtualSettings();
+        character_settings->mID = JPH::CharacterID{static_cast<JPH::uint32>(entity)};
+        character_settings->mShape = record.standing;
+        character_settings->mMaxSlopeAngle = controller.max_slope;
+        // Nur Berührungen unterhalb der unteren Halbkugel tragen die Figur.
+        character_settings->mSupportingVolume =
+            JPH::Plane{JPH::Vec3::sAxisY(), -std::max(controller.radius, 0.01f)};
+        character_settings->mMass = controller.mass;
+        character_settings->mMaxStrength = controller.push_strength;
+        character_settings->mEnhancedInternalEdgeRemoval = true;
+        character_settings->mInnerBodyShape = record.standing;
+        character_settings->mInnerBodyLayer = object_layer(PhysicsLayer::Character);
+        record.character = new JPH::CharacterVirtual(character_settings, to_jolt(pose.translation),
+                                                     JPH::Quat::sIdentity(), entity, system.get());
+        record.settings = controller;
+        record.transform = transform;
+        record.has_parent = has_parent;
+        record.fall_top = pose.translation.y;
+        entity_of_body[record.character->GetInnerBodyID().GetIndexAndSequenceNumber()] = entity;
+        characters[entity] = std::move(record);
+        return true;
+    }
+
+    // Legt Figuren an, entfernt und ändert sie (vor dem Schritt, nach den Körpern).
+    void sync_characters(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
+        std::vector<u64> current;
+        world->each<const CharacterController, const world::Transform>(
+            [&](world::Entity entity, const CharacterController&, const world::Transform&) {
+                current.push_back(entity.id());
+            });
+        std::ranges::sort(current);
+        for (auto it = characters.begin(); it != characters.end();) {
+            if (!std::ranges::binary_search(current, it->first)) {
+                auto next = std::next(it);
+                destroy_character(it, ended, left);
+                it = next;
+            } else {
+                ++it;
+            }
+        }
+        // Strukturänderungen vor allen Zeigern in die Welt.
+        for (const u64 entity : current) {
+            if (!world->has(entity, motion_id)) {
+                (void)world->ensure(entity, motion_id);
+                world->modified(entity, motion_id);
+            }
+            if (!world->has(entity, interpolated_id)) {
+                (void)world->ensure(entity, interpolated_id);
+                world->modified(entity, interpolated_id);
+            }
+        }
+        for (const u64 entity : current) {
+            const auto* controller =
+                static_cast<const CharacterController*>(world->get(entity, character_id));
+            const auto* transform =
+                static_cast<const world::Transform*>(world->get(entity, transform_id));
+            auto found = characters.find(entity);
+            if (found != characters.end()) {
+                if (!same_character(found->second.settings, *controller)) {
+                    destroy_character(found, ended, left);
+                } else {
+                    CharacterRecord& record = found->second;
+                    // Nur die Lage zählt: Die Steuerung dreht die Figur jedes Bild um die
+                    // Hochachse, das ist kein Versetzen.
+                    const world::Transform& before = record.transform;
+                    const bool moved = before.position.x != transform->position.x ||
+                                       before.position.y != transform->position.y ||
+                                       before.position.z != transform->position.z;
+                    record.transform = *transform;
+                    if (moved) {
+                        // Von außen versetzt: Die Figur springt an die neue Lage.
+                        bool has_parent = false;
+                        const math::Decomposed pose = world_pose(entity, *transform, has_parent);
+                        record.character->SetPosition(to_jolt(pose.translation));
+                        record.character->SetLinearVelocity(JPH::Vec3::sZero());
+                        record.has_parent = has_parent;
+                        record.fall_top = pose.translation.y;
+                    }
+                    continue;
+                }
+            }
+            (void)create_character(entity, *controller, *transform);
+        }
+    }
+
+    // Bewegt alle Figuren um dt (vor dem Schritt der Körper, damit Kisten den Schub im selben
+    // Schritt spüren).
+    void update_characters(f32 dt) {
+        NGINE_PROFILE_ZONE("PhysicsWorld::characters");
+        landed_events.clear();
+        step_events.clear();
+        const JPH::Vec3 gravity = system->GetGravity();
+        const CharacterBodyFilter body_filter;
+        const JPH::ShapeFilter shape_filter;
+        const JPH::BroadPhaseLayerFilter& broad =
+            system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
+        const JPH::ObjectLayerFilter& object =
+            system->GetDefaultLayerFilter(object_layer(PhysicsLayer::Character));
+        for (auto& [entity, record] : characters) {
+            auto* motion = static_cast<CharacterMotion*>(world->get_mut(entity, motion_id));
+            JPH::CharacterVirtual& character = *record.character;
+            const CharacterController& c = record.settings;
+
+            // Ohne Form des Terrains unter sich bleibt die Figur stehen.
+            record.frozen = !terrains.empty() && missing_ground(from_jolt(character.GetPosition()));
+            if (record.frozen) {
+                character.SetLinearVelocity(JPH::Vec3::sZero());
+                motion->velocity = {};
+                motion->jump = false;
+                continue;
+            }
+
+            // Ducken: Aufstehen nur, wenn über der Figur Platz ist.
+            if (motion->crouch != record.crouched) {
+                const JPH::Shape* target =
+                    motion->crouch ? record.crouching.GetPtr() : record.standing.GetPtr();
+                if (character.SetShape(target, 1.5f * 0.02f, broad, object, body_filter,
+                                       shape_filter, *temp)) {
+                    record.crouched = motion->crouch;
+                }
+            }
+
+            const JPH::Vec3 g = gravity * c.gravity_factor;
+            const JPH::Vec3 current = character.GetLinearVelocity();
+            const JPH::CharacterBase::EGroundState state = character.GetGroundState();
+            const bool on_ground = state == JPH::CharacterBase::EGroundState::OnGround;
+
+            // Wunschgeschwindigkeit auf der Ebene.
+            JPH::Vec3 wish{motion->move.x, 0.0f, motion->move.z};
+            if (wish.LengthSq() > 1.0f) {
+                wish = wish.Normalized();
+            }
+            const f32 speed = record.crouched ? c.crouch_speed
+                              : motion->run   ? c.run_speed
+                                              : c.walk_speed;
+            wish *= speed;
+            if (state == JPH::CharacterBase::EGroundState::OnSteepGround) {
+                wish = character.CancelVelocityTowardsSteepSlopes(wish);
+            }
+            const JPH::Vec3 ground_velocity =
+                on_ground ? character.GetGroundVelocity() : JPH::Vec3::sZero();
+            JPH::Vec3 horizontal{current.GetX() - ground_velocity.GetX(), 0.0f,
+                                 current.GetZ() - ground_velocity.GetZ()};
+            const f32 acceleration = on_ground ? c.ground_acceleration : c.air_acceleration;
+            const JPH::Vec3 change = wish - horizontal;
+            const f32 max_change = acceleration * dt;
+            if (change.Length() <= max_change) {
+                horizontal = wish;
+            } else {
+                horizontal += change.Normalized() * max_change;
+            }
+
+            f32 vertical = current.GetY();
+            if (on_ground) {
+                vertical = ground_velocity.GetY();
+                if (motion->jump && c.jump_height > 0.0f) {
+                    vertical += std::sqrt(2.0f * g.Length() * c.jump_height);
+                }
+            }
+            vertical += g.GetY() * dt;
+            motion->jump = false;
+            character.SetLinearVelocity(JPH::Vec3{horizontal.GetX() + ground_velocity.GetX(),
+                                                  vertical,
+                                                  horizontal.GetZ() + ground_velocity.GetZ()});
+
+            const JPH::RVec3 before = character.GetPosition();
+            const f32 before_vertical = character.GetLinearVelocity().GetY();
+            JPH::CharacterVirtual::ExtendedUpdateSettings update;
+            update.mWalkStairsStepUp = JPH::Vec3{0.0f, c.step_height, 0.0f};
+            update.mStickToFloorStepDown = JPH::Vec3{0.0f, -std::max(c.step_height, 0.1f), 0.0f};
+            character.ExtendedUpdate(dt, g, update, broad, object, body_filter, shape_filter,
+                                     *temp);
+
+            const JPH::RVec3 after = character.GetPosition();
+            const JPH::CharacterBase::EGroundState now = character.GetGroundState();
+            const bool supported = now == JPH::CharacterBase::EGroundState::OnGround;
+            motion->velocity = from_jolt(character.GetLinearVelocity());
+            motion->ground = supported ? GroundState::Ground
+                             : now == JPH::CharacterBase::EGroundState::OnSteepGround
+                                 ? GroundState::Steep
+                                 : GroundState::Air;
+            motion->ground_normal = character.IsSupported() ? from_jolt(character.GetGroundNormal())
+                                                            : math::Vec3{0.0f, 1.0f, 0.0f};
+            motion->ground_entity =
+                character.IsSupported() ? entity_of(character.GetGroundBodyID()) : 0;
+            motion->ground_material = 0;
+            if (character.IsSupported()) {
+                if (const auto* surface =
+                        dynamic_cast<const TerrainSurface*>(character.GetGroundMaterial())) {
+                    motion->ground_material = surface->material;
+                }
+            }
+            motion->crouched = record.crouched;
+
+            const f64 y = static_cast<f64>(after.GetY());
+            if (!supported) {
+                record.fall_top = record.supported ? y : std::max(record.fall_top, y);
+                record.step_distance = 0.0;
+            } else {
+                if (!record.supported) {
+                    landed_events.push_back(CharacterLanded{
+                        .entity = entity,
+                        .height = static_cast<f32>(std::max(record.fall_top - y, 0.0)),
+                        .speed = std::max(-before_vertical, 0.0f),
+                        .material = motion->ground_material});
+                }
+                const f64 dx = static_cast<f64>(after.GetX() - before.GetX());
+                const f64 dz = static_cast<f64>(after.GetZ() - before.GetZ());
+                record.step_distance += std::sqrt(dx * dx + dz * dz);
+                if (record.step_distance >= static_cast<f64>(c.step_length)) {
+                    record.step_distance -= static_cast<f64>(c.step_length);
+                    step_events.push_back(CharacterStep{.entity = entity,
+                                                        .position = from_jolt(after),
+                                                        .material = motion->ground_material,
+                                                        .run = motion->run});
+                }
+                record.fall_top = y;
+            }
+            record.supported = supported;
+
+            // Fußpunkt zurück in Transform (lokal, wenn die Figur ein Elternteil hat).
+            auto* transform = static_cast<world::Transform*>(world->get_mut(entity, transform_id));
+            const math::DVec3 position = from_jolt(after);
+            if (!record.has_parent) {
+                transform->position = position;
+            } else {
+                const u64 parent = world->parent(entity);
+                const math::Affine global =
+                    math::Affine::from(position, transform->rotation, {1.0f, 1.0f, 1.0f});
+                transform->position =
+                    math::decompose(math::inverse(world::world_affine(*world, parent)) * global)
+                        .translation;
+            }
+            world->modified(entity, transform_id);
+            record.transform = *transform;
+        }
+    }
+
+    // --- Kollision des Terrains (R4.3) -----------------------------------------------------------
+
+    void remove_chunk_body(TerrainChunk& chunk) {
+        if (chunk.body.IsInvalid()) {
+            return;
+        }
+        terrain_of_body.erase(chunk.body.GetIndexAndSequenceNumber());
+        body_interface().RemoveBody(chunk.body);
+        body_interface().DestroyBody(chunk.body);
+        chunk.body = {};
+    }
+
+    // Lage aller Dinge, die Formen brauchen: dynamische Körper und Beobachter (Spielfiguren
+    // folgen mit ihnen).
+    std::vector<math::DVec3> terrain_anchors() {
+        std::vector<math::DVec3> anchors;
+        JPH::BodyInterface& bodies_interface = body_interface();
+        for (const auto& [entity, record] : bodies) {
+            if (record.body.motion == MotionType::Dynamic) {
+                anchors.push_back(from_jolt(bodies_interface.GetPosition(record.id)));
+            }
+        }
+        for (const auto& [entity, record] : characters) {
+            anchors.push_back(from_jolt(record.character->GetPosition()));
+        }
+        world->each<const world::TerrainObserver, const world::WorldTransform>(
+            [&](world::Entity, const world::TerrainObserver& observer,
+                const world::WorldTransform& transform) {
+                if (observer.active) {
+                    anchors.push_back(transform.position());
+                }
+            });
+        return anchors;
+    }
+
+    // Chunks der Stufe 0 eines Terrains, die eine Form brauchen: mit Netz und im Radius um einen
+    // Anker. Sortiert.
+    std::vector<voxel::ChunkCoord> needed_chunks(const world::TerrainData& data, math::DVec3 base,
+                                                 std::span<const math::DVec3> anchors) const {
+        const f64 radius = static_cast<f64>(std::max(settings.terrain_radius, 0.0f));
+        const auto reach = static_cast<i32>(std::ceil(radius / voxel::chunk_size));
+        std::unordered_set<voxel::ChunkCoord, voxel::ChunkCoordHash> centers;
+        for (const math::DVec3& anchor : anchors) {
+            const math::DVec3 local = (anchor - base) * (1.0 / voxel::voxel_size);
+            centers.insert(voxel::chunk_of(static_cast<i64>(std::floor(local.x)),
+                                           static_cast<i64>(std::floor(local.y)),
+                                           static_cast<i64>(std::floor(local.z))));
+        }
+        std::unordered_set<voxel::ChunkCoord, voxel::ChunkCoordHash> needed;
+        for (const voxel::ChunkCoord center : centers) {
+            for (i32 dz = -reach; dz <= reach; ++dz) {
+                for (i32 dy = -reach; dy <= reach; ++dy) {
+                    for (i32 dx = -reach; dx <= reach; ++dx) {
+                        const voxel::ChunkCoord coord{center.x + dx, center.y + dy, center.z + dz,
+                                                      0};
+                        if (needed.contains(coord) || !data.meshes.contains(coord)) {
+                            continue;
+                        }
+                        needed.insert(coord);
+                    }
+                }
+            }
+        }
+        // Genauer: nur Chunks, deren Würfel näher als radius an einem Anker liegt. Die Mitten der
+        // Würfel reichen als Maß; reach deckt die Nachbarn ab.
+        std::vector<voxel::ChunkCoord> result;
+        result.reserve(needed.size());
+        const f64 half = voxel::chunk_size * 0.5;
+        const f64 limit = radius + half * 1.7320508;
+        for (const voxel::ChunkCoord coord : needed) {
+            const math::DVec3 center =
+                base + voxel::chunk_position(coord) + math::DVec3{half, half, half};
+            for (const math::DVec3& anchor : anchors) {
+                const math::DVec3 d = center - anchor;
+                if (d.x * d.x + d.y * d.y + d.z * d.z <= limit * limit) {
+                    result.push_back(coord);
+                    break;
+                }
+            }
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }
+
+    // Startet einen Job, der die Form aus dem Netz baut.
+    void start_build(TerrainChunk& chunk, const world::ChunkMesh& mesh) {
+        auto build = std::make_shared<TerrainBuild>();
+        build->version = mesh.version;
+        JPH::VertexList vertices;
+        vertices.reserve(mesh.mesh.vertices.size());
+        const auto scale = static_cast<f32>(voxel::voxel_size);
+        for (const voxel::Vertex& v : mesh.mesh.vertices) {
+            vertices.push_back(JPH::Float3{v.px * scale, v.py * scale, v.pz * scale});
+        }
+        // Material eines Dreiecks: der Platz der Palette mit dem größten Gewicht an seinen drei
+        // Ecken (höchstens acht Plätze, Jolt erlaubt 32 Materialien pro Form).
+        const voxel::Mesh& source = mesh.mesh;
+        const u32 slots = std::max(source.palette_count, 1u);
+        JPH::PhysicsMaterialList materials;
+        for (u32 slot = 0; slot < slots; ++slot) {
+            materials.push_back(
+                JPH::RefConst<JPH::PhysicsMaterial>{surfaces[source.palette[slot]]});
+        }
+        JPH::IndexedTriangleList triangles;
+        triangles.reserve(source.indices.size() / 3);
+        for (usize i = 0; i + 2 < source.indices.size(); i += 3) {
+            const u32 a = source.indices[i];
+            const u32 b = source.indices[i + 1];
+            const u32 c = source.indices[i + 2];
+            u32 best = 0;
+            u32 best_weight = 0;
+            for (u32 slot = 0; slot < source.palette_count; ++slot) {
+                const u32 weight = source.vertices[a].weight(slot) +
+                                   source.vertices[b].weight(slot) +
+                                   source.vertices[c].weight(slot);
+                if (weight > best_weight) {
+                    best = slot;
+                    best_weight = weight;
+                }
+            }
+            triangles.push_back(JPH::IndexedTriangle{a, b, c, best});
+        }
+        build->vertices = std::move(vertices);
+        build->input = std::move(triangles);
+        build->materials = std::move(materials);
+        chunk.build = build;
+        auto work = [build] {
+            const auto start = std::chrono::steady_clock::now();
+            build->triangles = static_cast<u32>(build->input.size());
+            build->shape = terrain_shape(std::move(build->vertices), std::move(build->input),
+                                         std::move(build->materials));
+            build->ms =
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count();
+            build->done.store(true, std::memory_order_release);
+        };
+        if constexpr (jolt_on_workers) {
+            jobs->run(std::move(work), &terrain_jobs);
+        } else {
+            // Unter ThreadSanitizer baut Jolt nur im Hauptthread (TD-47).
+            work();
+        }
+    }
+
+    // Setzt eine fertige Form ein; liefert, ob sich die Kollision geändert hat.
+    bool finish_build(u64 terrain_entity, const TerrainRecord& terrain, voxel::ChunkCoord coord,
+                      TerrainChunk& chunk, f64& build_ms, u32& built) {
+        std::shared_ptr<TerrainBuild> build = std::move(chunk.build);
+        chunk.build.reset();
+        built += 1;
+        build_ms += build->ms;
+        JPH::BodyInterface& bodies_interface = body_interface();
+        if (build->shape == nullptr) {
+            // Netz ohne Dreiecke: keine Form.
+            remove_chunk_body(chunk);
+            chunk.version = build->version;
+            chunk.triangles = 0;
+            chunk.bytes = 0;
+            return true;
+        }
+        chunk.version = build->version;
+        chunk.triangles = build->triangles;
+        chunk.bytes = build->shape->GetStats().mSizeBytes;
+        if (chunk.body.IsInvalid()) {
+            JPH::BodyCreationSettings creation{build->shape.GetPtr(),
+                                               to_jolt(terrain.base + voxel::chunk_position(coord)),
+                                               JPH::Quat::sIdentity(), JPH::EMotionType::Static,
+                                               object_layer(PhysicsLayer::Static)};
+            creation.mUserData = terrain_entity;
+            JPH::Body* body = bodies_interface.CreateBody(creation);
+            if (body == nullptr) {
+                warn_once(terrain_entity, "kein Platz mehr für Formen des Terrains");
+                return false;
+            }
+            chunk.body = body->GetID();
+            bodies_interface.AddBody(chunk.body, JPH::EActivation::DontActivate);
+            terrain_of_body[chunk.body.GetIndexAndSequenceNumber()] = terrain_entity;
+        } else {
+            bodies_interface.SetShape(chunk.body, build->shape.GetPtr(), false,
+                                      JPH::EActivation::DontActivate);
+        }
+        // Körper in der Nähe wecken: Liegt eine Kiste auf weggegrabenem Boden, fällt sie.
+        const math::DVec3 corner = terrain.base + voxel::chunk_position(coord);
+        constexpr f64 margin = 1.0;
+        const auto low = math::to_f32(corner - math::DVec3{margin, margin, margin});
+        const auto high = math::to_f32(corner + math::DVec3{voxel::chunk_size + margin,
+                                                            voxel::chunk_size + margin,
+                                                            voxel::chunk_size + margin});
+        const QueryBroadFilter broad{all_layers};
+        const QueryObjectFilter object{all_layers};
+        bodies_interface.ActivateBodiesInAABox(
+            JPH::AABox{JPH::Vec3{low.x, low.y, low.z}, JPH::Vec3{high.x, high.y, high.z}}, broad,
+            object);
+        return true;
+    }
+
+    // Hält die Formen aller Terrains aktuell.
+    void sync_terrains() {
+        NGINE_PROFILE_ZONE("PhysicsWorld::sync_terrains");
+        struct Live {
+            u64 entity;
+            std::shared_ptr<world::TerrainData> data;
+            math::DVec3 base;
+        };
+        std::vector<Live> live;
+        world->each<const world::TerrainState, const world::WorldTransform>(
+            [&](world::Entity entity, const world::TerrainState& state,
+                const world::WorldTransform& transform) {
+                if (state.data) {
+                    live.push_back(Live{entity.id(), state.data, transform.position()});
+                }
+            });
+        std::ranges::sort(live, {}, &Live::entity);
+
+        // Weggefallene Terrains.
+        for (auto it = terrains.begin(); it != terrains.end();) {
+            const bool alive =
+                std::ranges::any_of(live, [&](const Live& l) { return l.entity == it->first; });
+            if (!alive) {
+                for (auto& [coord, chunk] : it->second.chunks) {
+                    remove_chunk_body(chunk);
+                }
+                it = terrains.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (live.empty()) {
+            stats.terrain_chunks = 0;
+            stats.terrain_building = 0;
+            stats.terrain_built = 0;
+            stats.terrain_bytes = 0;
+            return;
+        }
+
+        const std::vector<math::DVec3> anchors = terrain_anchors();
+        f64 build_ms = 0.0;
+        u32 built = 0;
+        for (const Live& l : live) {
+            TerrainRecord& terrain = terrains[l.entity];
+            if (terrain.data_id != l.data->id) {
+                for (auto& [coord, chunk] : terrain.chunks) {
+                    remove_chunk_body(chunk);
+                }
+                terrain.chunks.clear();
+                terrain.data_id = l.data->id;
+                terrain.base = l.base;
+            }
+            if (!(terrain.base == l.base)) {
+                // Das Terrain wurde verschoben: alle Formen mit.
+                terrain.base = l.base;
+                for (auto& [coord, chunk] : terrain.chunks) {
+                    if (!chunk.body.IsInvalid()) {
+                        body_interface().SetPosition(chunk.body,
+                                                     to_jolt(l.base + voxel::chunk_position(coord)),
+                                                     JPH::EActivation::DontActivate);
+                    }
+                }
+            }
+            const std::vector<voxel::ChunkCoord> needed = needed_chunks(*l.data, l.base, anchors);
+            for (const voxel::ChunkCoord coord : needed) {
+                TerrainChunk& chunk = terrain.chunks[coord];
+                chunk.unused = 0;
+                const world::ChunkMesh& mesh = l.data->meshes.at(coord);
+                const bool current = chunk.version == mesh.version;
+                const bool building = chunk.build && chunk.build->version == mesh.version;
+                if (!current && !building) {
+                    start_build(chunk, mesh);
+                }
+            }
+            // Formen ohne Bedarf oder ohne Netz fallen nach einer Weile weg.
+            for (auto it = terrain.chunks.begin(); it != terrain.chunks.end();) {
+                TerrainChunk& chunk = it->second;
+                const bool has_mesh = l.data->meshes.contains(it->first);
+                if (!std::binary_search(needed.begin(), needed.end(), it->first)) {
+                    ++chunk.unused;
+                }
+                if (!has_mesh || chunk.unused > settings.terrain_keep_steps) {
+                    if (!chunk.build) {
+                        remove_chunk_body(chunk);
+                        it = terrain.chunks.erase(it);
+                        continue;
+                    }
+                }
+                ++it;
+            }
+        }
+
+        if (settings.wait_for_terrain) {
+            jobs->wait(terrain_jobs);
+        }
+        // Fertige Formen einsetzen, in der Reihenfolge der Terrains und Chunks.
+        u32 building = 0;
+        u32 chunks_with_shape = 0;
+        usize bytes = 0;
+        for (auto& [entity, terrain] : terrains) {
+            for (auto it = terrain.chunks.begin(); it != terrain.chunks.end();) {
+                TerrainChunk& chunk = it->second;
+                if (chunk.build && chunk.build->done.load(std::memory_order_acquire)) {
+                    (void)finish_build(entity, terrain, it->first, chunk, build_ms, built);
+                    if (chunk.body.IsInvalid() && chunk.unused > settings.terrain_keep_steps) {
+                        it = terrain.chunks.erase(it);
+                        continue;
+                    }
+                }
+                if (chunk.build) {
+                    ++building;
+                }
+                if (!chunk.body.IsInvalid()) {
+                    ++chunks_with_shape;
+                    bytes += chunk.bytes;
+                }
+                ++it;
+            }
+        }
+        stats.terrain_chunks = chunks_with_shape;
+        stats.terrain_building = building;
+        stats.terrain_built = built;
+        if (built > 0) {
+            stats.terrain_build_ms = build_ms / static_cast<f64>(built);
+        }
+        stats.terrain_bytes = bytes;
+    }
+
+    // Ob unter einer Lage die Kollision des Terrains fehlt: Der Chunk der Stufe 0 an der Lage
+    // oder einer der beiden darunter hat ein Netz, aber noch keine Form dazu, oder ein endloses
+    // Terrain hat dort noch gar keine Chunks der Stufe 0 geladen.
+    [[nodiscard]] bool missing_ground(math::DVec3 position) const {
+        for (const auto& [entity, terrain] : terrains) {
+            const world::Entity handle = world->entity(entity);
+            const auto* state =
+                static_cast<const world::TerrainState*>(world->get(entity, terrain_state_id));
+            if (state == nullptr || !state->data || !handle) {
+                continue;
+            }
+            const world::TerrainData& data = *state->data;
+            const math::DVec3 local = (position - terrain.base) * (1.0 / voxel::voxel_size);
+            const voxel::ChunkCoord at = voxel::chunk_of(static_cast<i64>(std::floor(local.x)),
+                                                         static_cast<i64>(std::floor(local.y)),
+                                                         static_cast<i64>(std::floor(local.z)));
+            bool loaded = false;
+            for (i32 dy = 0; dy <= 2; ++dy) {
+                const voxel::ChunkCoord coord{at.x, at.y - dy, at.z, 0};
+                if (data.chunks.find(coord) != nullptr) {
+                    loaded = true;
+                }
+                const auto mesh = data.meshes.find(coord);
+                if (mesh == data.meshes.end()) {
+                    continue;
+                }
+                loaded = true;
+                const auto chunk = terrain.chunks.find(coord);
+                if (chunk == terrain.chunks.end() || chunk->second.version == 0) {
+                    return true;
+                }
+            }
+            if (!loaded && data.streamer) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Friert dynamische Körper ohne Boden ein und taut sie auf, sobald er da ist.
+    void update_frozen() {
+        NGINE_PROFILE_ZONE("PhysicsWorld::update_frozen");
+        JPH::BodyInterface& bodies_interface = body_interface();
+        for (auto& [entity, record] : bodies) {
+            if (record.body.motion != MotionType::Dynamic) {
+                continue;
+            }
+            const bool is_frozen = frozen.contains(entity);
+            if (!is_frozen && !bodies_interface.IsActive(record.id)) {
+                // Schlafende Körper bleiben liegen, bis jemand sie weckt.
+                continue;
+            }
+            const bool missing = !terrains.empty() &&
+                                 missing_ground(from_jolt(bodies_interface.GetPosition(record.id)));
+            if (missing && !is_frozen) {
+                bodies_interface.SetMotionType(record.id, JPH::EMotionType::Kinematic,
+                                               JPH::EActivation::DontActivate);
+                bodies_interface.SetLinearAndAngularVelocity(record.id, JPH::Vec3::sZero(),
+                                                             JPH::Vec3::sZero());
+                frozen[entity] = true;
+            } else if (!missing && is_frozen) {
+                bodies_interface.SetMotionType(record.id, JPH::EMotionType::Dynamic,
+                                               JPH::EActivation::Activate);
+                bodies_interface.SetLinearAndAngularVelocity(record.id,
+                                                             to_jolt(record.body.linear_velocity),
+                                                             to_jolt(record.body.angular_velocity));
+                frozen.erase(entity);
+            }
+        }
+        stats.frozen_bodies = static_cast<u32>(frozen.size());
     }
 
     JPH::Ref<JPH::Shape> query_shape(const QueryShape& shape) const {
@@ -1054,9 +1955,23 @@ struct PhysicsWorld::Impl {
                                {1.0f, 1.0f, 1.0f});
     }
 
+    void set_terrain_materials(const world::TerrainMaterials& table) {
+        for (usize i = 0; i < surface_values.size(); ++i) {
+            const world::TerrainMaterial* material = table.find(static_cast<u32>(i));
+            surface_values[i] = material != nullptr
+                                    ? SurfaceValues{.friction = material->friction,
+                                                    .restitution = material->restitution}
+                                    : SurfaceValues{};
+        }
+    }
+
     [[nodiscard]] u64 entity_of(JPH::BodyID id) const {
-        const auto found = entity_of_body.find(id.GetIndexAndSequenceNumber());
-        return found != entity_of_body.end() ? found->second : 0;
+        const JPH::uint32 key = id.GetIndexAndSequenceNumber();
+        if (const auto found = entity_of_body.find(key); found != entity_of_body.end()) {
+            return found->second;
+        }
+        const auto terrain = terrain_of_body.find(key);
+        return terrain != terrain_of_body.end() ? terrain->second : 0;
     }
 
     RayHit ray_hit(const JPH::RRayCast& ray, const JPH::RayCastResult& result,
@@ -1070,6 +1985,10 @@ struct PhysicsWorld::Impl {
         if (lock.Succeeded()) {
             hit.normal =
                 from_jolt(lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, point));
+            if (const auto material =
+                    terrain_material(*lock.GetBody().GetShape(), result.mSubShapeID2)) {
+                hit.material = *material;
+            }
         }
         return hit;
     }
@@ -1085,6 +2004,14 @@ PhysicsWorld::~PhysicsWorld() = default;
 void PhysicsWorld::set_shape_source(ShapeSource source) {
     impl_->shape_source = std::move(source);
     impl_->shape_cache.clear();
+}
+
+void PhysicsWorld::set_terrain_materials(const world::TerrainMaterials& table) {
+    impl_->set_terrain_materials(table);
+}
+
+void PhysicsWorld::set_wait_for_terrain(bool wait) noexcept {
+    impl_->settings.wait_for_terrain = wait;
 }
 
 void PhysicsWorld::set_events(events::EventBus* bus) noexcept {
@@ -1117,7 +2044,12 @@ void PhysicsWorld::step(f32 dt) {
 
     const auto start = clock::now();
     impl.sync(ended, left, dt);
+    impl.sync_characters(ended, left);
+    impl.sync_terrains();
+    impl.update_frozen();
     const auto synced = clock::now();
+    impl.update_characters(dt);
+    impl.stats.characters_ms = ms(clock::now() - synced);
     {
         NGINE_PROFILE_ZONE("PhysicsSystem::Update");
         const JPH::EPhysicsUpdateError error = impl.system->Update(
@@ -1138,6 +2070,7 @@ void PhysicsWorld::step(f32 dt) {
     impl.stats.update_ms = ms(updated - synced);
     impl.stats.write_back_ms = ms(written - updated);
     impl.stats.bodies = static_cast<u32>(impl.bodies.size());
+    impl.stats.characters = static_cast<u32>(impl.characters.size());
 }
 
 void PhysicsWorld::clear() {
@@ -1256,6 +2189,31 @@ bool PhysicsWorld::is_active(u64 entity) const noexcept {
         return false;
     }
     return impl_->system->GetBodyInterfaceNoLock().IsActive(found->second.id);
+}
+
+bool PhysicsWorld::is_frozen(u64 entity) const noexcept {
+    return impl_->frozen.contains(entity);
+}
+
+std::vector<TerrainChunkShape> PhysicsWorld::terrain_shapes() const {
+    std::vector<TerrainChunkShape> result;
+    for (const auto& [entity, terrain] : impl_->terrains) {
+        for (const auto& [coord, chunk] : terrain.chunks) {
+            if (chunk.body.IsInvalid()) {
+                continue;
+            }
+            result.push_back(
+                TerrainChunkShape{.terrain = entity,
+                                  .x = coord.x,
+                                  .y = coord.y,
+                                  .z = coord.z,
+                                  .corner = terrain.base + voxel::chunk_position(coord),
+                                  .size = static_cast<f32>(voxel::chunk_size),
+                                  .triangles = chunk.triangles,
+                                  .rebuilding = chunk.build != nullptr});
+        }
+    }
+    return result;
 }
 
 usize PhysicsWorld::body_count() const noexcept {

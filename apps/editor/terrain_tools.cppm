@@ -6,6 +6,7 @@ module;
 #include <format>
 #include <optional>
 #include <string>
+#include <vector>
 
 // Voxel-Werkzeuge im Viewport des Editors (EDIT-08, R3.4): Werkzeugleiste mit Pinsel, Radius,
 // Stärke und Material, Pinselvorschau als Kreis auf dem Terrain unter der Maus und Pinselstriche
@@ -48,12 +49,6 @@ ui::UiColor mode_color(voxel::BrushMode mode) {
     return {1.0f, 1.0f, 1.0f, 1.0f};
 }
 
-// Materialien der Standardtabelle (voxel::grass bis voxel::sand).
-const std::array<std::string, 4>& material_names() {
-    static const std::array<std::string, 4> names{"Gras", "Fels", "Erde", "Sand"};
-    return names;
-}
-
 // Grenzen des Pinselradius in Metern.
 constexpr f32 min_radius = 0.5f;
 constexpr f32 max_radius = 32.0f;
@@ -63,6 +58,9 @@ public:
     edit::TerrainBrushTool tool;
     // Pinsel an: Linksklick ins Bild formt das ausgewählte Terrain statt auszuwählen.
     bool active = false;
+    // Materialtabelle des Terrains (R4.3); Auftragen und Bemalen bieten alle Materialien außer
+    // Luft an. Muss gesetzt sein, solange gezeichnet wird.
+    const world::TerrainMaterials* materials = nullptr;
 
     // Ausgewähltes Terrain, sonst 0.
     [[nodiscard]] static edit::EntityId selected_terrain(edit::SceneDocument& document,
@@ -104,14 +102,20 @@ public:
             ui::drag_scalars("Stärke", ui::DataType::F32, &settings.strength, 1, 0.01f,
                              &min_strength, &max_strength, "%.2f");
         }
-        if (settings.mode == voxel::BrushMode::Add || settings.mode == voxel::BrushMode::Paint) {
-            usize material = settings.material >= voxel::grass && settings.material <= voxel::sand
-                                 ? settings.material - voxel::grass
-                                 : 1;
+        if ((settings.mode == voxel::BrushMode::Add || settings.mode == voxel::BrushMode::Paint) &&
+            materials != nullptr && materials->materials.size() > 1) {
+            std::vector<std::string> names;
+            for (usize i = 1; i < materials->materials.size(); ++i) {
+                names.push_back(materials->materials[i].name);
+            }
+            usize material =
+                settings.material >= 1 && settings.material < materials->materials.size()
+                    ? settings.material - 1u
+                    : 0;
             ui::same_line();
-            ui::set_next_item_width(80.0f);
-            if (ui::combo("Material", material, material_names())) {
-                settings.material = static_cast<voxel::Material>(voxel::grass + material);
+            ui::set_next_item_width(100.0f);
+            if (ui::combo("Material", material, names)) {
+                settings.material = static_cast<voxel::Material>(material + 1);
             }
         }
         ui::end_disabled();

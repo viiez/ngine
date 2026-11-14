@@ -67,7 +67,8 @@ set_source_files_properties(shader_compiler/shader_compiler_tests.cpp PROPERTIES
     COMPILE_DEFINITIONS "NGINE_SHADER_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\"")
 ngine_copy_slang_runtime(ngine_tests)
 # Beispiel-Assets für den Test des Ladens über Asset-IDs.
-set_source_files_properties(render/renderer_tests.cpp cook/cook_tests.cpp input/input_tests.cpp PROPERTIES
+set_source_files_properties(render/renderer_tests.cpp cook/cook_tests.cpp input/input_tests.cpp
+    world/terrain_tests.cpp PROPERTIES
     COMPILE_DEFINITIONS "NGINE_ASSET_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}/assets\"")
 set_source_files_properties(math/math_oracle_tests.cpp PROPERTIES
     COMPILE_DEFINITIONS "GLM_FORCE_DEPTH_ZERO_TO_ONE;GLM_FORCE_CTOR_INIT")

@@ -36,7 +36,8 @@ static_assert(std::endian::native == std::endian::little);
 static_assert(sizeof(Vertex) == 48 && std::is_trivially_copyable_v<Vertex>);
 static_assert(sizeof(meshlet::Meshlet) == 44 && std::is_trivially_copyable_v<meshlet::Meshlet>);
 
-constexpr u32 cooked_magic = 0x444D474Eu; // „NGMD“
+constexpr u32 cooked_magic = 0x444D474Eu;       // „NGMD“
+constexpr u32 cooked_image_magic = 0x5854474Eu; // „NGTX“
 
 // --- Schreiben ---
 
@@ -470,6 +471,65 @@ Result<CookedModel> read_cooked_model(std::span<const std::byte> data) {
     return cooked;
 }
 
+std::vector<std::byte> write_cooked_image(const CookedImage& cooked) {
+    NGINE_PROFILE_ZONE("asset::write_cooked_image");
+    BinaryWriter w;
+    w.write(cooked_image_magic);
+    w.write(cooked_image_version);
+    w.write(static_cast<u32>(cooked.sources.size()));
+    for (const SourceStamp& stamp : cooked.sources) {
+        w.write_string(stamp.path);
+        w.write(stamp.size);
+        w.write(stamp.modified);
+        w.write(stamp.hash);
+    }
+    const CookedTexture& texture = cooked.texture;
+    w.write(texture.srgb);
+    write_raw(w, texture.ktx2);
+    w.write(texture.bc7.width);
+    w.write(texture.bc7.height);
+    w.write(texture.bc7.levels);
+    write_raw(w, texture.bc7.data);
+    return w.take();
+}
+
+Result<CookedImage> read_cooked_image(std::span<const std::byte> data) {
+    NGINE_PROFILE_ZONE("asset::read_cooked_image");
+    Input in{data};
+    if (in.get<u32>() != cooked_image_magic) {
+        return std::unexpected(std::string{"keine gekochte Texturdatei"});
+    }
+    if (const u32 version = in.get<u32>(); version != cooked_image_version) {
+        return std::unexpected(std::format("Version {} statt {}", version, cooked_image_version));
+    }
+    CookedImage cooked;
+    cooked.sources.resize(in.count(28));
+    for (SourceStamp& stamp : cooked.sources) {
+        stamp.path = in.text();
+        stamp.size = in.get<u64>();
+        stamp.modified = in.get<i64>();
+        stamp.hash = in.get<u64>();
+    }
+    CookedTexture& texture = cooked.texture;
+    texture.srgb = in.get<bool>();
+    texture.ktx2 = in.blob();
+    texture.bc7.format = TextureFormat::BC7;
+    texture.bc7.srgb = texture.srgb;
+    texture.bc7.width = in.get<u32>();
+    texture.bc7.height = in.get<u32>();
+    texture.bc7.levels = in.get<u32>();
+    texture.bc7.data = in.blob();
+    if (!in.ok() || in.remaining() != 0) {
+        return std::unexpected(std::string{"gekochte Texturdatei ist abgeschnitten oder kaputt"});
+    }
+    if (!texture.bc7.data.empty() &&
+        texture.bc7.data.size() != texture_size(TextureFormat::BC7, texture.bc7.width,
+                                                texture.bc7.height, texture.bc7.levels)) {
+        return std::unexpected(std::string{"gekochte Texturdatei: BC7 hat die falsche Größe"});
+    }
+    return cooked;
+}
+
 AssetCache::AssetCache(std::string directory)
     : directory_{directory.empty() ? std::string{} : filesystem::normalize(directory)} {}
 
@@ -539,6 +599,47 @@ Result<void> AssetCache::store_model(AssetId id, const CookedModel& model) const
     }
     // write_file() schreibt über eine temporäre Datei und legt Ordner an.
     return filesystem::write_file(model_path(id), write_cooked_model(model));
+}
+
+std::string AssetCache::texture_path(AssetId id, bool srgb) const {
+    return filesystem::join(directory_, hex(id) + (srgb ? ".srgb.ntex" : ".linear.ntex"));
+}
+
+Result<std::optional<CookedImage>> AssetCache::load_texture(AssetId id, bool srgb) const {
+    NGINE_PROFILE_ZONE("AssetCache::load_texture");
+    if (!enabled()) {
+        return std::optional<CookedImage>{};
+    }
+    const std::string path = texture_path(id, srgb);
+    if (!filesystem::exists(path)) {
+        return std::optional<CookedImage>{};
+    }
+    auto bytes = filesystem::read_file(path);
+    if (!bytes) {
+        return std::unexpected(std::move(bytes.error()));
+    }
+    auto cooked = read_cooked_image(*bytes);
+    if (!cooked) {
+        log::debug("Cache {}: {}", path, cooked.error());
+        return std::optional<CookedImage>{};
+    }
+    bool refreshed = false;
+    if (!stamps_current(cooked->sources, &refreshed)) {
+        return std::optional<CookedImage>{};
+    }
+    if (refreshed) {
+        if (auto stored = store_texture(id, srgb, *cooked); !stored) {
+            log::debug("Cache {}: Stempel nicht erneuert: {}", path, stored.error());
+        }
+    }
+    return std::optional<CookedImage>{*std::move(cooked)};
+}
+
+Result<void> AssetCache::store_texture(AssetId id, bool srgb, const CookedImage& image) const {
+    if (!enabled()) {
+        return std::unexpected(std::string{"kein Cache-Ordner"});
+    }
+    return filesystem::write_file(texture_path(id, srgb), write_cooked_image(image));
 }
 
 std::string default_cache_dir(std::string_view asset_root) {

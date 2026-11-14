@@ -1,0 +1,2754 @@
+{
+  "format": "ngine.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "value": "Sonne"
+        },
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -0.32153168,
+            "y": -0.37872493,
+            "z": -0.14223595,
+            "w": 0.8561272
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "DirectionalLight": {
+          "color": {
+            "x": 1.0,
+            "y": 0.95,
+            "z": 0.88
+          },
+          "intensity": 3.0,
+          "cast_shadows": true,
+          "active": true
+        }
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "Name": {
+          "value": "Terrain"
+        },
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": -20.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "Terrain": {
+          "size_x": 8,
+          "size_y": 4,
+          "size_z": 8,
+          "shape": "Procedural",
+          "seed": 7,
+          "ground": 20.0,
+          "height": 6.0,
+          "mountains": 24.0,
+          "overhangs": 2.5,
+          "caves": 0.5,
+          "sand_level": 14.0,
+          "streaming": true,
+          "view_distance": 600.0,
+          "detail": 2.0,
+          "deltas": ""
+        }
+      }
+    },
+    {
+      "id": 3,
+      "components": {
+        "Name": {
+          "value": "Rampe"
+        },
+        "Transform": {
+          "position": {
+            "x": 8.0,
+            "y": 1.3774139404296875,
+            "z": -8.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 3
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Static",
+          "layer": "Moving",
+          "mass": 0.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Mesh",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 9730113247301520891,
+          "mesh": 3,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 4,
+      "components": {
+        "Name": {
+          "value": "Stapel"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 1.3774139404296875,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "components": {
+        "Name": {
+          "value": "Kiste 1"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 1.8774139404296875,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 6,
+      "components": {
+        "Name": {
+          "value": "Kiste 2"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 2.8774139404296877,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 7,
+      "components": {
+        "Name": {
+          "value": "Kiste 3"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 3.8774139404296877,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "components": {
+        "Name": {
+          "value": "Kiste 4"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 4.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "components": {
+        "Name": {
+          "value": "Kiste 5"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 5.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 10,
+      "components": {
+        "Name": {
+          "value": "Kiste 6"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 1.8774139404296875,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "components": {
+        "Name": {
+          "value": "Kiste 7"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 2.8774139404296877,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 12,
+      "components": {
+        "Name": {
+          "value": "Kiste 8"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 3.8774139404296877,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 13,
+      "components": {
+        "Name": {
+          "value": "Kiste 9"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 4.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 14,
+      "components": {
+        "Name": {
+          "value": "Kiste 10"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 5.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 15,
+      "components": {
+        "Name": {
+          "value": "Kiste 11"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 1.8774139404296875,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 16,
+      "components": {
+        "Name": {
+          "value": "Kiste 12"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 2.8774139404296877,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 17,
+      "components": {
+        "Name": {
+          "value": "Kiste 13"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 3.8774139404296877,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 18,
+      "components": {
+        "Name": {
+          "value": "Kiste 14"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 4.877413940429688,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 19,
+      "components": {
+        "Name": {
+          "value": "Kiste 15"
+        },
+        "Transform": {
+          "position": {
+            "x": 18.0,
+            "y": 5.877413940429688,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 20,
+      "components": {
+        "Name": {
+          "value": "Kiste 16"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 1.8774139404296875,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 21,
+      "components": {
+        "Name": {
+          "value": "Kiste 17"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 2.8774139404296877,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 22,
+      "components": {
+        "Name": {
+          "value": "Kiste 18"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 3.8774139404296877,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 23,
+      "components": {
+        "Name": {
+          "value": "Kiste 19"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 4.877413940429688,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 24,
+      "components": {
+        "Name": {
+          "value": "Kiste 20"
+        },
+        "Transform": {
+          "position": {
+            "x": 19.05,
+            "y": 5.877413940429688,
+            "z": -8.95
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 25,
+      "components": {
+        "Name": {
+          "value": "Schiefer Turm 1"
+        },
+        "Transform": {
+          "position": {
+            "x": 22.0,
+            "y": 1.8774139404296875,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 26,
+      "components": {
+        "Name": {
+          "value": "Schiefer Turm 2"
+        },
+        "Transform": {
+          "position": {
+            "x": 22.22,
+            "y": 2.8774139404296877,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 27,
+      "components": {
+        "Name": {
+          "value": "Schiefer Turm 3"
+        },
+        "Transform": {
+          "position": {
+            "x": 22.44,
+            "y": 3.8774139404296877,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 28,
+      "components": {
+        "Name": {
+          "value": "Schiefer Turm 4"
+        },
+        "Transform": {
+          "position": {
+            "x": 22.66,
+            "y": 4.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 29,
+      "components": {
+        "Name": {
+          "value": "Schiefer Turm 5"
+        },
+        "Transform": {
+          "position": {
+            "x": 22.88,
+            "y": 5.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 30,
+      "components": {
+        "Name": {
+          "value": "Schiefer Turm 6"
+        },
+        "Transform": {
+          "position": {
+            "x": 23.1,
+            "y": 6.877413940429688,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 31,
+      "components": {
+        "Name": {
+          "value": "Kugel 1"
+        },
+        "Transform": {
+          "position": {
+            "x": 7.5,
+            "y": 3.3774139404296877,
+            "z": -10.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 2
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 5.0,
+          "friction": 0.5,
+          "restitution": 0.3,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Sphere",
+          "radius": 0.3,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 32,
+      "components": {
+        "Name": {
+          "value": "Kugel 2"
+        },
+        "Transform": {
+          "position": {
+            "x": 8.3,
+            "y": 3.3774139404296877,
+            "z": -10.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 2
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 5.0,
+          "friction": 0.5,
+          "restitution": 0.3,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Sphere",
+          "radius": 0.3,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 33,
+      "components": {
+        "Name": {
+          "value": "Kugel 3"
+        },
+        "Transform": {
+          "position": {
+            "x": 9.1,
+            "y": 3.3774139404296877,
+            "z": -10.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 2
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 5.0,
+          "friction": 0.5,
+          "restitution": 0.3,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Sphere",
+          "radius": 0.3,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 34,
+      "components": {
+        "Name": {
+          "value": "Lose Kiste 1"
+        },
+        "Transform": {
+          "position": {
+            "x": 11.5,
+            "y": 1.5983856201171875,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 35,
+      "components": {
+        "Name": {
+          "value": "Lose Kiste 2"
+        },
+        "Transform": {
+          "position": {
+            "x": 14.5,
+            "y": 1.659375,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 36,
+      "components": {
+        "Name": {
+          "value": "Lose Kiste 3"
+        },
+        "Transform": {
+          "position": {
+            "x": 17.5,
+            "y": 2.3080718994140623,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 37,
+      "components": {
+        "Name": {
+          "value": "Lose Kiste 4"
+        },
+        "Transform": {
+          "position": {
+            "x": 20.5,
+            "y": 1.9693572998046875,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Dynamic",
+          "layer": "Moving",
+          "mass": 20.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    },
+    {
+      "id": 38,
+      "prefab": 7331856350725219438,
+      "overrides": [
+        {
+          "node": 1,
+          "components": {
+            "Transform": {
+              "position": {
+                "x": 16.0,
+                "y": 0.7419281005859375,
+                "z": 1.0
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "components": {
+        "Name": {
+          "value": "Plattform"
+        },
+        "Transform": {
+          "position": {
+            "x": 16.0,
+            "y": -2.6225860595703123,
+            "z": -8.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 4
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Static",
+          "layer": "Moving",
+          "mass": 0.0,
+          "friction": 0.8,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 11.0,
+            "y": 4.0,
+            "z": 5.0
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        }
+      }
+    }
+  ]
+}

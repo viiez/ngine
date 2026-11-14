@@ -92,8 +92,8 @@ eine Komponente.
 | VOX-04 | LOD | Gröbere Chunks in der Ferne ohne Risse; R3.3: Surface Nets über Stufengrenzen mit Nahtpolygonen, Test ohne offene Kanten ([ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)) | R3 | fertig |
 | VOX-05 | Prozedurale Welt | Grundwelt aus Rauschen und Regeln; R3.2: eigenes deterministisches Rauschen und Generator mit Hügeln, Felswänden und Schichten, bitgleich auf Linux und Windows ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md)); R3.3: grobe Stufen und endloses Terrain mit Streaming | R3 | fertig |
 | VOX-06 | Deltas | Nur Änderungen speichern und übertragen; R3.4: Deltas pro Chunk der Stufe 0 gegenüber der Grundwelt, als Lauflängen mit Varints kodiert, fließen in alle Stufen ein, überleben das Entladen und liegen als Regionen-Dateien neben der Szene ([ADR 0042](adr/0042-terrain-deltas-region-files.md)); Übertragen folgt in R5 (NET-06) | R3 / R5 | in Arbeit |
-| VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar); R3.2: Gewichte je Eckpunkt mit Palette pro Chunk, Tabelle mit Texturen, triplanar im Shader ([ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); Materialtabelle als Asset folgt in R4.3 (TD-37), mehr als acht Materialien pro Chunk bei Bedarf (TD-38) | R3 / R4 | in Arbeit |
-| VOX-08 | Kollision | Physik-Formen aus den Voxeln | R4 | geplant |
+| VOX-07 | Materialien | Mehrere Materialien pro Oberfläche mit Übergängen (Triplanar); R3.2: Gewichte je Eckpunkt mit Palette pro Chunk, Tabelle mit Texturen, triplanar im Shader ([ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); R4.3: Materialtabelle als Asset (`terrain/standard.terrain-materials`) mit Reibung, Rückprall und Schritten, Fenster im Editor, Hot Reload, Texturen gekocht als KTX2 ([ADR 0046](adr/0046-terrain-collision-character-virtual.md)); mehr als acht Materialien pro Chunk bei Bedarf (TD-38) | R3 / R4.3 | fertig |
+| VOX-08 | Kollision | Physik-Formen aus den Voxeln: `MeshShape` pro Chunk der Stufe 0 aus dem Netz, in Jobs gebaut, nur um Körper, Figuren und Beobachter, Einfrieren ohne Form, Ersetzen nach dem Graben, Material pro Dreieck ([ADR 0046](adr/0046-terrain-collision-character-virtual.md)) | R4.3 | fertig |
 | VOX-09 | Höhlen und Überhänge | Echte 3D-Strukturen statt Höhenkarte; R3.2: Überhänge an steilen Stellen, Tunnel und Kavernen aus 3D-Rauschen | R3 | fertig |
 | VOX-10 | Statik | Einstürzende Strukturen ohne Halt | später | Idee |
 
@@ -117,7 +117,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | --- | --- | --- | --- | --- |
 | PHYS-01 | Physik-Welt | Jolt hinter `PhysicsWorld` mit Positionen in doppelter Genauigkeit, auf dem Job-System, Schritt als Stufe der festen Simulation, reproduzierbar im selben Build ([ADR 0045](adr/0045-physics-jolt-double-precision.md)) | R4.2 | fertig |
 | PHYS-02 | Starre Körper | Kollision und Dynamik: Komponenten `RigidBody` und `Collider` (Kugel, Quader, Kapsel, konvexe Hülle und Dreiecksnetz aus Modellen), unbewegt, kinematisch und dynamisch, Kontakte und Auslöser über den `EventBus`, Kollisionsformen im Editor | R4.2 | fertig |
-| PHYS-03 | Character Controller | Bewegung von Spielfiguren | R4 | geplant |
+| PHYS-03 | Character Controller | Bewegung von Spielfiguren: `CharacterController` und `CharacterMotion` über Jolts `CharacterVirtual`, Hänge, Stufen, Springen, Ducken, Schieben, Ereignisse `CharacterLanded` und `CharacterStep`; Steuerung mit Ich- und Schulterkamera und Graben in `apps/common` ([ADR 0046](adr/0046-terrain-collision-character-virtual.md)) | R4.3 | fertig |
 | PHYS-04 | Raycasts und Abfragen | Für Gameplay, Bauen, KI: Strahl (nächster und alle Treffer), Form, Überlappung, mit Ebenen, Sensoren und ausgenommener Entity | R4.2 | fertig |
 
 ## Animation

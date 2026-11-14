@@ -60,6 +60,30 @@
         { "source": "Mouse.Left" },
         { "source": "Gamepad.West" }
       ]
+    },
+    {
+      "name": "crouch",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Key.Ctrl" },
+        { "source": "Gamepad.East" }
+      ]
+    },
+    {
+      "name": "camera",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Key.V" },
+        { "source": "Gamepad.RightStick" }
+      ]
+    },
+    {
+      "name": "dig",
+      "kind": "Button",
+      "bindings": [
+        { "source": "Mouse.Right" },
+        { "source": "Gamepad.LeftTrigger" }
+      ]
     }
   ]
 }

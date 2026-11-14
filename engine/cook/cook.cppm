@@ -62,6 +62,12 @@ struct CookSettings {
 [[nodiscard]] Result<asset::CookedModel> cook_model(std::string_view source,
                                                     const CookSettings& settings = {});
 
+// Kocht eine Bilddatei zu KTX2 mit Mip-Stufen und BC7 (R4.3, Texturen des Terrains).
+[[nodiscard]] Result<asset::CookedImage> cook_image(std::string_view source, bool srgb,
+                                                    const CookSettings& settings = {});
+// cook_image() für register_loaders().
+[[nodiscard]] asset::ImageCooker image_cooker(CookSettings settings = {});
+
 // cook_model() als Funktion für den Ressourcen-Manager bzw. register_loaders().
 [[nodiscard]] asset::ModelCooker model_cooker(CookSettings settings = {});
 

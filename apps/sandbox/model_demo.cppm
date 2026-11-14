@@ -19,6 +19,7 @@ import ngine.render;
 import ngine.rhi;
 import ngine.rhi.vulkan;
 import app.model_scene;
+import app.player;
 import app.paths;
 import ngine.asset;
 
@@ -133,17 +134,31 @@ export int run_model_offscreen(const std::optional<std::string>& model_path,
         if (playground) {
             // Zwei Sekunden Physik: Kugeln rollen die Rampe hinab, Kollisionsformen sichtbar.
             (*scene)->set_draw_colliders(true);
+            (*scene)->physics().set_wait_for_terrain(true);
+            // Schulterkamera leicht von oben, damit die Figur im Bild ist.
+            if (auto* input = (*scene)->active_player().get_mut<app::PlayerInput>()) {
+                input->view = app::CameraView::Shoulder;
+                input->pitch = -0.3f;
+            }
             for (u32 i = 0; i < 120; ++i) {
+                (*scene)->wait_for_terrain();
                 (*scene)->update(1.0f / 60.0f, {});
             }
+            log::info("{}", (*scene)->character_stats());
             log::info("{}", (*scene)->physics_stats());
         }
         render::TexturePool pool{**device};
-        render::RenderGraph graph;
-        const auto output = graph.import_texture("Bild", **target, rhi::ResourceState::Undefined,
-                                                 rhi::ResourceState::TransferSrc);
-        (*scene)->add_passes(graph, output);
-        (*device)->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+        // Das Terrain lädt seine Netze mit begrenztem Budget pro Bild hoch; der Spielplatz braucht
+        // deshalb einige Bilder, bis alles zu sehen ist.
+        const u32 frames = playground ? 30 : 1;
+        for (u32 frame = 0; frame < frames; ++frame) {
+            render::RenderGraph graph;
+            const auto output = graph.import_texture(
+                "Bild", **target, rhi::ResourceState::Undefined, rhi::ResourceState::TransferSrc);
+            (*scene)->add_passes(graph, output);
+            (*device)->execute([&](rhi::CommandList& commands) { graph.execute(commands, pool); });
+            pool.end_frame();
+        }
         log::info("Szene: {}", (*scene)->stats());
         const auto pixels = (*device)->read_texture(**target, rhi::ResourceState::TransferSrc);
         if (auto written = write_ppm(image_path, pixels, extent); !written) {

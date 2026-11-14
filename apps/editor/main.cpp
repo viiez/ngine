@@ -28,6 +28,11 @@
 // Pinselstrich ist ein Schritt im Verlauf. Änderungen am Terrain speichert der Editor als Deltas in
 // Regionen-Dateien neben der Szene. „Alles kochen“ läuft im Hintergrund (TD-34).
 //
+// Seit R4.3: Hat die Szene eine Spielfigur (Komponente PlayerInput, z. B. szenen/spielplatz.json),
+// steuert man sie beim Spielen: Ein Klick ins Bild fängt die Maus, Esc gibt sie frei, das Bild
+// zeigt die Kamera der Figur, F4 schaltet in den Flugmodus. Ohne Figur fliegt die Kamera wie
+// bisher. Das Fenster „Terrain-Materialien“ (Menü Ansicht) bearbeitet die Materialtabelle.
+//
 // Optionen:
 //   --scene <pfad>  Szene öffnen statt der Standardszene
 //   --save <pfad>   Szene beim Beenden dorthin speichern (für automatische Tests)
@@ -75,6 +80,7 @@ import ngine.editor_ui;
 import app.model_scene;
 import app.input_bindings;
 import app.paths;
+import app.player;
 import app.prefabs;
 import ngine.input;
 import ngine.cook;
@@ -86,6 +92,7 @@ import editor.inspector;
 import editor.menu;
 import editor.overlay;
 import editor.scene_tree;
+import editor.terrain_materials;
 import editor.terrain_tools;
 import editor.viewport_tools;
 
@@ -276,7 +283,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         }
         app::SceneAssets scene_assets{.database = database ? &*database : nullptr, .loading = {}};
         if (cache) {
-            scene_assets.loading = {.cache = &*cache, .cook = cook::model_cooker()};
+            scene_assets.loading = {
+                .cache = &*cache, .cook = cook::model_cooker(), .cook_image = cook::image_cooker()};
         }
         auto scene =
             app::ModelScene::create(**device, viewport_format, options.model_path, math::DVec3{},
@@ -341,13 +349,16 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         Panels panels;
         FrameTimes times;
         bool running = true;
-        // Kamera fliegen: rechte Maustaste im Viewport gehalten.
+        // Kamera fliegen: rechte Maustaste im Viewport gehalten. Beim Spielen mit Figur (R4.3)
+        // fängt ein Klick ins Bild die Maus, bis Esc sie freigibt (player_capture).
         bool looking = false;
+        bool player_capture = false;
         bool viewport_hovered = false;
         u64 frame_count = 0;
         std::string title;
         ViewportTools tools;
         TerrainTools terrain_tools;
+        TerrainMaterialsPanel terrain_materials_panel;
         // Dauer des laufenden Frames für Werkzeuge, die pro Sekunde wirken (Pinsel).
         f32 frame_dt = 0.0f;
         PlayControls play;
@@ -419,6 +430,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                          ui::WindowFlags::NoScrollWithMouse);
                 if (visible) {
                     tools.draw_toolbar(document, play);
+                    terrain_tools.materials = &(*scene)->terrain_materials().table();
                     terrain_tools.draw_toolbar(document, selection);
                     const ui::Size available = ui::content_region_available();
                     viewport_size.request(available.width, available.height);
@@ -511,6 +523,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 }
                 ui::end_window();
             }
+            terrain_materials_panel.draw(**scene, database ? &*database : nullptr,
+                                         panels.terrain_materials);
             if (panels.stats) {
                 if (ui::begin_window(stats_window, &panels.stats)) {
                     const render::RenderStats& stats = (*scene)->renderer().stats();
@@ -537,6 +551,10 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text(std::format("Verlauf: {} von {}", document.history().position(),
                                          document.history().size()));
                     ui::text(std::format("Neu berechnete Weltlagen: {}", transforms_updated));
+                    // Terrain-Kollision und Spielfigur beim Spielen (R4.3).
+                    if (document.playing()) {
+                        ui::text_wrapped((*scene)->character_stats());
+                    }
                     // Deltas des ausgewählten Terrains (R3.4).
                     if (const edit::EntityId terrain =
                             TerrainTools::selected_terrain(document, selection);
@@ -646,7 +664,11 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             window->set_text_input(context.wants_text_input());
 
             actions.end_frame(dt);
-            (*scene)->update(dt, app::fly_input(actions));
+            (*scene)->set_player_enabled(document.playing());
+            if (player_capture && actions.pressed("throw")) {
+                (*scene)->throw_ball();
+            }
+            (*scene)->update(dt, app::fly_input(actions), app::player_controls(actions));
 
             if (auto frame = (*device)->begin_frame()) {
                 gpu_profiler.begin_frame(*frame);
@@ -681,8 +703,14 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         const auto stop_looking = [&] {
             looking = false;
+            player_capture = false;
             actions.release_all();
             window->set_relative_mouse(false);
+        };
+        // Steuert man gerade eine Figur (Spielen, Figur da, nicht im Flugmodus)?
+        const auto player_mode = [&] {
+            return document.playing() && !(*scene)->flying() &&
+                   static_cast<bool>(app::find_player(document.world()));
         };
 
         if (options.play_frames) {
@@ -733,6 +761,13 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                             if (looking && down && ev.key == platform::Key::Escape) {
                                 stop_looking();
                             }
+                            if (down && ev.key == platform::Key::F4 && document.playing() &&
+                                app::find_player(document.world())) {
+                                (*scene)->toggle_fly();
+                                if (player_capture) {
+                                    stop_looking();
+                                }
+                            }
                             if (!looking || !down) {
                                 if (const auto key = editor::to_ui(ev.key)) {
                                     context.add_key(*key, down);
@@ -743,8 +778,12 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                 context.add_mouse_position(ev.x, ev.y);
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonPressed>) {
-                            if (ev.button == platform::MouseButton::Right && viewport_hovered &&
-                                !looking) {
+                            if (viewport_hovered && !looking && player_mode()) {
+                                looking = true;
+                                player_capture = true;
+                                window->set_relative_mouse(true);
+                            } else if (ev.button == platform::MouseButton::Right &&
+                                       viewport_hovered && !looking) {
                                 looking = true;
                                 window->set_relative_mouse(true);
                             } else if (!looking) {
@@ -753,7 +792,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, event::MouseButtonReleased>) {
-                            if (ev.button == platform::MouseButton::Right && looking) {
+                            if (ev.button == platform::MouseButton::Right && looking &&
+                                !player_capture) {
                                 stop_looking();
                             } else if (const auto button = editor::to_ui(ev.button)) {
                                 context.add_mouse_button(*button, false);
@@ -779,6 +819,10 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             run_frame();
             if (options.play_frames && document.playing() && frame_count >= *options.play_frames) {
                 play.stop(document);
+            }
+            // Spielen gestoppt: Die gefangene Maus kommt frei.
+            if (player_capture && !player_mode()) {
+                stop_looking();
             }
             // Mit --frames erst beenden, wenn ein eingefügtes Modell auch da ist.
             if (options.frames && frame_count >= *options.frames && !model_drop.pending()) {

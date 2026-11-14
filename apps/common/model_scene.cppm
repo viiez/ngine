@@ -38,12 +38,18 @@ module;
 // Modelle kommen gekocht aus dem Cache, wenn er aktuell ist (ASSET-03); ohne Asset-Ordner bleibt
 // alles erzeugt wie bisher.
 //
-// Seit R3.2 bekommt der Renderer die Materialtabelle des Terrains mit den Texturen aus
-// texturen/terrain/ (terrain_materials(), auch für die Voxel-Demo der Sandbox).
+// Seit R3.2 bekommt der Renderer die Materialtabelle des Terrains (terrain_materials(), auch für
+// die Voxel-Demo der Sandbox); seit R4.3 ist sie ein Asset, das Renderer und Physik teilen und das
+// beim Speichern neu lädt.
 //
 // Seit R4.2 rechnet die Szene Physik (ngine.physics) als Stufe der festen Simulation. Der
-// Spielplatz (create_playground()) zeigt sie: Boden, Rampe, Kistenstapel, Würfe; F3 zeigt die
+// Spielplatz (create_playground()) zeigt sie: Rampe, Kistenstapel, Würfe; F3 zeigt die
 // Kollisionsformen.
+//
+// Seit R4.3 steht der Spielplatz auf dem endlosen Terrain (Szene szenen/spielplatz.json) mit einer
+// Spielfigur. Hat die Welt eine Figur mit PlayerInput und ist sie aktiv (im Spiel immer, im Editor
+// beim Spielen), steuern die Aktionen sie und das Bild zeigt ihre Kamera; F4 schaltet in den
+// Flugmodus.
 export module app.model_scene;
 
 import ngine.core;
@@ -60,6 +66,8 @@ import ngine.rhi;
 import ngine.world;
 import app.prefabs;
 import app.physics;
+import app.player;
+import app.terrain_materials;
 
 namespace app {
 
@@ -67,31 +75,12 @@ using namespace ngine;
 using math::DVec3;
 using math::Vec3;
 
-// Materialtabelle des Terrains (R3.2): die Standardtabelle des Renderers, dazu Grundfarbe und
-// Normalen aus texturen/terrain/<name>_farbe.jpg und <name>_normal.jpg im Asset-Ordner. Fehlt ein
-// Bild (oder der Ordner), bleibt das Material bei seiner Farbe.
+// Materialtabelle des Terrains für den Renderer: seit R4.3 aus terrain/standard.terrain-materials
+// im Asset-Ordner (Texturen über Asset-Kennungen), ohne Ordner die eingebaute Tabelle.
 export std::vector<render::TerrainMaterial>
 terrain_materials(const asset::AssetDatabase* database) {
-    std::vector<render::TerrainMaterial> table = render::default_terrain_materials();
-    if (database == nullptr) {
-        return table;
-    }
-    // Index wie voxel::grass, voxel::rock, voxel::earth, voxel::sand.
-    constexpr std::array<std::string_view, 5> files{"", "gras", "fels", "erde", "sand"};
-    for (usize i = 1; i < files.size() && i < table.size(); ++i) {
-        const auto find = [&](std::string_view kind) -> asset::AssetId {
-            const asset::AssetInfo* info =
-                database->find_path(std::format("texturen/terrain/{}_{}.jpg", files[i], kind));
-            return info != nullptr ? info->id : 0;
-        };
-        table[i].albedo = find("farbe");
-        table[i].normal = find("normal");
-        if (table[i].albedo != 0) {
-            // Die Textur bringt die Farbe mit.
-            table[i].color = {1.0f, 1.0f, 1.0f};
-        }
-    }
-    return table;
+    const TerrainMaterialLibrary library{database};
+    return render::terrain_materials_from(library.table());
 }
 
 // Zustand der Eingabe für die freie Kamera, unabhängig von der Plattformschicht.
@@ -279,8 +268,10 @@ public:
         return scene;
     }
 
-    // Spielplatz der Physik (R4.2): Boden, Rampe, 20 Kisten und Kugeln; extra_bodies weitere Körper
-    // regnen für Messungen herab (--bodies). origin wie bei create().
+    // Spielplatz der Physik (R4.2): Rampe, 20 Kisten und Kugeln, seit R4.3 auf dem Terrain mit
+    // Spielfigur. Aus der Szene szenen/spielplatz.json, wenn es sie im Asset-Ordner gibt und origin
+    // der Ursprung ist, sonst aus Code (app::build_playground()). extra_bodies weitere Körper
+    // regnen für Messungen herab (--bodies).
     [[nodiscard]] static rhi::Result<std::unique_ptr<ModelScene>>
     create_playground(rhi::Device& device, rhi::Format target_format, DVec3 origin,
                       SceneAssets assets = {}, u32 extra_bodies = 0) {
@@ -290,7 +281,6 @@ public:
         }
         auto scene = std::unique_ptr<ModelScene>{
             new ModelScene{*std::move(renderer), origin, SceneMode::Game, std::move(assets)}};
-        scene->add_sun();
         if (auto result = scene->build_playground(extra_bodies); !result) {
             return std::unexpected(result.error());
         }
@@ -321,37 +311,104 @@ public:
 
     // Wirft eine Kugel aus der Kamera in Blickrichtung (Aktion throw auf dem Spielplatz).
     void throw_ball() {
-        const Vec3 forward = view_rotation() * Vec3{0.0f, 0.0f, -1.0f};
+        const Vec3 forward = view_rotation_ * Vec3{0.0f, 0.0f, -1.0f};
+        // Von der Figur aus deren Auge, damit die Schulterkamera nicht in die eigene Kapsel wirft.
         world::Entity ball =
-            app::add_ball(world_, position_ + math::to_f64(forward * 0.8f), forward * 18.0f);
+            app::add_ball(world_, throw_origin_ + math::to_f64(forward * 0.8f), forward * 18.0f);
         ball.set(world::Name{"Wurf"});
     }
 
+    // Steuert die Figur mit PlayerInput (im Spiel immer, im Editor beim Spielen, siehe
+    // set_player_enabled()).
+    void set_player_enabled(bool enabled) {
+        player_enabled_ = enabled;
+    }
+    // Die Figur, die die Aktionen steuern, oder eine leere Entity.
+    [[nodiscard]] world::Entity active_player() {
+        return player_enabled_ ? app::find_player(world_) : world::Entity{};
+    }
+    // F4: Flugmodus statt Figur; die Figur bleibt stehen.
+    void toggle_fly() {
+        fly_ = !fly_;
+        if (fly_) {
+            position_ = view_position_;
+            if (const world::Entity player = active_player()) {
+                const auto* input = player.get<PlayerInput>();
+                yaw_ = input->yaw;
+                pitch_ = input->pitch;
+            }
+        }
+        log::info("{}", fly_ ? "Flugmodus" : "Spielfigur");
+    }
+    [[nodiscard]] bool flying() const noexcept {
+        return fly_;
+    }
+
     // Bewegt die freie Kamera: W/S vor und zurück, A/D seitwärts, E/Q hoch und runter, Shift
-    // schneller; die Maus dreht (oder das Gamepad, siehe fly_input()). Im Spiel rechnet danach die
-    // Spielschleife ein Bild (simulate()).
-    void update(f32 dt, const FlyInput& input) {
-        yaw_ -= input.look_x * 0.0025f;
-        pitch_ = std::clamp(pitch_ - input.look_y * 0.0025f, -1.5f, 1.5f);
-        const math::Quat rotation = view_rotation();
-        const Vec3 forward = rotation * Vec3{0.0f, 0.0f, -1.0f};
-        const Vec3 right = rotation * Vec3{1.0f, 0.0f, 0.0f};
-        Vec3 move = forward * input.forward + right * input.right;
-        move.y += input.up;
-        // Länger als 1 nur diagonal mit Tastatur; analog vom Stick bleibt die Länge.
-        if (math::length(move) > 1.0f) {
-            move = math::normalize(move);
+    // schneller; die Maus dreht (oder das Gamepad, siehe fly_input()). Gibt es eine aktive
+    // Spielfigur (R4.3) und ist der Flugmodus aus, steuert controls stattdessen die Figur, und die
+    // Kamera folgt ihr. Im Spiel rechnet danach die Spielschleife ein Bild (simulate()).
+    void update(f32 dt, const FlyInput& input, const PlayerControls& controls = {}) {
+        world::Entity player = active_player();
+        if (player) {
+            app::apply_controls(player, fly_ ? PlayerControls{} : controls);
         }
-        const f32 speed = speed_ * (input.fast ? 4.0f : 1.0f);
-        position_ = position_ + math::to_f64(move * (speed * dt));
+        const bool fly = !player || fly_;
+        if (fly) {
+            yaw_ -= input.look_x * 0.0025f;
+            pitch_ = std::clamp(pitch_ - input.look_y * 0.0025f, -1.5f, 1.5f);
+            const math::Quat rotation = view_rotation();
+            const Vec3 forward = rotation * Vec3{0.0f, 0.0f, -1.0f};
+            const Vec3 right = rotation * Vec3{1.0f, 0.0f, 0.0f};
+            Vec3 move = forward * input.forward + right * input.right;
+            move.y += input.up;
+            // Länger als 1 nur diagonal mit Tastatur; analog vom Stick bleibt die Länge.
+            if (math::length(move) > 1.0f) {
+                move = math::normalize(move);
+            }
+            const f32 speed = speed_ * (input.fast ? 4.0f : 1.0f);
+            position_ = position_ + math::to_f64(move * (speed * dt));
+        }
         if (mode_ == SceneMode::Game) {
-            camera_.set(world::Transform{.position = position_, .rotation = rotation});
             simulate(dt);
-        } else {
-            renderer_->camera_override = render::CameraView{.position = position_,
-                                                            .rotation = math::to_mat3(rotation),
-                                                            .camera = camera_settings_};
         }
+        if (fly) {
+            view_position_ = position_;
+            view_rotation_ = view_rotation();
+            throw_origin_ = position_;
+        } else {
+            const PlayerView view = app::player_view(player, physics_);
+            view_position_ = view.position;
+            view_rotation_ = view.rotation;
+            throw_origin_ = view.eye;
+            update_dig(dt, player, view, controls);
+        }
+        if (mode_ == SceneMode::Game) {
+            camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
+        } else {
+            renderer_->camera_override =
+                render::CameraView{.position = view_position_,
+                                   .rotation = math::to_mat3(view_rotation_),
+                                   .camera = camera_settings_};
+        }
+    }
+
+    // Materialtabelle des Terrains (R4.3), z. B. für das Fenster des Editors.
+    [[nodiscard]] TerrainMaterialLibrary& terrain_materials() noexcept {
+        return terrain_materials_;
+    }
+    // Gibt die Tabelle an Renderer und Physik (nach TerrainMaterialLibrary::set()).
+    void apply_terrain_materials() {
+        renderer_->set_terrain_materials(
+            render::terrain_materials_from(terrain_materials_.table()));
+        physics_.set_terrain_materials(terrain_materials_.table());
+    }
+
+    // Wartet, bis die Terrains um die Kamera geladen und gemesht sind (Bilder ohne Fenster).
+    void wait_for_terrain() {
+        (void)world::update_transforms(world_);
+        (void)world::update_terrains(world_, jobs_,
+                                     {.observers = std::span{&view_position_, 1}, .wait = true});
     }
 
     // Rechnet ein Bild der Spielschleife (R4.1): feste Schritte zu 1/60 s, in denen die Lichter
@@ -375,8 +432,9 @@ public:
     }
     // Was der Strahl aus der Bildmitte trifft (Spielplatz), als Text für die Anzeige.
     [[nodiscard]] std::string aimed_at() {
-        const Vec3 forward = view_rotation() * Vec3{0.0f, 0.0f, -1.0f};
-        const auto hit = physics_.raycast(position_, forward, 200.0f);
+        const Vec3 forward = view_rotation_ * Vec3{0.0f, 0.0f, -1.0f};
+        const auto hit =
+            physics_.raycast(view_position_, forward, 200.0f, {.ignore = active_player().id()});
         if (!hit) {
             return "nichts";
         }
@@ -399,6 +457,26 @@ public:
             step.sync_ms + step.update_ms + step.write_back_ms, step.sync_ms, step.update_ms,
             step.write_back_ms, loop.fixed_ms, loop.transforms_ms, loop.transforms);
     }
+    // Terrain-Kollision und Spielfigur (R4.3) als Text für die Anzeige.
+    [[nodiscard]] std::string character_stats() {
+        const physics::StepStats& step = physics_.stats();
+        std::string text = std::format(
+            "Terrain-Kollision: {} Formen ({} im Bau, {} neu, {:.1f} ms Bau, {:.1f} MiB), {} "
+            "eingefroren; {} Figuren in {:.2f} ms",
+            step.terrain_chunks, step.terrain_building, step.terrain_built, step.terrain_build_ms,
+            static_cast<f64>(step.terrain_bytes) / (1024.0 * 1024.0), step.frozen_bodies,
+            step.characters, step.characters_ms);
+        if (const world::Entity player = active_player()) {
+            if (const auto* motion = player.get<physics::CharacterMotion>()) {
+                constexpr const char* states[] = {"in der Luft", "auf dem Boden", "am Steilhang"};
+                text += std::format("; Figur {}, Material {}, {:.1f} m/s{}",
+                                    states[static_cast<u32>(motion->ground)],
+                                    motion->ground_material, math::length(motion->velocity),
+                                    motion->crouched ? ", geduckt" : "");
+            }
+        }
+        return text;
+    }
 
     // Geänderte Vorlagen auf ihre Instanzen übertragen (Hot Reload); Zahl der nachgezogenen.
     usize update_prefabs() {
@@ -408,6 +486,10 @@ public:
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
         NGINE_PROFILE_ZONE("ModelScene::add_passes");
         resources_->update();
+        // Geänderte Materialtabelle (Hot Reload, R4.3): Farbe, Texturen und Reibung gelten sofort.
+        if (terrain_materials_.poll()) {
+            apply_terrain_materials();
+        }
         // Im Editor zieht die Hauptschleife die Instanzen selbst nach (update_prefabs()), damit
         // sie das Dokument benachrichtigen kann.
         if (mode_ == SceneMode::Game) {
@@ -415,7 +497,7 @@ public:
         }
         // Terrains der Szene (R3.1): Chunks erzeugen, geänderte im Job-System neu meshen. Endlose
         // Terrains (R3.3) laden sich auch um die Kamera des Editors bzw. der Sandbox nach.
-        (void)world::update_terrains(world_, jobs_, {.observers = std::span{&position_, 1}});
+        (void)world::update_terrains(world_, jobs_, {.observers = std::span{&view_position_, 1}});
         (void)world::update_transforms(world_);
         if (debug_draw_) {
             draw_debug();
@@ -426,8 +508,9 @@ public:
         }
         if (playground_) {
             // Ziel des Strahls aus der Bildmitte: kleine Kugel mit Normale (Abfrage der Physik).
-            const Vec3 forward = view_rotation() * Vec3{0.0f, 0.0f, -1.0f};
-            if (const auto hit = physics_.raycast(position_, forward, 200.0f)) {
+            const Vec3 forward = view_rotation_ * Vec3{0.0f, 0.0f, -1.0f};
+            if (const auto hit = physics_.raycast(view_position_, forward, 200.0f,
+                                                  {.ignore = active_player().id()})) {
                 render::DebugDraw& debug = renderer_->debug();
                 debug.sphere(hit->point, 0.08f, {1.0f, 0.3f, 0.2f}, 12);
                 debug.line(hit->point, hit->point + math::to_f64(hit->normal * 0.5f),
@@ -526,6 +609,7 @@ private:
         render::register_types(types);
         physics::register_types(types);
         app::register_types(types);
+        app::register_player_types(types);
         return types;
     }
 
@@ -536,10 +620,10 @@ private:
           resources_{std::make_unique<asset::ResourceManager>(assets.database, &jobs_)},
           prefabs_{*resources_}, simulation_{world_, jobs_},
           shapes_{assets.database, assets.loading.cache}, physics_{world_, jobs_}, origin_{origin},
-          mode_{mode}, database_{assets.database} {
+          mode_{mode}, database_{assets.database}, terrain_materials_{assets.database} {
         renderer_->set_resources(resources_.get());
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
-        renderer_->set_terrain_materials(terrain_materials(database_));
+        apply_terrain_materials();
         // Feste Simulation mit Interpolation: Die Lichter laufen bei jeder Bildrate gleich schnell
         // und ruckeln trotzdem nicht (R4.1).
         simulation_.add<Orbit, world::Transform>("Kreisbahnen",
@@ -552,6 +636,14 @@ private:
         // dann erst die Spielschleife läuft.
         physics_.set_shape_source(shapes_.source());
         physics::add_to(simulation_, physics_);
+        // Modell des Spielplatzes (Kisten, Kugeln, Figur) gibt es immer, damit der Editor dessen
+        // Szene und das Prefab der Spielfigur öffnen kann.
+        asset::Model model = playground_model();
+        if (auto added = add_generated(playground_id, model); !added) {
+            log::warn("Modell des Spielplatzes: {}", added.error());
+        }
+        shapes_.add(playground_id, std::move(model));
+        player_enabled_ = mode_ == SceneMode::Game;
         if (mode_ == SceneMode::Game) {
             camera_ = world_.create("Kamera");
             camera_.set(world::Transform{}).set(render::Camera{});
@@ -736,26 +828,58 @@ private:
         return {};
     }
 
-    // Spielplatz (R4.2), siehe create_playground().
+    // Spielplatz (R4.2, R4.3), siehe create_playground().
     rhi::Result<void> build_playground(u32 extra_bodies) {
         renderer_->shadows.distance = 80.0f;
-        asset::Model model = playground_model();
-        if (auto result = add_generated(playground_id, model); !result) {
-            return result;
+        const asset::AssetInfo* scene =
+            database_ != nullptr ? database_->find_path("szenen/spielplatz.json") : nullptr;
+        DVec3 spawn = origin_;
+        bool loaded = false;
+        if (scene != nullptr && origin_ == DVec3{0.0, 0.0, 0.0}) {
+            if (auto result = world::load_scene_file(world_, scene->file, prefabs_.lookup())) {
+                log::info("Spielplatz aus {} ({} Einträge)", scene->path, *result);
+                loaded = true;
+            } else {
+                log::error("Spielplatz: {}", result.error());
+                loaded = true;
+            }
         }
-        shapes_.add(playground_id, std::move(model));
-        app::build_playground(world_, origin_);
+        if (!loaded) {
+            const PlaygroundLayout layout = app::build_playground(world_, origin_, jobs_);
+            const asset::AssetId figure = asset_id("prefabs/spielfigur.prefab");
+            (void)app::spawn_player(world_, layout.spawn,
+                                    figure != 0 ? prefabs_.get(figure) : nullptr, figure);
+            spawn = layout.spawn;
+        }
+        (void)world::update_transforms(world_);
+        if (const world::Entity player = app::find_player(world_)) {
+            spawn = player.get<world::WorldTransform>()->position();
+        }
         if (extra_bodies > 0) {
-            app::rain_bodies(world_, origin_ + DVec3{0.0, 0.0, 14.0}, extra_bodies);
+            app::rain_bodies(world_, spawn + DVec3{0.0, 2.0, 14.0}, extra_bodies);
         }
         playground_ = true;
-        position_ = origin_ + DVec3{6.0, 5.0, 14.0};
-        const Vec3 forward = math::normalize(Vec3{-6.0f, -3.5f, -15.0f});
-        yaw_ = std::atan2(-forward.x, -forward.z);
-        pitch_ = std::asin(forward.y);
+        position_ = spawn + DVec3{0.0, 4.0, 8.0};
+        yaw_ = 0.0f;
+        pitch_ = -0.3f;
         speed_ = 6.0f;
         update(0.0f, {});
         return {};
+    }
+
+    // Graben mit dem Pinsel (R3.4) dort, wo der Blick das Terrain trifft; mit Shift (fast)
+    // auftragen. Gehalten gräbt es alle 0,15 s weiter.
+    void update_dig(f32 dt, world::Entity player, const PlayerView& view,
+                    const PlayerControls& controls) {
+        dig_cooldown_ = std::max(dig_cooldown_ - dt, 0.0f);
+        if (!controls.dig || dig_cooldown_ > 0.0f) {
+            return;
+        }
+        const auto* input = player.get<PlayerInput>();
+        if (const auto target = app::dig_target(world_, player, view, physics_)) {
+            app::dig(*target, *input, controls.run);
+            dig_cooldown_ = 0.15f;
+        }
     }
 
     [[nodiscard]] math::Quat view_rotation() const noexcept {
@@ -894,6 +1018,7 @@ private:
     DVec3 origin_;
     SceneMode mode_;
     const asset::AssetDatabase* database_ = nullptr;
+    TerrainMaterialLibrary terrain_materials_;
     world::Entity camera_;
     render::Camera camera_settings_;
     DVec3 position_{0.0, 0.0, 0.0};
@@ -904,6 +1029,14 @@ private:
     bool draw_colliders_ = false;
     bool playground_ = false;
     std::string aimed_target_;
+    // Spielfigur (R4.3): aktiv, Flugmodus, Abklingzeit des Grabens.
+    bool player_enabled_ = false;
+    bool fly_ = false;
+    f32 dig_cooldown_ = 0.0f;
+    // Lage der Kamera im letzten update() (Figur oder freie Kamera) und Ausgang für Würfe.
+    DVec3 view_position_{0.0, 0.0, 0.0};
+    math::Quat view_rotation_{0.0f, 0.0f, 0.0f, 1.0f};
+    DVec3 throw_origin_{0.0, 0.0, 0.0};
 };
 
 } // namespace app

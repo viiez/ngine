@@ -664,6 +664,7 @@ void register_types(reflect::TypeRegistry& types) {
         types.add<Interpolated>("Interpolated");
     }
     register_prefab_types(types);
+    register_terrain_material_types(types);
     register_terrain_types(types);
 }
 

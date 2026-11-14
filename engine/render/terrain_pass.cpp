@@ -23,15 +23,30 @@ namespace ngine::render {
 using math::Vec3;
 using math::Vec4;
 
+std::vector<TerrainMaterial> terrain_materials_from(const world::TerrainMaterials& table) {
+    std::vector<TerrainMaterial> result;
+    result.reserve(table.materials.size());
+    for (const world::TerrainMaterial& material : table.materials) {
+        result.push_back({.name = material.name,
+                          .color = material.color,
+                          .roughness = material.roughness,
+                          .scale = material.scale,
+                          .normal_scale = material.normal_scale,
+                          .albedo = material.albedo,
+                          .normal = material.normal});
+    }
+    return result;
+}
+
 std::vector<TerrainMaterial> default_terrain_materials() {
-    // Farben linear; mit Textur Faktoren darauf (die Texturen bringen die eigentliche Farbe).
-    return {
-        {.name = "Luft"},
-        {.name = "Gras", .color = {0.045f, 0.13f, 0.02f}, .roughness = 0.95f, .scale = 3.0f},
-        {.name = "Fels", .color = {0.16f, 0.15f, 0.135f}, .roughness = 0.85f, .scale = 6.0f},
-        {.name = "Erde", .color = {0.15f, 0.075f, 0.03f}, .roughness = 0.95f, .scale = 3.0f},
-        {.name = "Sand", .color = {0.45f, 0.38f, 0.24f}, .roughness = 0.9f, .scale = 4.0f},
-    };
+    // Seit R4.3 aus der eingebauten Tabelle der Welt (eine Quelle für Renderer und Physik).
+    return terrain_materials_from(world::standard_terrain_materials());
+}
+
+const TerrainMaterial& terrain_material_or_missing(const std::vector<TerrainMaterial>& materials,
+                                                   usize index) {
+    static const TerrainMaterial missing{.name = "Fehlt", .color = {0.8f, 0.1f, 0.8f}};
+    return index < materials.size() ? materials[index] : missing;
 }
 
 void RendererCore::collect_terrain(world::World& world, math::DVec3 origin) {
@@ -103,18 +118,18 @@ u64 RendererCore::write_terrain_materials(usize slot, bool any_terrain) {
         }
         return texture->index();
     };
-    std::vector<GpuTerrainMaterial> table(terrain_materials.size());
-    for (usize i = 0; i < terrain_materials.size(); ++i) {
-        const TerrainMaterial& material = terrain_materials[i];
+    // Immer die ganze Tabelle schreiben: Voxel können Nummern tragen, die die Tabelle nicht kennt,
+    // und der Shader darf dann keine alten oder leeren Einträge mit fremden Texturindizes lesen.
+    std::vector<GpuTerrainMaterial> table(max_terrain_materials);
+    for (usize i = 0; i < table.size(); ++i) {
+        const TerrainMaterial& material = terrain_material_or_missing(terrain_materials, i);
         table[i] = {.color = math::extend(material.color, material.roughness),
                     .params = {material.scale > 0.0f ? material.scale : 1.0f, material.normal_scale,
                                0.0f, 0.0f},
                     .textures = {resolve(color_textures, material.albedo),
                                  resolve(data_textures, material.normal), terrain_sampler, 0}};
     }
-    if (!table.empty()) {
-        buffer.write(0, std::as_bytes(std::span{table}));
-    }
+    buffer.write(0, std::as_bytes(std::span{table}));
     return buffer.device_address();
 }
 

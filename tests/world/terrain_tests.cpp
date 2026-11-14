@@ -215,10 +215,9 @@ TEST_CASE("Endless terrains without observers load around their position", "[wor
     const auto types = make_types();
     world::World world{types};
     jobs::JobSystem jobs{{.worker_count = 1}};
-    world::Entity terrain =
-        world.create("Terrain")
-            .set(world::Transform{.position = {1.0e6, 0.0, -2.0e6}})
-            .set(world::Terrain{.streaming = true, .view_distance = 200.0f});
+    world::Entity terrain = world.create("Terrain")
+                                .set(world::Transform{.position = {1.0e6, 0.0, -2.0e6}})
+                                .set(world::Terrain{.streaming = true, .view_distance = 200.0f});
     static_cast<void>(world::update_transforms(world));
     world::update_terrains(world, jobs, {.wait = true});
     const world::TerrainData& data = *terrain.get<world::TerrainState>()->data;
@@ -249,4 +248,38 @@ TEST_CASE("Scenes store terrain observers and streaming settings", "[world]") {
     world::World loaded{types};
     REQUIRE(world::load_scene(loaded, text));
     CHECK(world::save_scene(loaded) == text);
+}
+
+TEST_CASE("Terrain material table round-trips and matches the asset file", "[world]") {
+    const world::TerrainMaterials standard = world::standard_terrain_materials();
+    REQUIRE(standard.materials.size() == 5);
+    CHECK(standard.materials[voxel::grass].name == "Gras");
+    CHECK(standard.materials[voxel::rock].footsteps == "fels");
+
+    const auto parsed = world::parse_terrain_materials(world::write_terrain_materials(standard));
+    REQUIRE(parsed.has_value());
+    CHECK(*parsed == standard);
+
+    // Die Datei im Asset-Ordner passt bis auf das Aussehen aus Texturen zur eingebauten Tabelle.
+    const auto file = world::load_terrain_materials_file(NGINE_ASSET_SOURCE_DIR
+                                                         "/terrain/standard.terrain-materials");
+    REQUIRE(file.has_value());
+    REQUIRE(file->materials.size() == standard.materials.size());
+    for (usize i = 0; i < standard.materials.size(); ++i) {
+        const world::TerrainMaterial& a = file->materials[i];
+        const world::TerrainMaterial& b = standard.materials[i];
+        CHECK(a.name == b.name);
+        CHECK(a.roughness == b.roughness);
+        CHECK(a.scale == b.scale);
+        CHECK(a.normal_scale == b.normal_scale);
+        CHECK(a.friction == b.friction);
+        CHECK(a.restitution == b.restitution);
+        CHECK(a.footsteps == b.footsteps);
+        // Gras, Fels, Erde und Sand haben Texturen.
+        CHECK((a.albedo != 0) == (i != 0));
+    }
+
+    CHECK_FALSE(world::parse_terrain_materials("{}").has_value());
+    CHECK_FALSE(
+        world::parse_terrain_materials(R"({"format": "ngine.terrain-materials"})").has_value());
 }

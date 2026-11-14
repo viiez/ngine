@@ -49,8 +49,17 @@ struct GpuTerrainMaterial {
 };
 static_assert(sizeof(GpuTerrainMaterial) == 48);
 
-// Standardtabelle ohne Texturen: 1 Gras, 2 Fels, 3 Erde, 4 Sand (wie voxel::grass usw.).
+// Standardtabelle ohne Texturen: 1 Gras, 2 Fels, 3 Erde, 4 Sand (wie voxel::grass usw.), aus
+// world::standard_terrain_materials().
 [[nodiscard]] std::vector<TerrainMaterial> default_terrain_materials();
+// Aussehen aus der Materialtabelle des Terrains (Asset, R4.3).
+[[nodiscard]] std::vector<TerrainMaterial>
+terrain_materials_from(const world::TerrainMaterials& table);
+// Material mit der Nummer index aus der Tabelle; fehlt es (Voxel mit einer Nummer, die die Tabelle
+// nicht mehr kennt, etwa nach einem ungespeicherten Material), ein auffälliges Ersatzmaterial ohne
+// Texturen.
+[[nodiscard]] const TerrainMaterial&
+terrain_material_or_missing(const std::vector<TerrainMaterial>& materials, usize index);
 
 // Netz eines Chunks auf der GPU: Bereiche in den gemeinsamen Geometriepuffern.
 struct TerrainChunkGpu {
@@ -74,10 +83,10 @@ struct TerrainChunkGpu {
 // Fassungen hoch, gibt veraltete und verschwundene frei. Der Renderer kennt keine Dichtefelder,
 // nur fertige Netze aus world::TerrainData.
 //
-// Seit R3.3 mit Budget pro Frame (TD-39): Neue Fassungen landen zuerst in eigenen Bereichen, höchstens
-// upload_budget Bytes pro Frame (mindestens ein Netz). Gezeichnet werden sie erst, wenn alle Netze
-// eines Terrains so weit sind; dann tauscht sync() alle auf einmal. So bleibt die Übernahme des
-// Streamings ohne Risse, auch wenn ihre Netze über mehrere Frames hochgeladen werden.
+// Seit R3.3 mit Budget pro Frame (TD-39): Neue Fassungen landen zuerst in eigenen Bereichen,
+// höchstens upload_budget Bytes pro Frame (mindestens ein Netz). Gezeichnet werden sie erst, wenn
+// alle Netze eines Terrains so weit sind; dann tauscht sync() alle auf einmal. So bleibt die
+// Übernahme des Streamings ohne Risse, auch wenn ihre Netze über mehrere Frames hochgeladen werden.
 class TerrainMeshes {
 public:
     explicit TerrainMeshes(GeometryBuffer& geometry) noexcept : geometry_{&geometry} {}

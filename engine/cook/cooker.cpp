@@ -118,6 +118,37 @@ Result<asset::CookedModel> cook_model(std::string_view source, const CookSetting
     return cooked;
 }
 
+Result<asset::CookedImage> cook_image(std::string_view source, bool srgb,
+                                      const CookSettings& settings) {
+    auto image = asset::load_image(source);
+    if (!image) {
+        return std::unexpected(std::format("{}: {}", source, image.error()));
+    }
+    auto ktx2 = encode_ktx2(*image, srgb, true, settings.textures);
+    if (!ktx2) {
+        return std::unexpected(std::format("{}: {}", source, ktx2.error()));
+    }
+    asset::CookedImage cooked;
+    if (auto transcoded = asset::decode_ktx2(*ktx2, asset::TextureFormat::BC7);
+        transcoded && transcoded->format == asset::TextureFormat::BC7) {
+        cooked.texture.bc7 = *std::move(transcoded);
+    }
+    cooked.texture.srgb = srgb;
+    cooked.texture.ktx2 = *std::move(ktx2);
+    auto stamp = asset::stamp_file(filesystem::normalize(source));
+    if (!stamp) {
+        return std::unexpected(std::move(stamp.error()));
+    }
+    cooked.sources.push_back(*std::move(stamp));
+    return cooked;
+}
+
+asset::ImageCooker image_cooker(CookSettings settings) {
+    return [settings](std::string_view source, bool srgb) {
+        return cook_image(source, srgb, settings);
+    };
+}
+
 asset::ModelCooker model_cooker(CookSettings settings) {
     return [settings](std::string_view source) { return cook_model(source, settings); };
 }

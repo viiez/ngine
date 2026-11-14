@@ -282,6 +282,9 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
 }
 
 void register_loaders(asset::ResourceManager& resources, Renderer& renderer, ModelLoading loading) {
+    // Texturen aus Bilddateien (R3.2), seit R4.3 gekocht aus demselben Cache.
+    detail::register_texture_loaders(resources, renderer, loading.cache,
+                                     std::move(loading.cook_image));
     // Was im Hintergrund entsteht: das Modell und seine fertigen Texturen.
     struct Prepared {
         asset::Model model;
@@ -352,7 +355,6 @@ void register_loaders(asset::ResourceManager& resources, Renderer& renderer, Mod
         [&renderer](const GpuModel& model) {
             return renderer.device().upload_done(model.ticket());
         });
-    detail::register_texture_loaders(resources, renderer);
 }
 
 ModelLoadCounts model_load_counts() noexcept {

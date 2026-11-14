@@ -175,7 +175,8 @@ struct FrameInfo {
 };
 
 // Lader für ColorTexture und DataTexture (textures.cpp), aus register_loaders().
-void register_texture_loaders(asset::ResourceManager& resources, Renderer& renderer);
+void register_texture_loaders(asset::ResourceManager& resources, Renderer& renderer,
+                              const asset::AssetCache* cache, asset::ImageCooker cook);
 
 } // namespace ngine::render::detail
 
@@ -317,7 +318,7 @@ struct RendererCore {
     struct ShaderSpec {
         std::string_view file;
         rhi::ShaderDesc (*embedded)();
-        std::unique_ptr<rhi::Shader> RendererCore::*slot;
+        std::unique_ptr<rhi::Shader> RendererCore::* slot;
         bool mesh = false;
     };
     static std::span<const ShaderSpec> shader_specs();
