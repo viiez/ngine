@@ -55,6 +55,11 @@ static_assert(sizeof(GpuTerrainMaterial) == 48);
 // Aussehen aus der Materialtabelle des Terrains (Asset, R4.3).
 [[nodiscard]] std::vector<TerrainMaterial>
 terrain_materials_from(const world::TerrainMaterials& table);
+// Material mit der Nummer index aus der Tabelle; fehlt es (Voxel mit einer Nummer, die die Tabelle
+// nicht mehr kennt, etwa nach einem ungespeicherten Material), ein auffälliges Ersatzmaterial ohne
+// Texturen.
+[[nodiscard]] const TerrainMaterial&
+terrain_material_or_missing(const std::vector<TerrainMaterial>& materials, usize index);
 
 // Netz eines Chunks auf der GPU: Bereiche in den gemeinsamen Geometriepuffern.
 struct TerrainChunkGpu {

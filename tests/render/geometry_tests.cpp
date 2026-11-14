@@ -67,6 +67,17 @@ TEST_CASE("RangeAllocator reuses and merges free ranges", "[render]") {
     CHECK(ranges.allocate(1024) == u64{0});
 }
 
+TEST_CASE("Unknown terrain materials fall back to a visible replacement", "[render]") {
+    const std::vector<render::TerrainMaterial> table = render::default_terrain_materials();
+    REQUIRE(table.size() == 5);
+    CHECK(&render::terrain_material_or_missing(table, 2) == &table[2]);
+    const render::TerrainMaterial& missing = render::terrain_material_or_missing(table, 7);
+    CHECK(missing.albedo == 0);
+    CHECK(missing.normal == 0);
+    CHECK(missing.color.x > missing.color.y);
+    CHECK(&render::terrain_material_or_missing({}, 0) == &missing);
+}
+
 TEST_CASE("Renderer draws terrain chunks from shared geometry buffers", "[render][gpu]") {
     auto created =
         rhi::vulkan::create_device({.application_name = "NGine Tests", .enable_validation = true});
@@ -152,6 +163,19 @@ TEST_CASE("Renderer draws terrain chunks from shared geometry buffers", "[render
     const int blue = pixels[center + 2];
     CHECK(blue < green + 40);
     CHECK(red + green + blue > 15);
+
+    // Eine Tabelle, die die Materialien der Voxel nicht kennt (ungespeichertes Material im Editor),
+    // zeichnet das Ersatzmaterial statt alter oder leerer Einträge des Puffers.
+    std::vector<render::TerrainMaterial> only_air = r.terrain_materials();
+    only_air.resize(1);
+    r.set_terrain_materials(only_air);
+    for (int i = 0; i < 3; ++i) {
+        frame();
+    }
+    const auto missing = device->read_texture(**target, rhi::ResourceState::TransferSrc);
+    CHECK(int{missing[center]} > int{missing[center + 1]} + 20);
+    CHECK(int{missing[center + 2]} > int{missing[center + 1]} + 20);
+    CHECK(device->validation_errors() == 0);
 
     // Ohne Terrain werden die Bereiche nach den Frames im Flug wieder frei.
     terrain.destroy();

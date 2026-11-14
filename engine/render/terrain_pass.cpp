@@ -43,6 +43,12 @@ std::vector<TerrainMaterial> default_terrain_materials() {
     return terrain_materials_from(world::standard_terrain_materials());
 }
 
+const TerrainMaterial& terrain_material_or_missing(const std::vector<TerrainMaterial>& materials,
+                                                   usize index) {
+    static const TerrainMaterial missing{.name = "Fehlt", .color = {0.8f, 0.1f, 0.8f}};
+    return index < materials.size() ? materials[index] : missing;
+}
+
 void RendererCore::collect_terrain(world::World& world, math::DVec3 origin) {
     world.each<const world::WorldTransform, const world::TerrainState>(
         [&](world::Entity entity, const world::WorldTransform& transform,
@@ -112,18 +118,18 @@ u64 RendererCore::write_terrain_materials(usize slot, bool any_terrain) {
         }
         return texture->index();
     };
-    std::vector<GpuTerrainMaterial> table(terrain_materials.size());
-    for (usize i = 0; i < terrain_materials.size(); ++i) {
-        const TerrainMaterial& material = terrain_materials[i];
+    // Immer die ganze Tabelle schreiben: Voxel können Nummern tragen, die die Tabelle nicht kennt,
+    // und der Shader darf dann keine alten oder leeren Einträge mit fremden Texturindizes lesen.
+    std::vector<GpuTerrainMaterial> table(max_terrain_materials);
+    for (usize i = 0; i < table.size(); ++i) {
+        const TerrainMaterial& material = terrain_material_or_missing(terrain_materials, i);
         table[i] = {.color = math::extend(material.color, material.roughness),
                     .params = {material.scale > 0.0f ? material.scale : 1.0f, material.normal_scale,
                                0.0f, 0.0f},
                     .textures = {resolve(color_textures, material.albedo),
                                  resolve(data_textures, material.normal), terrain_sampler, 0}};
     }
-    if (!table.empty()) {
-        buffer.write(0, std::as_bytes(std::span{table}));
-    }
+    buffer.write(0, std::as_bytes(std::span{table}));
     return buffer.device_address();
 }
 
