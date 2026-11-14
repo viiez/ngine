@@ -30,11 +30,13 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <format>
 #include <functional>
 #include <map>
 #include <memory>
@@ -79,6 +81,43 @@ bool assert_failed(const char* expression, const char* message, const char* file
 }
 #endif
 
+// Sucht die Definitionen, in denen sich Bibliothek und Adapter unterscheiden: Die Bibliothek
+// vergleicht nur die ganze Kennung, also probieren wir jedes Merkmal einzeln und paarweise.
+std::string version_mismatch() {
+    constexpr std::array<const char*, 11> names{"JPH_DOUBLE_PRECISION",
+                                                "JPH_CROSS_PLATFORM_DETERMINISTIC",
+                                                "JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
+                                                "JPH_PROFILE_ENABLED",
+                                                "JPH_EXTERNAL_PROFILE",
+                                                "JPH_DEBUG_RENDERER",
+                                                "JPH_DISABLE_TEMP_ALLOCATOR",
+                                                "JPH_DISABLE_CUSTOM_ALLOCATOR",
+                                                "JPH_OBJECT_LAYER_BITS",
+                                                "JPH_ENABLE_ASSERTS",
+                                                "JPH_OBJECT_STREAM"};
+    using JPH::uint64; // JPH_VERSION_ID nennt den Typ ohne Namensraum.
+    const uint64 own = JPH_VERSION_ID;
+    const auto bit = [](usize index) { return JPH::uint64{1} << (24 + index); };
+    const auto name = [&](usize index) {
+        return std::format("{} im Adapter {}", names[index],
+                           (own & bit(index)) != 0 ? "an" : "aus");
+    };
+    for (usize i = 0; i < names.size(); ++i) {
+        if (JPH::VerifyJoltVersionIDInternal(own ^ bit(i))) {
+            return std::format("abweichend: {}", name(i));
+        }
+    }
+    for (usize i = 0; i < names.size(); ++i) {
+        for (usize j = i + 1; j < names.size(); ++j) {
+            if (JPH::VerifyJoltVersionIDInternal(own ^ bit(i) ^ bit(j))) {
+                return std::format("abweichend: {}, {}", name(i), name(j));
+            }
+        }
+    }
+    return std::format("Kennung des Adapters {:#x}, andere Version oder mehr als zwei Merkmale",
+                       own);
+}
+
 class JoltRuntime {
 public:
     JoltRuntime() {
@@ -88,8 +127,11 @@ public:
         JPH::AssertFailed = &assert_failed;
 #endif
         // Bricht ab, wenn Bibliothek und Adapter mit anderen Schaltern gebaut sind (z. B. ohne
-        // doppelte Genauigkeit).
-        verify(JPH::VerifyJoltVersionID(), "Jolt: Bibliothek und Adapter passen nicht zusammen");
+        // doppelte Genauigkeit), und nennt die abweichenden Definitionen.
+        if (!JPH::VerifyJoltVersionID()) {
+            log::fatal("Jolt: Bibliothek und Adapter passen nicht zusammen ({})",
+                       version_mismatch());
+        }
         factory_ = std::make_unique<JPH::Factory>();
         JPH::Factory::sInstance = factory_.get();
         JPH::RegisterTypes();
