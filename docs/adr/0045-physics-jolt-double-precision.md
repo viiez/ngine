@@ -56,7 +56,8 @@ laden, mit denen sie gebaut sind.
   der Sicherung her, und die Physik verwirft ihre Körper. Zweimal Spielen ergibt dasselbe (Test).
 - Ein Stapel 10 000 km vom Ursprung verhält sich wie am Ursprung (unter 1 mm nach 5 s, Test).
 - Ohne AVX2 und FMA ist Jolt langsamer als mit; 2 031 Körper kosten im Container (4 Kerne, Release)
-  rund 8 ms pro Schritt. Ob sich die Befehlssätze lohnen, zeigt die Messung auf dem PC (TD-48).
+  rund 8 ms pro Schritt, auf dem PC (Windows, Release) im Median 2,9 ms. Das reicht vorerst; die
+  Befehlssätze kommen bei Bedarf (TD-48).
 - Der Overlay-Port muss bei einer neuen Baseline mit dem offiziellen Port abgeglichen werden.
 - Ein Lauf ist nur im selben Build bitgleich: Debug und Release, Linux und Windows ergeben
   verschiedene Prüfsummen.
