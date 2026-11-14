@@ -110,12 +110,13 @@ std::string assembly_of(const ScriptBuildDesc& desc) {
 
 // Für Entwicklungsumgebungen, die das Projekt ohne die Engine bauen.
 void write_props(const ScriptBuildDesc& desc) {
-    const std::string text = std::format(
-        "<!-- Erzeugt von NGine (ScriptBuilder). Wo NGine.Scripting.dll liegt. -->\n"
-        "<Project>\n  <PropertyGroup>\n"
-        "    <NgineScriptingDir Condition=\"'$(NgineScriptingDir)' == ''\">{}</NgineScriptingDir>\n"
-        "  </PropertyGroup>\n</Project>\n",
-        desc.scripting_dir);
+    const std::string text =
+        std::format("<!-- Erzeugt von NGine (ScriptBuilder). Wo NGine.Scripting.dll liegt. -->\n"
+                    "<Project>\n  <PropertyGroup>\n"
+                    "    <NgineScriptingDir Condition=\"'$(NgineScriptingDir)' == "
+                    "''\">{}/</NgineScriptingDir>\n"
+                    "  </PropertyGroup>\n</Project>\n",
+                    desc.scripting_dir);
     const std::string path = filesystem::join(desc.output_dir, "ngine.props");
     if (auto current = filesystem::read_text(path); current && *current == text) {
         return;
@@ -434,6 +435,10 @@ void ScriptSystem::bind(world::World* world, const input::ActionState* actions,
     impl_->runtime->bind_world(world);
     impl_->runtime->bind_input(actions);
     impl_->runtime->bind_physics(physics, bus);
+}
+
+void ScriptSystem::run(ScriptPhase phase, f32 delta) {
+    impl_->run(phase, delta);
 }
 
 void ScriptSystem::add_to(world::Simulation& simulation) {

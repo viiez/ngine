@@ -16,6 +16,7 @@ export module editor.menu;
 import ngine.core;
 import ngine.edit;
 import ngine.editor_ui;
+import ngine.script;
 import editor.scene_tree;
 
 namespace editor {
@@ -41,6 +42,8 @@ export struct Panels {
     bool assets = true;
     // Materialtabelle des Terrains (R4.3), anfangs zu.
     bool terrain_materials = false;
+    // Bau und Klassen der Skripte (R4.4), anfangs zu.
+    bool scripts = false;
 };
 
 export ui::DockLayout default_layout() {
@@ -67,6 +70,9 @@ export std::string file_label(const edit::SceneDocument& document) {
 export class PlayControls {
 public:
     bool paused = false;
+    // Skripte der Szene (R4.4): laufen nur beim Spielen; beim Stoppen bekommen sie Stop, bevor
+    // die Welt aus der Sicherung zurückkommt.
+    script::ScriptSystem* scripts = nullptr;
     // Einzelschritt angefordert (R4.1): Die Hauptschleife rechnet genau einen festen Schritt und
     // bleibt in der Pause.
     bool step_requested = false;
@@ -86,9 +92,15 @@ public:
             return;
         }
         paused = false;
+        if (scripts != nullptr) {
+            scripts->set_active(true);
+        }
         log::info("Spielen");
     }
     void stop(edit::SceneDocument& document) {
+        if (scripts != nullptr) {
+            scripts->set_active(false);
+        }
         if (auto result = document.end_play(); !result) {
             log::error("{}", result.error());
             return;
@@ -238,6 +250,7 @@ public:
             ui::menu_item(stats_window, {}, &panels.stats);
             ui::menu_item(assets_window, {}, &panels.assets);
             ui::menu_item("Terrain-Materialien", {}, &panels.terrain_materials);
+            ui::menu_item("Skripte", {}, &panels.scripts);
             ui::separator();
             if (ui::menu_item("Layout zurücksetzen")) {
                 panels = {};

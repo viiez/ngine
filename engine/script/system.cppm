@@ -125,6 +125,8 @@ public:
     // Welt und Dienste für die Skripte; nullptr löst sie. Vor dem Ende der Welt lösen.
     void bind(world::World* world, const input::ActionState* actions = nullptr,
               const physics::PhysicsWorld* physics = nullptr, events::EventBus* bus = nullptr);
+    // FixedUpdate bzw. Update aller Skripte, wenn aktiv, gebunden und geladen.
+    void run(ScriptPhase phase, f32 delta);
     // Hängt FixedUpdate als feste Stufe (vor der Physik, wenn vor physics::add_to() gerufen) und
     // Update als Stufe nach Phase::Frame an.
     void add_to(world::Simulation& simulation);

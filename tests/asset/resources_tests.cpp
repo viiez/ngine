@@ -98,6 +98,7 @@ TEST_CASE("Asset types follow the file extension", "[asset]") {
     CHECK(asset::type_of("holz.png") == asset::AssetType::Texture);
     CHECK(asset::type_of("pbr.slang") == asset::AssetType::Shader);
     CHECK(asset::type_of("level.json") == asset::AssetType::Scene);
+    CHECK(asset::type_of("skripte/Laterne.cs") == asset::AssetType::Script);
     CHECK(asset::type_of("kiste.bin") == asset::AssetType::Unknown);
     CHECK(asset::type_of("kiste.gltf.meta") == asset::AssetType::Unknown);
     CHECK(asset::generated_id("a") == asset::generated_id("a"));

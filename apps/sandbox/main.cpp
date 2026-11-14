@@ -57,6 +57,7 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -86,6 +87,8 @@ import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import sandbox.playground;
+import app.scripting;
+import ngine.script;
 import ngine.voxel;
 #if NGINE_WITH_WINDOW
 import ngine.platform;
@@ -274,6 +277,9 @@ int run_windowed(const Options& options) {
     }
 
     int exit_code = 0;
+    // .NET für die Skripte (R4.4); lebt länger als die Szene.
+    const std::unique_ptr<ngine::script::ScriptRuntime> script_runtime =
+        options.voxel_demo ? nullptr : app::start_script_runtime();
     {
         // Ressourcen leben in diesem Block, damit sie vor dem Device zerstört werden.
         // Voxel-Demo (Durchstich D1) oder Standardansicht mit Renderer und Welt (R1.3).
@@ -324,6 +330,10 @@ int run_windowed(const Options& options) {
         // Eingabe als Aktionen (R4.1); die Belegung lädt neu, wenn sich die Datei ändert.
         app::InputBindings bindings;
         ngine::input::ActionState actions{bindings.load()};
+        // Skripte aus assets/skripte, mit Hot Reload (R4.4).
+        if (scene && script_runtime) {
+            scene->enable_scripts(*script_runtime, &actions);
+        }
         bool looking = false;
         // Auf dem Spielplatz mit Figur ist die Maus gefangen und schaut ohne Taste (R4.3).
         const auto player_mode = [&] {

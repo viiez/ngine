@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Gameplay-Skripte (R4.4). Editor und Sandbox bauen das Projekt mit dotnet build in den Cache
+    (assets/.cache/skripte) und laden es neu, sobald sich eine .cs-Datei ändert. Wo
+    NGine.Scripting.dll liegt, setzt die Engine (NgineScriptingDir); Entwicklungsumgebungen finden
+    es nach dem ersten Start der Engine über assets/.cache/skripte/ngine.props.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Spiel</RootNamespace>
+    <AssemblyName>Skripte</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Private=false: NGine.Scripting kommt zur Laufzeit aus dem Standardkontext der Engine. -->
+    <Reference Include="NGine.Scripting">
+      <HintPath>$(NgineScriptingDir)NGine.Scripting.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
