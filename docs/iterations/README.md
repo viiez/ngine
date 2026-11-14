@@ -30,7 +30,8 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R3.4](R3.4-deltas-und-voxel-werkzeuge.md) | Konstruktion | Deltas und Voxel-Werkzeuge | abgeschlossen |
 | [R3.5](R3.5-gpu-getriebenes-zeichnen.md) | Konstruktion | GPU-getriebenes Zeichnen | abgeschlossen |
 | [R4](R4-gameplay-systeme.md) | Konstruktion | Reifegrad Gameplay-Systeme (R4.1 bis R4.6) | in Arbeit |
-| [R4.1](R4.1-spielschleife-und-eingabe.md) | Konstruktion | Spielschleife und Eingabe | geplant |
+| [R4.1](R4.1-spielschleife-und-eingabe.md) | Konstruktion | Spielschleife und Eingabe | abgeschlossen |
+| [R4.2](R4.2-physik-mit-jolt.md) | Konstruktion | Physik mit Jolt | geplant |
 
 ## Vorlage
 
