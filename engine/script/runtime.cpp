@@ -223,6 +223,7 @@ struct ScriptRuntime::Impl {
     ManagedApi managed;
     NativeApi native{native_log, native_add, make_world_api(), make_script_api(), make_game_api()};
     bool scripts_loaded = false;
+    std::string assembly_dir;
 };
 
 Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& desc) {
@@ -355,6 +356,7 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         !function(m.deliver_events, "DeliverEvents")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
+    impl->assembly_dir = desc.assembly_dir;
     if (m.initialize(&impl->native, static_cast<std::int32_t>(sizeof(NativeApi))) != 0) {
         return std::unexpected("NGine.Host.Initialize ist fehlgeschlagen");
     }
@@ -405,6 +407,14 @@ Result<u32> ScriptRuntime::load_scripts(std::string_view assembly_path) {
 
 void ScriptRuntime::use_types(reflect::TypeRegistry* types) {
     set_script_registry(types);
+}
+
+const std::string& ScriptRuntime::assembly_dir() const noexcept {
+    return impl_->assembly_dir;
+}
+
+bool ScriptRuntime::scripts_loaded() const noexcept {
+    return impl_->scripts_loaded;
 }
 
 std::span<const reflect::TypeInfo* const> ScriptRuntime::script_types() const noexcept {

@@ -7,6 +7,8 @@ target_sources(ngine_script
         FILES
             script.cppm
             bindings.cppm
+            runtime.cppm
+            system.cppm
     PRIVATE
         FILE_SET internal TYPE CXX_MODULES
         FILES
@@ -19,7 +21,8 @@ target_sources(ngine_script
         bindings.cpp
         world_api.cpp
         script_api.cpp
-        game_api.cpp)
+        game_api.cpp
+        system.cpp)
 
 # Plattformcode nur in den Adaptern: je eine Datei pro Betriebssystem.
 if(WIN32)
@@ -32,7 +35,7 @@ endif()
 # Zur Laufzeit wird hostfxr dynamisch geladen; zum Bauen braucht der C++-Teil kein .NET.
 target_link_libraries(ngine_script PUBLIC ngine::core ngine::reflect ngine::world ngine::input
     ngine::physics ngine::math
-    PRIVATE ngine::profile ngine::serialize)
+    PRIVATE ngine::profile ngine::serialize ngine::filesystem ngine::platform)
 ngine_set_compiler_options(ngine_script)
 
 # Der verwaltete Teil (NGine.Scripting) braucht das .NET-SDK. Fehlt es, baut die Engine ohne ihn,

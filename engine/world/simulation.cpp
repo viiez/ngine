@@ -122,6 +122,9 @@ u32 Simulation::advance(f64 dt) {
     time.delta = paused_ ? 0.0f : static_cast<f32>(dt * time_scale_);
     world_->set_time(time);
     schedule_.run(*jobs_, Phase::Frame);
+    for (const auto& stage : frame_stages_) {
+        stage();
+    }
     schedule_.run(*jobs_, Phase::Late);
     const auto frame_done = Clock::now();
     interpolate();

@@ -146,6 +146,14 @@ TEST_CASE("Simulation runs phases with their time", "[world][simulation]") {
     });
     u32 after_steps = 0;
     simulation.set_after_fixed_step([&] { ++after_steps; });
+    // Stufen laufen im Hauptthread nach den Systemen ihrer Phase.
+    std::vector<f32> frame_stage_deltas;
+    u32 fixed_stages = 0;
+    simulation.add_fixed_stage([&] { ++fixed_stages; });
+    simulation.add_frame_stage([&] {
+        frame_stage_deltas.push_back(world.time().delta);
+        CHECK(frame_deltas.size() == frame_stage_deltas.size()); // nach dem System „Bild“
+    });
 
     // 25 ms: ein Schritt, 8,3 ms bleiben übrig.
     CHECK(simulation.advance(0.025) == 1);
@@ -182,6 +190,8 @@ TEST_CASE("Simulation runs phases with their time", "[world][simulation]") {
         CHECK(counter.fixed == simulation.time().tick);
         CHECK(counter.frame == 15);
     });
+    CHECK(fixed_stages == simulation.time().tick);
+    CHECK(frame_stage_deltas == frame_deltas);
 }
 
 TEST_CASE("Simulation interpolates only Interpolated entities", "[world][simulation]") {

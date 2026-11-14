@@ -44,6 +44,7 @@ add_executable(ngine_tests
     world/prefab_tests.cpp
     world/terrain_tests.cpp
     physics/physics_tests.cpp
+    platform/process_tests.cpp
     edit/edit_tests.cpp
     edit/gizmo_play_tests.cpp
     edit/prefab_edit_tests.cpp
@@ -70,6 +71,8 @@ ngine_copy_slang_runtime(ngine_tests)
 set_source_files_properties(render/renderer_tests.cpp cook/cook_tests.cpp input/input_tests.cpp
     world/terrain_tests.cpp PROPERTIES
     COMPILE_DEFINITIONS "NGINE_ASSET_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}/assets\"")
+set_source_files_properties(platform/process_tests.cpp PROPERTIES
+    COMPILE_DEFINITIONS "NGINE_CMAKE_COMMAND=\"${CMAKE_COMMAND}\";NGINE_TEST_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
 set_source_files_properties(math/math_oracle_tests.cpp PROPERTIES
     COMPILE_DEFINITIONS "GLM_FORCE_DEPTH_ZERO_TO_ONE;GLM_FORCE_CTOR_INIT")
 

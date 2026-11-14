@@ -1,11 +1,16 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <string>
+#include <string_view>
+#include <thread>
 #include <vector>
 
 import ngine.core;
@@ -486,4 +491,195 @@ TEST_CASE("Script values from a scene loaded before the scripts are kept and ado
     rt.bind_world(nullptr);
     REQUIRE(rt.unload_scripts());
     rt.use_types(nullptr);
+}
+
+TEST_CASE("Compiler messages become diagnostics with file and line", "[script]") {
+    const std::string output =
+        "/spiel/Laterne.cs(12,5): error CS1002: ; expected [/spiel/Skripte.csproj]\n"
+        "/spiel/Laterne.cs(12,5): error CS1002: ; expected [/spiel/Skripte.csproj]\n"
+        "C:\\spiel\\Tuer.cs(3,17): warning CS0168: Die Variable \"x\" ist deklariert, wird aber "
+        "nie verwendet. [C:\\spiel\\Skripte.csproj]\n"
+        "MSBUILD : error MSB1009: Projektdatei ist nicht vorhanden.\n"
+        "Erstellen erfolgreich.\n";
+    const auto diagnostics = script::parse_diagnostics(output);
+    REQUIRE(diagnostics.size() == 3);
+    CHECK(diagnostics[0].file == "/spiel/Laterne.cs");
+    CHECK(diagnostics[0].line == 12);
+    CHECK(diagnostics[0].column == 5);
+    CHECK(diagnostics[0].code == "CS1002");
+    CHECK(diagnostics[0].message == "; expected");
+    CHECK(diagnostics[0].error);
+    CHECK(diagnostics[1].file == "C:\\spiel\\Tuer.cs");
+    CHECK_FALSE(diagnostics[1].error);
+    CHECK(diagnostics[1].message.ends_with("nie verwendet."));
+    CHECK(diagnostics[2].file == "MSBUILD");
+    CHECK(diagnostics[2].line == 0);
+    CHECK(diagnostics[2].code == "MSB1009");
+}
+
+namespace {
+
+// Eigenes Skript-Projekt in einem leeren Ordner, wie assets/skripte.
+struct ScriptProject {
+    std::filesystem::path dir = std::filesystem::temp_directory_path() /
+                                std::format("ngine_skripte_{}", std::random_device{}());
+
+    ScriptProject() {
+        std::filesystem::create_directories(dir / "quellen");
+        write("quellen/Spiel.csproj", R"(<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="NGine.Scripting">
+      <HintPath>$(NgineScriptingDir)/NGine.Scripting.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
+)");
+    }
+    ~ScriptProject() {
+        std::error_code ignored;
+        std::filesystem::remove_all(dir, ignored);
+    }
+    ScriptProject(const ScriptProject&) = delete;
+    ScriptProject& operator=(const ScriptProject&) = delete;
+
+    void write(const std::string& name, const std::string& text) const {
+        REQUIRE(filesystem::write_text((dir / name).string(), text));
+    }
+    [[nodiscard]] std::string project() const {
+        return (dir / "quellen" / "Spiel.csproj").string();
+    }
+    [[nodiscard]] std::string cache() const {
+        return (dir / "cache").string();
+    }
+};
+
+std::string counter_script(std::string_view body, std::string_view extra = "") {
+    return std::format(R"(using NGine;
+public class Zaehler : Script
+{{
+    public int Schritt = 1;
+    public int Summe;
+    {}
+    public override void FixedUpdate()
+    {{
+        {}
+    }}
+}}
+)",
+                       extra, body);
+}
+
+} // namespace
+
+TEST_CASE("Scripts build in the background and reload with their field values", "[script]") {
+    auto& rt = runtime();
+    ScriptProject project;
+    project.write("quellen/Zaehler.cs", counter_script("Summe += Schritt;"));
+
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    world::World w{types};
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    world::Simulation simulation{w, jobs};
+    auto system = std::make_unique<script::ScriptSystem>(
+        rt, types,
+        script::ScriptSystemDesc{.project = project.project(), .cache_dir = project.cache()});
+    system->start(true);
+    const auto& status = system->status();
+    REQUIRE(status.last_build.has_value());
+    if (status.last_build->sdk_missing) {
+        system.reset();
+        if (dotnet_required()) {
+            FAIL(".NET-SDK fehlt: " + status.last_build->output);
+        }
+        SKIP(".NET-SDK fehlt");
+    }
+    INFO(status.last_build->output);
+    REQUIRE(status.last_build->ok);
+    REQUIRE(status.generation == 1);
+    CHECK(status.classes == std::vector<std::string>{"Zaehler"});
+    CHECK(filesystem::exists(project.cache() + "/Spiel.dll"));
+    CHECK(filesystem::exists(project.cache() + "/ngine.props"));
+
+    const reflect::TypeInfo* counter = types.find("Zaehler");
+    REQUIRE(counter != nullptr);
+    world::Entity entity = w.create("Zaehler");
+    (void)w.ensure(entity.id(), w.component(*counter));
+    system->bind(&w);
+    system->add_to(simulation);
+    const auto step = [&] { simulation.advance(1.0 / 60.0 + 1e-6); };
+    const auto value = [&](std::string_view name) -> i32& {
+        return field<i32>(w.get_mut(entity.id(), w.component(*types.find("Zaehler"))),
+                          *types.find("Zaehler"), name);
+    };
+
+    step();
+    step();
+    rt.store_fields();
+    CHECK(value("Summe") == 2);
+    // Wert aus dem Inspector.
+    value("Schritt") = 5;
+    rt.load_fields();
+    step();
+    rt.store_fields();
+    CHECK(value("Summe") == 7);
+
+    // Datei ändern: Neubau im Hintergrund, die Skripte laufen weiter, danach gilt der neue Code
+    // mit den alten Werten; das neue Feld bekommt seinen Standardwert.
+    project.write("quellen/Zaehler.cs",
+                  counter_script("Summe += Schritt * 100;", "public float Neu = 2.5f;"));
+    const auto wait_for = [&](auto&& done) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(3);
+        while (!done() && std::chrono::steady_clock::now() < deadline) {
+            system->update();
+            step();
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    };
+    wait_for([&] { return status.generation == 2; });
+    REQUIRE(status.generation == 2);
+    rt.store_fields();
+    const i32 before = value("Summe");
+    CHECK(value("Schritt") == 5);
+    CHECK(before >= 7);
+    const reflect::TypeInfo* changed = types.find("Zaehler");
+    REQUIRE(changed != counter); // neue Felder, neuer Typ
+    CHECK(field<f32>(w.get_mut(entity.id(), w.component(*changed)), *changed, "Neu") == 2.5f);
+    step();
+    rt.store_fields();
+    CHECK(value("Summe") == before + 500);
+
+    // Fehler im Skript: Meldung mit Datei und Zeile, die alten Skripte laufen weiter.
+    project.write("quellen/Zaehler.cs",
+                  counter_script("Summe += Schritt * 100", "public float Neu = 2.5f;"));
+    wait_for([&] { return status.last_build && !status.last_build->ok; });
+    REQUIRE(status.last_build.has_value());
+    REQUIRE_FALSE(status.last_build->ok);
+    CHECK(status.generation == 2);
+    REQUIRE_FALSE(status.last_build->diagnostics.empty());
+    const script::Diagnostic& error = status.last_build->diagnostics.front();
+    CHECK(error.error);
+    CHECK(error.file.ends_with("Zaehler.cs"));
+    CHECK(error.line == 9);
+    CHECK(error.code == "CS1002");
+    rt.store_fields();
+    const i32 still = value("Summe");
+    step();
+    rt.store_fields();
+    CHECK(value("Summe") == still + 500);
+
+    // Inaktiv (Editor ohne Spielmodus): Stop, danach läuft nichts.
+    system->set_active(false);
+    step();
+    rt.store_fields();
+    CHECK(value("Summe") == still + 500);
+
+    system->bind(nullptr);
+    system.reset();
+    CHECK_FALSE(rt.scripts_loaded());
 }
