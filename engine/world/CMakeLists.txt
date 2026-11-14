@@ -11,13 +11,17 @@ target_sources(ngine_world
             ecs.cppm
             components.cppm
             transform.cppm
+            commands.cppm
             schedule.cppm
+            simulation.cppm
             prefab.cppm
             scene.cppm
             terrain.cppm
     PRIVATE
         world.cpp
         schedule.cpp
+        commands.cpp
+        simulation.cpp
         scene.cpp
         prefab.cpp
         transform.cpp

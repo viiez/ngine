@@ -3,13 +3,16 @@ module;
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdint>
 #include <expected>
 #include <format>
 #include <functional>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,7 +29,10 @@ struct Window::Impl {
     std::array<SDL_Cursor*, 10> cursors{};
     Cursor cursor = Cursor::Arrow;
     std::function<void(Extent)> redraw;
+    // Offene Gamepads nach ihrer Kennung bei SDL (SDL_JoystickID).
+    std::map<u32, SDL_Gamepad*> gamepads;
     bool watching = false;
+    bool gamepad_subsystem = false;
 
     Impl() = default;
     Impl(const Impl&) = delete;
@@ -35,6 +41,12 @@ struct Window::Impl {
     ~Impl() {
         if (watching) {
             SDL_RemoveEventWatch(&Impl::watch, this);
+        }
+        for (const auto& [id, gamepad] : gamepads) {
+            SDL_CloseGamepad(gamepad);
+        }
+        if (gamepad_subsystem) {
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
         }
         for (SDL_Cursor* c : cursors) {
             if (c != nullptr) {
@@ -83,6 +95,12 @@ std::expected<Window, std::string> Window::create(const WindowDesc& desc) {
 
     log::info("Fenster geöffnet: {}x{}, Video-Treiber {}", desc.width, desc.height,
               SDL_GetCurrentVideoDriver());
+
+    // Gamepads (PLAT-02). Schon angesteckte meldet SDL beim ersten poll_events() als hinzugefügt.
+    impl->gamepad_subsystem = SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+    if (!impl->gamepad_subsystem) {
+        log::warn("Gamepads nicht verfügbar: {}", SDL_GetError());
+    }
     return Window{std::move(impl)};
 }
 
@@ -133,6 +151,14 @@ Key to_key(SDL_Scancode key) {
     case SDL_SCANCODE_RALT: return Key::Alt;
     case SDL_SCANCODE_LGUI:
     case SDL_SCANCODE_RGUI: return Key::Super;
+    case SDL_SCANCODE_LEFTBRACKET: return Key::LeftBracket;
+    case SDL_SCANCODE_RIGHTBRACKET: return Key::RightBracket;
+    case SDL_SCANCODE_COMMA: return Key::Comma;
+    case SDL_SCANCODE_PERIOD: return Key::Period;
+    case SDL_SCANCODE_MINUS:
+    case SDL_SCANCODE_KP_MINUS: return Key::Minus;
+    case SDL_SCANCODE_EQUALS:
+    case SDL_SCANCODE_KP_PLUS: return Key::Equals;
     default: return Key::Unknown;
     }
 }
@@ -148,6 +174,43 @@ SDL_SystemCursor to_system_cursor(Cursor cursor) {
     case Cursor::Hand: return SDL_SYSTEM_CURSOR_POINTER;
     case Cursor::NotAllowed: return SDL_SYSTEM_CURSOR_NOT_ALLOWED;
     default: return SDL_SYSTEM_CURSOR_DEFAULT;
+    }
+}
+
+std::optional<GamepadButton> to_gamepad_button(Uint8 button) {
+    switch (static_cast<SDL_GamepadButton>(button)) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: return GamepadButton::South;
+    case SDL_GAMEPAD_BUTTON_EAST: return GamepadButton::East;
+    case SDL_GAMEPAD_BUTTON_WEST: return GamepadButton::West;
+    case SDL_GAMEPAD_BUTTON_NORTH: return GamepadButton::North;
+    case SDL_GAMEPAD_BUTTON_BACK: return GamepadButton::Back;
+    case SDL_GAMEPAD_BUTTON_GUIDE: return GamepadButton::Guide;
+    case SDL_GAMEPAD_BUTTON_START: return GamepadButton::Start;
+    case SDL_GAMEPAD_BUTTON_LEFT_STICK: return GamepadButton::LeftStick;
+    case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return GamepadButton::RightStick;
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return GamepadButton::LeftShoulder;
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return GamepadButton::RightShoulder;
+    case SDL_GAMEPAD_BUTTON_DPAD_UP: return GamepadButton::DpadUp;
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return GamepadButton::DpadDown;
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return GamepadButton::DpadLeft;
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return GamepadButton::DpadRight;
+    default: return std::nullopt;
+    }
+}
+
+// SDL meldet Achsen als -32768 bis 32767, Y nach unten positiv, Trigger 0 bis 32767.
+std::optional<std::pair<GamepadAxis, f32>> to_gamepad_axis(Uint8 axis, Sint16 raw) {
+    const f32 value = std::max(static_cast<f32>(raw) / 32767.0f, -1.0f);
+    switch (static_cast<SDL_GamepadAxis>(axis)) {
+    case SDL_GAMEPAD_AXIS_LEFTX: return std::pair{GamepadAxis::LeftX, value};
+    case SDL_GAMEPAD_AXIS_LEFTY: return std::pair{GamepadAxis::LeftY, -value};
+    case SDL_GAMEPAD_AXIS_RIGHTX: return std::pair{GamepadAxis::RightX, value};
+    case SDL_GAMEPAD_AXIS_RIGHTY: return std::pair{GamepadAxis::RightY, -value};
+    case SDL_GAMEPAD_AXIS_LEFT_TRIGGER:
+        return std::pair{GamepadAxis::LeftTrigger, std::max(value, 0.0f)};
+    case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER:
+        return std::pair{GamepadAxis::RightTrigger, std::max(value, 0.0f)};
+    default: return std::nullopt;
     }
 }
 
@@ -211,6 +274,48 @@ std::vector<Event> Window::poll_events() {
             break;
         case SDL_EVENT_WINDOW_FOCUS_GAINED: events.emplace_back(event::FocusChanged{true}); break;
         case SDL_EVENT_WINDOW_FOCUS_LOST: events.emplace_back(event::FocusChanged{false}); break;
+        case SDL_EVENT_GAMEPAD_ADDED: {
+            const SDL_JoystickID id = sdl_event.gdevice.which;
+            if (impl_->gamepads.contains(id)) {
+                break;
+            }
+            SDL_Gamepad* gamepad = SDL_OpenGamepad(id);
+            if (gamepad == nullptr) {
+                log::warn("Gamepad lässt sich nicht öffnen: {}", SDL_GetError());
+                break;
+            }
+            impl_->gamepads.emplace(id, gamepad);
+            const char* name = SDL_GetGamepadName(gamepad);
+            events.emplace_back(event::GamepadAdded{id, name != nullptr ? name : "Gamepad"});
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_REMOVED: {
+            const SDL_JoystickID id = sdl_event.gdevice.which;
+            if (const auto it = impl_->gamepads.find(id); it != impl_->gamepads.end()) {
+                SDL_CloseGamepad(it->second);
+                impl_->gamepads.erase(it);
+                events.emplace_back(event::GamepadRemoved{id});
+            }
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP:
+            if (const auto button = to_gamepad_button(sdl_event.gbutton.button)) {
+                if (sdl_event.gbutton.down) {
+                    events.emplace_back(
+                        event::GamepadButtonPressed{sdl_event.gbutton.which, *button});
+                } else {
+                    events.emplace_back(
+                        event::GamepadButtonReleased{sdl_event.gbutton.which, *button});
+                }
+            }
+            break;
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+            if (const auto axis = to_gamepad_axis(sdl_event.gaxis.axis, sdl_event.gaxis.value)) {
+                events.emplace_back(
+                    event::GamepadAxisMoved{sdl_event.gaxis.which, axis->first, axis->second});
+            }
+            break;
         default: break;
         }
     }

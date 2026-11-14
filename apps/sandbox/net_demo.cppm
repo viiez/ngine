@@ -24,6 +24,7 @@ module;
 export module sandbox.net_demo;
 
 import ngine.core;
+import ngine.jobs;
 import ngine.net;
 import ngine.profile;
 import ngine.reflect;
@@ -49,14 +50,14 @@ struct Orbit {
     f32 angle = 0.0f;
 };
 
-// Eingabe eines Clients: Richtung in Hundertsteln (-100 bis 100).
+// Eingabe eines Clients: Richtung in Hundertsteln (-100 bis 100). Auf dem Server eine Komponente
+// der Spielfigur, die das System „Spieler“ in der festen Simulation liest (R4.1).
 struct Input {
     i8 x = 0;
     i8 z = 0;
 };
 
 constexpr u16 default_port = 27020;
-constexpr f32 frame_time = 1.0f / 60.0f;
 // Schnappschüsse mit 30 Hz, jeden zweiten Frame.
 constexpr u64 snapshot_interval = 2;
 constexpr u32 orbit_count = 32;
@@ -77,21 +78,28 @@ struct Types {
             .field("radius", &Orbit::radius)
             .field("speed", &Orbit::speed)
             .field("angle", &Orbit::angle);
+        registry.add<Input>("PlayerInput").field("x", &Input::x).field("z", &Input::z);
         replicated = {&registry.get<world::Name>(), &registry.get<Position>()};
     }
 };
 
-// Wartet bis zum nächsten Frame, damit Server und Client mit 60 Hz laufen.
+// Wartet bis zum nächsten Frame, damit Server und Client mit 60 Hz laufen. Liefert die Zeit seit
+// dem letzten Aufruf für die Spielschleife.
 class FrameClock {
 public:
-    void wait() {
+    f64 wait() {
         next_ += std::chrono::microseconds{16'667};
         std::this_thread::sleep_until(next_);
         profile::frame_mark();
+        const auto now = std::chrono::steady_clock::now();
+        const std::chrono::duration<f64> elapsed = now - last_;
+        last_ = now;
+        return elapsed.count();
     }
 
 private:
     std::chrono::steady_clock::time_point next_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point last_ = next_;
 };
 
 std::array<std::byte, 2> encode_input(Input input) {
@@ -104,10 +112,12 @@ Input scripted_input(u64 frame) {
     return {static_cast<i8>(std::cos(angle) * 100.0f), static_cast<i8>(std::sin(angle) * 100.0f)};
 }
 
-// Spielwelt des Servers.
+// Spielwelt des Servers. Seit R4.1 über die Spielschleife der Engine (world::Simulation): Kugeln
+// und Spielfiguren bewegen sich in festen Schritten zu 1/60 s, wie in Sandbox und Editor.
 class ServerGame {
 public:
-    explicit ServerGame(world::World& world) : world_{&world} {
+    explicit ServerGame(world::World& world)
+        : world_{&world}, jobs_{{.worker_count = 2}}, simulation_{world, jobs_} {
         for (u32 i = 0; i < orbit_count; ++i) {
             world.create(std::format("Kugel {}", i))
                 .set(replication::Replicated{})
@@ -117,6 +127,21 @@ public:
                            .angle = static_cast<f32>(i) * 2.0f * std::numbers::pi_v<f32> /
                                     static_cast<f32>(orbit_count)});
         }
+        simulation_.add<Orbit, Position>("Kreisbahnen",
+                                         [&world](Orbit& orbit, Position& position) {
+                                             orbit.angle += orbit.speed * world.time().delta;
+                                             position = {orbit.radius * std::cos(orbit.angle), 0.0f,
+                                                         orbit.radius * std::sin(orbit.angle)};
+                                         },
+                                         {.phase = world::Phase::Fixed});
+        simulation_.add<const Input, Position>(
+            "Spieler",
+            [&world](const Input& input, Position& position) {
+                const f32 dt = world.time().delta;
+                position.x += static_cast<f32>(input.x) / 100.0f * player_speed * dt;
+                position.z += static_cast<f32>(input.z) / 100.0f * player_speed * dt;
+            },
+            {.phase = world::Phase::Fixed});
     }
 
     // Legt Spielfiguren für neue Clients an und räumt die von getrennten weg.
@@ -134,33 +159,25 @@ public:
                 return false;
             }
             world_->destroy(entry.second);
-            inputs_.erase(entry.first);
             return true;
         });
     }
 
     void handle(const replication::Received& message) {
-        if (message.data.size() == 2) {
-            inputs_[message.connection] = {static_cast<i8>(message.data[0]),
-                                           static_cast<i8>(message.data[1])};
+        const auto player = players_.find(message.connection);
+        if (message.data.size() == 2 && player != players_.end()) {
+            world_->entity(player->second)
+                .set(Input{static_cast<i8>(message.data[0]), static_cast<i8>(message.data[1])});
         }
     }
 
-    void update(f32 dt) {
-        world_->each<Orbit, Position>([&](Orbit& orbit, Position& position) {
-            orbit.angle += orbit.speed * dt;
-            position = {orbit.radius * std::cos(orbit.angle), 0.0f,
-                        orbit.radius * std::sin(orbit.angle)};
-        });
-        for (const auto& [client, entity] : players_) {
-            const auto input = inputs_.find(client);
-            if (input == inputs_.end()) {
-                continue;
-            }
-            Position* position = world_->entity(entity).get_mut<Position>();
-            position->x += static_cast<f32>(input->second.x) / 100.0f * player_speed * dt;
-            position->z += static_cast<f32>(input->second.z) / 100.0f * player_speed * dt;
-        }
+    // Ein Bild der Spielschleife; liefert die Zahl der festen Schritte.
+    u32 update(f64 dt) {
+        return simulation_.advance(dt);
+    }
+
+    [[nodiscard]] u64 tick() const noexcept {
+        return simulation_.time().tick;
     }
 
     [[nodiscard]] u64 player(net::ConnectionId client) const {
@@ -170,8 +187,9 @@ public:
 
 private:
     world::World* world_;
+    jobs::JobSystem jobs_;
+    world::Simulation simulation_;
     std::unordered_map<net::ConnectionId, u64> players_;
-    std::unordered_map<net::ConnectionId, Input> inputs_;
 };
 
 std::unique_ptr<net::Transport> make_transport() {
@@ -224,6 +242,7 @@ export int run_net_demo(u64 frames) {
     FrameClock clock;
     usize snapshot_bytes = 0;
     u32 snapshots = 0;
+    f64 dt = 1.0 / 60.0;
     auto server_frame = [&](u64 frame) {
         received.clear();
         server.poll(received);
@@ -231,7 +250,7 @@ export int run_net_demo(u64 frames) {
         for (const auto& message : received) {
             game.handle(message);
         }
-        game.update(frame_time);
+        (void)game.update(dt);
         if (frame % snapshot_interval == 0) {
             server.send_snapshot();
             snapshot_bytes += server.last_snapshot_size();
@@ -255,7 +274,7 @@ export int run_net_demo(u64 frames) {
         if (!client_frame(frame)) {
             return 1;
         }
-        clock.wait();
+        dt = clock.wait();
     }
     if (client.state() != replication::ClientState::Ready) {
         log::error("Der Client hat keine Verbindung bekommen");
@@ -328,6 +347,7 @@ export int run_server(std::optional<u64> frames, std::optional<u16> port) {
     ServerGame game{world};
     std::vector<replication::Received> received;
     FrameClock clock;
+    f64 dt = 1.0 / 60.0;
     for (u64 frame = 0; !frames || frame < *frames; ++frame) {
         received.clear();
         server.poll(received);
@@ -335,18 +355,20 @@ export int run_server(std::optional<u64> frames, std::optional<u16> port) {
         for (const auto& message : received) {
             game.handle(message);
         }
-        game.update(frame_time);
+        (void)game.update(dt);
         if (frame % snapshot_interval == 0) {
             server.send_snapshot();
         }
         if (frame % 300 == 299) {
-            log::info("Server: {} Client(s), {} Entities, Schnappschuss {} Bytes",
-                      server.clients().size(), world.entity_count(), server.last_snapshot_size());
+            log::info(
+                "Server: {} Client(s), {} Entities, Schnappschuss {} Bytes, fester Schritt {}",
+                server.clients().size(), world.entity_count(), server.last_snapshot_size(),
+                game.tick());
             for (const net::ConnectionId client : server.clients()) {
                 log_stats(*transport, client, std::format("Client {}", client));
             }
         }
-        clock.wait();
+        dt = clock.wait();
     }
     return 0;
 }

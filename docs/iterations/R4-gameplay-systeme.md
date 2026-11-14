@@ -1,7 +1,7 @@
 # R4: Gameplay-Systeme
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (Plan abgestimmt, R4.1 geplant)
+- **Status:** in Arbeit (Plan abgestimmt, R4.1 in Arbeit)
 - **Pull Requests:** siehe Review
 
 R4 ist der vierte Reifegrad der Konstruktion. Wie R1 bis R3 ist er zu groß für eine Iteration; wir

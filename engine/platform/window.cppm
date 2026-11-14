@@ -27,8 +27,9 @@ struct WindowDesc {
 
 // Tasten nach ihrer Lage auf einer US-Tastatur (Scancodes): W, A, S, D liegen auch auf einer
 // französischen Tastatur dort, wo die freie Kamera sie erwartet. Für Text gibt es TextInput, das
-// die Belegung berücksichtigt. Linke und rechte Umschalttasten melden dieselbe Taste. Die
-// Abbildung auf Aktionen kommt mit PLAT-02.
+// die Belegung berücksichtigt. Linke und rechte Umschalttasten melden dieselbe Taste. Benannte
+// Aktionen bildet ngine.input darauf ab (PLAT-02). Neue Tasten kommen ans Ende, damit die Werte
+// der übrigen bleiben.
 enum class Key : u8 {
     Unknown,
     // clang-format off
@@ -55,8 +56,49 @@ enum class Key : u8 {
     Ctrl,
     Alt,
     Super,
+    // Seit R4.1, auf einer deutschen Tastatur z. B. Ü, +, Komma, Punkt, ß und Akut.
+    LeftBracket,
+    RightBracket,
+    Comma,
+    Period,
+    Minus,
+    Equals,
+    Count,
 };
 enum class MouseButton : u8 { Left, Middle, Right, Other };
+
+// Tasten eines Gamepads in der einheitlichen Belegung von SDL nach dem Xbox-Schema: South ist A
+// (PlayStation: Kreuz), East ist B (Kreis), West ist X (Quadrat), North ist Y (Dreieck).
+enum class GamepadButton : u8 {
+    South,
+    East,
+    West,
+    North,
+    Back,
+    Guide,
+    Start,
+    LeftStick,
+    RightStick,
+    LeftShoulder,
+    RightShoulder,
+    DpadUp,
+    DpadDown,
+    DpadLeft,
+    DpadRight,
+    Count,
+};
+
+// Achsen eines Gamepads. Sticks liefern -1 bis 1, nach rechts und nach oben positiv; Trigger
+// liefern 0 bis 1.
+enum class GamepadAxis : u8 {
+    LeftX,
+    LeftY,
+    RightX,
+    RightY,
+    LeftTrigger,
+    RightTrigger,
+    Count,
+};
 
 // Form des Mauszeigers.
 enum class Cursor : u8 {
@@ -117,12 +159,38 @@ struct TextInput {
 struct FocusChanged {
     bool focused;
 };
+// Ein Gamepad ist angesteckt worden (oder war beim Start schon da). gamepad ist eine Kennung, die
+// für dieses Gerät gilt, bis es abgezogen wird.
+struct GamepadAdded {
+    u32 gamepad;
+    std::string name;
+};
+struct GamepadRemoved {
+    u32 gamepad;
+};
+struct GamepadButtonPressed {
+    u32 gamepad;
+    GamepadButton button;
+};
+struct GamepadButtonReleased {
+    u32 gamepad;
+    GamepadButton button;
+};
+struct GamepadAxisMoved {
+    u32 gamepad;
+    GamepadAxis axis;
+    f32 value;
+};
 } // namespace event
 
 using Event = std::variant<event::Quit, event::Resized, event::KeyPressed, event::KeyReleased,
                            event::MouseMoved, event::MouseButtonPressed, event::MouseButtonReleased,
-                           event::MouseWheel, event::TextInput, event::FocusChanged>;
+                           event::MouseWheel, event::TextInput, event::FocusChanged,
+                           event::GamepadAdded, event::GamepadRemoved, event::GamepadButtonPressed,
+                           event::GamepadButtonReleased, event::GamepadAxisMoved>;
 
+// Ein Fenster mit Eingabe. Ohne SDL3 (NGINE_WITH_WINDOW=OFF) liefert create() einen Fehler; die
+// Typen der Ereignisse gibt es trotzdem, damit ngine.input und Tests ohne Fenster bauen.
 class Window {
 public:
     static std::expected<Window, std::string> create(const WindowDesc& desc);

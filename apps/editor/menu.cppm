@@ -65,6 +65,14 @@ export std::string file_label(const edit::SceneDocument& document) {
 export class PlayControls {
 public:
     bool paused = false;
+    // Einzelschritt angefordert (R4.1): Die Hauptschleife rechnet genau einen festen Schritt und
+    // bleibt in der Pause.
+    bool step_requested = false;
+
+    void request_step() noexcept {
+        paused = true;
+        step_requested = true;
+    }
 
     [[nodiscard]] static bool playing(const edit::SceneDocument& document) noexcept {
         return document.playing();
@@ -211,6 +219,9 @@ public:
                 targets.play.toggle(document, targets.gizmo);
             }
             ui::menu_item("Pause", {}, &targets.play.paused, playing);
+            if (ui::menu_item("Einzelschritt", {}, nullptr, playing)) {
+                targets.play.request_step();
+            }
             ui::end_menu();
         }
         if (targets.extra_menus) {

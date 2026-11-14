@@ -52,6 +52,15 @@ enum class Key : u8 {
     R,
     F2,
     F5,
+    // Seit R4.1 für die Kürzel der Voxel-Werkzeuge (TD-42).
+    B,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    LeftBracket,
+    RightBracket,
 };
 
 enum class MouseButton : u8 { Left, Right, Middle };

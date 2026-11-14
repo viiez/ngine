@@ -6,6 +6,6 @@ target_sources(ngine_editor PRIVATE FILE_SET CXX_MODULES FILES
 target_link_libraries(ngine_editor PRIVATE
     ngine::core ngine::edit ngine::filesystem ngine::math ngine::profile ngine::reflect
     ngine::world ngine::asset ngine::rhi ngine::rhi_vulkan ngine::render ngine::platform
-    ngine::editor_ui ngine::shader_compiler ngine::cook ngine_app_common)
+    ngine::editor_ui ngine::shader_compiler ngine::cook ngine::input ngine_app_common)
 ngine_set_compiler_options(ngine_editor)
 ngine_copy_slang_runtime(ngine_editor)

@@ -90,6 +90,11 @@ public:
             ui::same_line();
             ui::checkbox("Pause", play.paused);
             ui::same_line();
+            // Ein fester Schritt von 1/60 s (R4.1).
+            if (ui::button("Schritt")) {
+                play.request_step();
+            }
+            ui::same_line();
             ui::text_colored({1.0f, 0.55f, 0.2f, 1.0f}, "Spielt");
         }
     }

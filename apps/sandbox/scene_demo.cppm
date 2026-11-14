@@ -101,7 +101,49 @@ void build_scene(world::World& world) {
     }
 }
 
+// Systeme der Demo in der festen Simulation (R4.1). Die Zeit kommt aus world::Time.
+void add_systems(world::Simulation& simulation) {
+    world::World& world = simulation.world();
+    simulation.add<Orbit>("Umlaufbahnen",
+                          [&world](Orbit& orbit) {
+                              orbit.angle =
+                                  std::fmod(orbit.angle + orbit.speed * world.time().delta, tau);
+                          },
+                          {.grain = 256, .phase = world::Phase::Fixed});
+    // Unabhängig von den Umlaufbahnen, läuft also gleichzeitig.
+    simulation.add<Spin>("Eigendrehung",
+                         [&world](Spin& spin) {
+                             spin.angle =
+                                 std::fmod(spin.angle + spin.speed * world.time().delta, tau);
+                         },
+                         {.grain = 256, .phase = world::Phase::Fixed});
+}
+
 } // namespace
+
+// Ohne Fenster und GPU (--headless, wie der dedizierte Server): dieselbe Welt über dieselbe
+// Spielschleife wie Sandbox und Editor, frames Bilder zu 1/60 s so schnell wie möglich.
+export int run_headless(u64 frames) {
+    profile::set_thread_name("Hauptthread");
+    log::info("Modus: ohne Fenster (Server)");
+    reflect::TypeRegistry types;
+    register_demo_types(types);
+    world::World world{types};
+    build_scene(world);
+    jobs::JobSystem job_system;
+    world::Simulation simulation{world, job_system};
+    add_systems(simulation);
+    const auto start = std::chrono::steady_clock::now();
+    for (u64 frame = 0; frame < frames; ++frame) {
+        (void)simulation.advance(1.0 / 60.0);
+        profile::frame_mark();
+    }
+    const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - start;
+    log::info("Spielschleife: {} Entities, {} feste Schritte ({:.2f} s simuliert) in {:.1f} ms",
+              world.entity_count(), simulation.time().tick, simulation.time().elapsed,
+              elapsed.count());
+    return 0;
+}
 
 // Führt die Demo aus. path: Zieldatei, sonst im Benutzerordner. Liefert den Exit-Code.
 export int run_scene_demo(u64 frames, std::optional<std::string> path) {
@@ -115,22 +157,14 @@ export int run_scene_demo(u64 frames, std::optional<std::string> path) {
     log::info("Szenen-Demo: {} Entities, {} Frames", world.entity_count(), frames);
 
     jobs::JobSystem job_system;
-    world::Schedule schedule{world};
-    f32 delta = 1.0f / 60.0f;
-    schedule.add<Orbit>(
-        "Umlaufbahnen",
-        [&delta](Orbit& orbit) { orbit.angle = std::fmod(orbit.angle + orbit.speed * delta, tau); },
-        {.grain = 256});
-    // Unabhängig von den Umlaufbahnen, läuft also gleichzeitig.
-    schedule.add<Spin>(
-        "Eigendrehung",
-        [&delta](Spin& spin) { spin.angle = std::fmod(spin.angle + spin.speed * delta, tau); },
-        {.grain = 256});
+    world::Simulation simulation{world, job_system};
+    add_systems(simulation);
 
+    // Jedes Bild zählt als 1/60 s, also ein fester Schritt pro Bild, so schnell es geht.
     const auto start = std::chrono::steady_clock::now();
     for (u64 frame = 0; frame < frames; ++frame) {
         NGINE_PROFILE_ZONE("Frame");
-        schedule.run(job_system);
+        (void)simulation.advance(1.0 / 60.0);
         report_memory();
         profile::frame_mark();
     }

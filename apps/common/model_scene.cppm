@@ -25,7 +25,8 @@ module;
 // Spotlicht.
 //
 // Seit R2.3 kreisen die Punktlichter über die Komponente Orbit und ein System im Schedule: in der
-// Sandbox immer, im Editor nur beim Spielen (simulate()).
+// Sandbox immer, im Editor nur beim Spielen (simulate()). Seit R4.1 in der festen Simulation der
+// Spielschleife (world::Simulation) mit Interpolation; die freie Kamera liest Aktionen.
 //
 // Seit R2.4 verweisen MeshRenderer über Asset-Kennungen (ADR 0033). Meshes und Materialien der
 // Standardszene sind ein erzeugtes Modell mit fester Kennung (default_scene_id), ein Modell aus
@@ -44,6 +45,7 @@ export module app.model_scene;
 import ngine.core;
 import ngine.asset;
 import ngine.filesystem;
+import ngine.input;
 import ngine.jobs;
 import ngine.math;
 import ngine.profile;
@@ -88,17 +90,28 @@ terrain_materials(const asset::AssetDatabase* database) {
 
 // Zustand der Eingabe für die freie Kamera, unabhängig von der Plattformschicht.
 export struct FlyInput {
-    bool forward = false;
-    bool back = false;
-    bool left = false;
-    bool right = false;
-    bool up = false;
-    bool down = false;
+    // Vor (+) und zurück, rechts (+) und links, hoch (+) und runter; -1 bis 1, analog vom Stick.
+    f32 forward = 0.0f;
+    f32 right = 0.0f;
+    f32 up = 0.0f;
     bool fast = false;
-    // Mausbewegung seit dem letzten update() in Pixeln.
+    // Drehung seit dem letzten update() in Pixeln der Maus (der Stick liefert dasselbe Maß).
     f32 look_x = 0.0f;
     f32 look_y = 0.0f;
 };
+
+// Liest die freie Kamera aus den Aktionen move, up_down, look und fast (R4.1): Tastatur, Maus und
+// Gamepad nach der Belegung in assets/eingabe/standard.input.
+export FlyInput fly_input(const input::ActionState& actions) {
+    const input::ActionValue& move = actions.value("move");
+    const input::ActionValue& look = actions.value("look");
+    return FlyInput{.forward = move.y,
+                    .right = move.x,
+                    .up = actions.value("up_down").x,
+                    .fast = actions.down("fast"),
+                    .look_x = look.x,
+                    .look_y = look.y};
+}
 
 // Game: Kamera als Entity der Welt, Lichter kreisen (Sandbox). Editor: Die Kamera gehört nicht zur
 // Szene, sondern geht als Renderer::camera_override an den Renderer, und nichts bewegt sich von
@@ -273,7 +286,8 @@ public:
     }
 
     // Bewegt die freie Kamera: W/S vor und zurück, A/D seitwärts, E/Q hoch und runter, Shift
-    // schneller; die Maus dreht.
+    // schneller; die Maus dreht (oder das Gamepad, siehe fly_input()). Im Spiel rechnet danach die
+    // Spielschleife ein Bild (simulate()).
     void update(f32 dt, const FlyInput& input) {
         yaw_ -= input.look_x * 0.0025f;
         pitch_ = std::clamp(pitch_ - input.look_y * 0.0025f, -1.5f, 1.5f);
@@ -281,12 +295,14 @@ public:
                                     math::angle_axis(pitch_, {1.0f, 0.0f, 0.0f});
         const Vec3 forward = rotation * Vec3{0.0f, 0.0f, -1.0f};
         const Vec3 right = rotation * Vec3{1.0f, 0.0f, 0.0f};
-        Vec3 move{0.0f, 0.0f, 0.0f};
-        move = move + forward * (static_cast<f32>(input.forward) - static_cast<f32>(input.back));
-        move = move + right * (static_cast<f32>(input.right) - static_cast<f32>(input.left));
-        move.y += static_cast<f32>(input.up) - static_cast<f32>(input.down);
+        Vec3 move = forward * input.forward + right * input.right;
+        move.y += input.up;
+        // Länger als 1 nur diagonal mit Tastatur; analog vom Stick bleibt die Länge.
+        if (math::length(move) > 1.0f) {
+            move = math::normalize(move);
+        }
         const f32 speed = speed_ * (input.fast ? 4.0f : 1.0f);
-        position_ = position_ + math::to_f64(math::normalize(move) * (speed * dt));
+        position_ = position_ + math::to_f64(move * (speed * dt));
         if (mode_ == SceneMode::Game) {
             camera_.set(world::Transform{.position = position_, .rotation = rotation});
             simulate(dt);
@@ -297,12 +313,17 @@ public:
         }
     }
 
-    // Lässt die Systeme der Szene einen Schritt von dt Sekunden laufen (Lichter kreisen). In der
-    // Sandbox ruft update() das in jedem Frame auf, im Editor nur, solange gespielt wird.
+    // Rechnet ein Bild der Spielschleife (R4.1): feste Schritte zu 1/60 s, in denen die Lichter
+    // kreisen, dann Transforms und Interpolation. In der Sandbox ruft update() das in jedem Frame
+    // auf, im Editor die Hauptschleife, solange gespielt wird.
     void simulate(f32 dt) {
         NGINE_PROFILE_ZONE("ModelScene::simulate");
-        step_ = dt;
-        schedule_.run(jobs_);
+        (void)simulation_.advance(dt);
+    }
+
+    // Spielschleife der Szene: Pause, Einzelschritt, Uhr zurücksetzen (Editor).
+    [[nodiscard]] world::Simulation& simulation() noexcept {
+        return simulation_;
     }
 
     // Geänderte Vorlagen auf ihre Instanzen übertragen (Hot Reload); Zahl der nachgezogenen.
@@ -424,16 +445,19 @@ private:
         : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)},
           jobs_{{.worker_count = 2}},
           resources_{std::make_unique<asset::ResourceManager>(assets.database, &jobs_)},
-          prefabs_{*resources_}, schedule_{world_}, origin_{origin}, mode_{mode},
+          prefabs_{*resources_}, simulation_{world_, jobs_}, origin_{origin}, mode_{mode},
           database_{assets.database} {
         renderer_->set_resources(resources_.get());
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
         renderer_->set_terrain_materials(terrain_materials(database_));
-        schedule_.add<Orbit, world::Transform>("Kreisbahnen",
-                                               [this](Orbit& orbit, world::Transform& transform) {
-                                                   orbit.time += step_;
-                                                   transform.position = orbit_position(orbit);
-                                               });
+        // Feste Simulation mit Interpolation: Die Lichter laufen bei jeder Bildrate gleich schnell
+        // und ruckeln trotzdem nicht (R4.1).
+        simulation_.add<Orbit, world::Transform>("Kreisbahnen",
+                                                 [this](Orbit& orbit, world::Transform& transform) {
+                                                     orbit.time += world_.time().delta;
+                                                     transform.position = orbit_position(orbit);
+                                                 },
+                                                 {.phase = world::Phase::Fixed});
         if (mode_ == SceneMode::Game) {
             camera_ = world_.create("Kamera");
             camera_.set(world::Transform{}).set(render::Camera{});
@@ -594,6 +618,7 @@ private:
             world_.create(std::format("Licht {}", i))
                 .set(world::Transform{.position = orbit_position(orbit)})
                 .set(orbit)
+                .set(world::Interpolated{})
                 .set(render::PointLight{.color = color, .intensity = 10.0f, .range = 9.0f})
                 .set(render::MeshRenderer{.mesh = default_ref(bulb_mesh),
                                           .material = default_ref(first_glow_material + i)});
@@ -740,9 +765,7 @@ private:
     // Speicher im Renderer frei, laufende Jobs müssen fertig sein.
     std::unique_ptr<asset::ResourceManager> resources_;
     PrefabLibrary prefabs_;
-    world::Schedule schedule_;
-    // Zeitschritt für die Systeme in simulate().
-    f32 step_ = 0.0f;
+    world::Simulation simulation_;
     DVec3 origin_;
     SceneMode mode_;
     const asset::AssetDatabase* database_ = nullptr;

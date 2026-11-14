@@ -4,9 +4,8 @@ target_sources(ngine_sandbox PRIVATE FILE_SET CXX_MODULES FILES
     net_demo.cppm)
 target_link_libraries(ngine_sandbox PRIVATE
     ngine::core ngine::filesystem ngine::math ngine::memory ngine::jobs ngine::profile ngine::reflect
-    ngine::world ngine::asset ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::render ngine::shaders ngine_app_common)
+    ngine::world ngine::asset ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::render ngine::shaders ngine::input ngine::platform ngine_app_common)
 if(NGINE_WITH_WINDOW)
-    target_link_libraries(ngine_sandbox PRIVATE ngine::platform)
     target_compile_definitions(ngine_sandbox PRIVATE NGINE_WITH_WINDOW=1)
 else()
     target_compile_definitions(ngine_sandbox PRIVATE NGINE_WITH_WINDOW=0)

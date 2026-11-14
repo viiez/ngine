@@ -50,6 +50,9 @@ AssetType type_of(std::string_view path) {
     if (extension == ".prefab") {
         return AssetType::Prefab;
     }
+    if (extension == ".input") {
+        return AssetType::Input;
+    }
     return AssetType::Unknown;
 }
 
@@ -60,6 +63,7 @@ std::string_view to_string(AssetType type) {
     case AssetType::Shader: return "Shader";
     case AssetType::Scene: return "Szene";
     case AssetType::Prefab: return "Prefab";
+    case AssetType::Input: return "Eingabe";
     case AssetType::Unknown: break;
     }
     return "Unbekannt";
