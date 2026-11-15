@@ -219,8 +219,9 @@ std::vector<const reflect::TypeInfo*> addable_components(SceneDocument& document
     }
     world::World& world = document.world();
     for (const TypeInfo* type : types) {
-        if (type->kind != Kind::Struct || type->transient || type->fields.empty() ||
-            value_type[type->index]) {
+        // Ersetzte Typen (Skripte mit geänderten Feldern, R4.4) bietet der Editor nicht mehr an.
+        if (type->kind != Kind::Struct || type->transient || type->retired ||
+            type->fields.empty() || value_type[type->index]) {
             continue;
         }
         if (world.has(world_entity, world.component(*type))) {
@@ -261,13 +262,13 @@ Result<bool> commit(SceneDocument& document, EntityId entity, const InspectorRow
     // Kopie, damit das Klemmen den Wert des Aufrufers nicht ändert.
     auto storage = std::make_unique<std::byte[]>(type.size);
     void* copy = storage.get();
-    type.ops.copy_construct(copy, value);
+    type.copy_construct(copy, value);
     if (row.widget == Widget::Number || row.widget == Widget::Angle ||
         row.widget == Widget::Vector || row.widget == Widget::Color) {
         clamp_to_range(row, copy);
     }
     auto command = set_field(document, entity, row.path, copy);
-    type.ops.destroy(copy);
+    type.destroy(copy);
     if (!command) {
         return std::unexpected(command.error());
     }

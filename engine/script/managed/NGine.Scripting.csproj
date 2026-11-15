@@ -12,4 +12,9 @@
     <RootNamespace>NGine</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <!-- Aus der Reflection erzeugte Structs (ngine_bindgen, R4.4). Der Build der Engine übergibt den
+       Ordner; ohne ihn fehlen die Komponenten. -->
+  <ItemGroup Condition="'$(NgineGeneratedDir)' != ''">
+    <Compile Include="$(NgineGeneratedDir)/*.g.cs" />
+  </ItemGroup>
 </Project>

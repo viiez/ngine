@@ -10,6 +10,8 @@ module;
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -25,7 +27,12 @@ module ngine.script;
 
 import ngine.core;
 import ngine.profile;
+import ngine.reflect;
+import ngine.world;
+import :game_api;
 import :native;
+import :script_api;
+import :world_api;
 
 namespace ngine::script {
 
@@ -85,6 +92,9 @@ void write_hostfxr_error(const char_t* message) {
 struct NativeApi {
     void (*log)(std::int32_t level, const u8* text, std::int32_t length);
     std::int32_t (*add)(std::int32_t a, std::int32_t b);
+    WorldApi world;
+    ScriptApi script;
+    GameApi game;
 };
 
 void native_log(std::int32_t level, const u8* text, std::int32_t length) {
@@ -107,7 +117,41 @@ struct ManagedApi {
     std::int32_t (*unload_scripts)() = nullptr;
     std::int32_t (*add)(std::int32_t, std::int32_t) = nullptr;
     std::int64_t (*benchmark_native_calls)(std::int32_t, std::int32_t*) = nullptr;
+    void (*world_changed)() = nullptr;
+    std::int32_t (*describe_layout)(void (*)(const u8*, std::int32_t, const u8*, std::int32_t,
+                                             std::int64_t)) = nullptr;
+    std::int32_t (*invoke)(const u8*, std::int32_t) = nullptr;
+    std::int32_t (*register_scripts)() = nullptr;
+    std::int32_t (*run_scripts)(std::int32_t, f32) = nullptr;
+    std::int32_t (*store_fields)() = nullptr;
+    std::int32_t (*load_fields)() = nullptr;
+    std::int32_t (*reset_instances)() = nullptr;
+    std::int32_t (*validate_scripts)() = nullptr;
+    std::int32_t (*deliver_events)(const NativeEvent*, std::int32_t) = nullptr;
 };
+
+// Anordnung der Structs, wie C# sie meldet: Typ → Größe und Offsets der Felder.
+struct ReportedType {
+    std::int64_t size = -1;
+    std::map<std::string, std::int64_t, std::less<>> fields;
+};
+std::map<std::string, ReportedType, std::less<>>* layout_report = nullptr;
+
+void report_layout(const u8* type, std::int32_t type_length, const u8* field,
+                   std::int32_t field_length, std::int64_t value) {
+    if (layout_report == nullptr) {
+        return;
+    }
+    const std::string type_name{reinterpret_cast<const char*>(type),
+                                static_cast<usize>(type_length)};
+    ReportedType& entry = (*layout_report)[type_name];
+    if (field_length == 0) {
+        entry.size = value;
+    } else {
+        entry.fields[std::string{reinterpret_cast<const char*>(field),
+                                 static_cast<usize>(field_length)}] = value;
+    }
+}
 
 // Neueste Version unter <root>/host/fxr/<version>/.
 std::optional<std::filesystem::path> find_hostfxr(const std::filesystem::path& root) {
@@ -178,8 +222,9 @@ struct ScriptRuntime::Impl {
     // hostfxr bleibt geladen, solange der Prozess läuft; .NET hängt daran.
     void* library = nullptr;
     ManagedApi managed;
-    NativeApi native{native_log, native_add};
+    NativeApi native{native_log, native_add, make_world_api(), make_script_api(), make_game_api()};
     bool scripts_loaded = false;
+    std::string assembly_dir;
 };
 
 Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& desc) {
@@ -196,6 +241,14 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
             }
         }
     } guard;
+    // Die statischen Kontexte der API vor der Laufzeit anlegen: Statische Objekte werden in
+    // umgekehrter Reihenfolge abgebaut, so überleben sie auch eine Laufzeit in einer statischen
+    // Variable, deren Destruktor sie noch aufräumt.
+    bind_script_world(nullptr);
+    bind_script_input(nullptr);
+    bind_script_physics(nullptr);
+    bind_script_events(nullptr);
+    static_cast<void>(script_registry());
 
     // 1. hostfxr finden und laden.
     std::vector<std::string> roots;
@@ -303,9 +356,17 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
     if (!function(m.initialize, "Initialize") || !function(m.load_scripts, "LoadScripts") ||
         !function(m.start, "Start") || !function(m.update, "Update") ||
         !function(m.unload_scripts, "UnloadScripts") || !function(m.add, "Add") ||
-        !function(m.benchmark_native_calls, "BenchmarkNativeCalls")) {
+        !function(m.benchmark_native_calls, "BenchmarkNativeCalls") ||
+        !function(m.world_changed, "WorldChanged") ||
+        !function(m.describe_layout, "DescribeLayout") || !function(m.invoke, "Invoke") ||
+        !function(m.register_scripts, "RegisterScripts") ||
+        !function(m.run_scripts, "RunScripts") || !function(m.store_fields, "StoreFields") ||
+        !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances") ||
+        !function(m.validate_scripts, "ValidateScripts") ||
+        !function(m.deliver_events, "DeliverEvents")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
+    impl->assembly_dir = desc.assembly_dir;
     if (m.initialize(&impl->native, static_cast<std::int32_t>(sizeof(NativeApi))) != 0) {
         return std::unexpected("NGine.Host.Initialize ist fehlgeschlagen");
     }
@@ -323,6 +384,10 @@ ScriptRuntime::~ScriptRuntime() {
     if (impl_->scripts_loaded) {
         (void)unload_scripts();
     }
+    bind_script_world(nullptr);
+    bind_script_input(nullptr);
+    bind_script_physics(nullptr);
+    bind_script_events(nullptr);
     impl_.reset();
     runtime_alive = false;
 }
@@ -337,7 +402,89 @@ Result<u32> ScriptRuntime::load_scripts(std::string_view assembly_path) {
             std::format("Skripte aus {} lassen sich nicht laden", assembly_path));
     }
     impl_->scripts_loaded = true;
+    // Skript-Komponenten als Typen anmelden; Komponenten geänderter Typen ziehen um.
+    clear_registered_script_types();
+    if (script_registry() != nullptr) {
+        if (impl_->managed.register_scripts() < 0) {
+            return std::unexpected("Skript-Komponenten lassen sich nicht anmelden");
+        }
+        if (const usize moved = migrate_script_types(); moved > 0) {
+            log::info("{} Skript-Komponenten auf geänderte Felder umgezogen", moved);
+        }
+    }
     return static_cast<u32>(count);
+}
+
+void ScriptRuntime::use_types(reflect::TypeRegistry* types) {
+    set_script_registry(types);
+}
+
+const std::string& ScriptRuntime::assembly_dir() const noexcept {
+    return impl_->assembly_dir;
+}
+
+bool ScriptRuntime::scripts_loaded() const noexcept {
+    return impl_->scripts_loaded;
+}
+
+std::span<const reflect::TypeInfo* const> ScriptRuntime::script_types() const noexcept {
+    return registered_script_types();
+}
+
+Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
+    NGINE_PROFILE_ZONE("ScriptRuntime::run");
+    if (script_world() == nullptr) {
+        return {};
+    }
+    std::int32_t errors = 0;
+    set_script_input_fixed(phase == ScriptPhase::Fixed);
+    if (phase == ScriptPhase::Fixed) {
+        // Ereignisse des letzten Schritts der Physik vor FixedUpdate.
+        const std::vector<NativeEvent> events = take_script_events();
+        if (!events.empty()) {
+            errors += impl_->managed.deliver_events(events.data(),
+                                                    static_cast<std::int32_t>(events.size()));
+        }
+    }
+    errors += impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
+    set_script_input_fixed(false);
+    apply_script_commands();
+    if (errors != 0) {
+        return std::unexpected(std::format("{} Fehler in Skripten", errors));
+    }
+    return {};
+}
+
+void ScriptRuntime::bind_input(const input::ActionState* actions) {
+    bind_script_input(actions);
+}
+
+void ScriptRuntime::bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus) {
+    bind_script_physics(physics);
+    bind_script_events(bus);
+}
+
+void ScriptRuntime::store_fields() {
+    NGINE_PROFILE_ZONE("ScriptRuntime::store_fields");
+    (void)impl_->managed.store_fields();
+}
+
+void ScriptRuntime::load_fields() {
+    NGINE_PROFILE_ZONE("ScriptRuntime::load_fields");
+    (void)impl_->managed.load_fields();
+}
+
+void ScriptRuntime::reset_instances() {
+    (void)impl_->managed.reset_instances();
+    apply_script_commands();
+}
+
+void ScriptRuntime::validate() {
+    if (!impl_->scripts_loaded || script_world() == nullptr) {
+        return;
+    }
+    (void)impl_->managed.validate_scripts();
+    apply_script_commands();
 }
 
 Result<bool> ScriptRuntime::unload_scripts() {
@@ -362,6 +509,117 @@ Result<void> ScriptRuntime::update(f32 delta_time, std::span<Position> positions
     if (impl_->managed.update(delta_time, positions.data(),
                               static_cast<std::int32_t>(positions.size())) != 0) {
         return std::unexpected("Fehler in einem Skript");
+    }
+    return {};
+}
+
+void ScriptRuntime::bind_world(world::World* world) {
+    bind_script_world(world);
+    impl_->managed.world_changed();
+}
+
+void ScriptRuntime::apply_commands() {
+    NGINE_PROFILE_ZONE("ScriptRuntime::apply_commands");
+    apply_script_commands();
+}
+
+namespace {
+
+Result<std::map<std::string, ReportedType, std::less<>>> describe_layout(std::int32_t (*describe)(
+    void (*)(const u8*, std::int32_t, const u8*, std::int32_t, std::int64_t))) {
+    std::map<std::string, ReportedType, std::less<>> reported;
+    layout_report = &reported;
+    const std::int32_t result = describe(report_layout);
+    layout_report = nullptr;
+    if (result != 0) {
+        return std::unexpected("C# kann die Anordnung der Bindings nicht melden");
+    }
+    return reported;
+}
+
+} // namespace
+
+std::vector<std::string> ScriptRuntime::bound_types() {
+    std::vector<std::string> names;
+    if (auto reported = describe_layout(impl_->managed.describe_layout)) {
+        for (const auto& entry : *reported) {
+            names.push_back(entry.first);
+        }
+    }
+    return names;
+}
+
+Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, bool require_all) {
+    auto described = describe_layout(impl_->managed.describe_layout);
+    if (!described) {
+        return std::unexpected(std::move(described.error()));
+    }
+    const auto& reported = *described;
+    std::string problems;
+    const auto problem = [&](std::string text) {
+        if (!problems.empty()) {
+            problems += "; ";
+        }
+        problems += std::move(text);
+    };
+    usize compared = 0;
+    for (const reflect::TypeInfo* type : types.types()) {
+        if ((type->kind != reflect::Kind::Struct && type->kind != reflect::Kind::Enum) ||
+            type->composite != nullptr || type->retired) {
+            continue;
+        }
+        const auto found = reported.find(type->name);
+        if (found == reported.end()) {
+            if (require_all) {
+                problem(std::format("{} fehlt in C#", type->name));
+            }
+            continue;
+        }
+        ++compared;
+        const ReportedType& seen = found->second;
+        if (seen.size != static_cast<std::int64_t>(type->size)) {
+            problem(
+                std::format("{}: Größe {} in C#, {} in C++", type->name, seen.size, type->size));
+        }
+        for (const reflect::Field& field : type->fields) {
+            if (!csharp_visible(field)) {
+                continue;
+            }
+            const auto offset = seen.fields.find(field.name);
+            if (offset == seen.fields.end()) {
+                problem(std::format("{}.{} fehlt in C#", type->name, field.name));
+            } else if (offset->second != static_cast<std::int64_t>(field.offset)) {
+                problem(std::format("{}.{}: Offset {} in C#, {} in C++", type->name, field.name,
+                                    offset->second, field.offset));
+            }
+        }
+        if (seen.fields.size() > type->fields.size()) {
+            problem(std::format("{}: C# kennt Felder, die C++ nicht hat", type->name));
+        }
+    }
+    if (require_all) {
+        for (const auto& [name, seen] : reported) {
+            if (types.find(name) == nullptr) {
+                problem(std::format("{} gibt es nur in C#", name));
+            }
+        }
+    }
+    if (!problems.empty()) {
+        return std::unexpected(std::format("Bindings passen nicht zur Engine: {}", problems));
+    }
+    log::debug("Bindings geprüft: {} Typen passen", compared);
+    return {};
+}
+
+Result<void> ScriptRuntime::invoke(std::string_view method) {
+    NGINE_PROFILE_ZONE("ScriptRuntime::invoke");
+    const std::int32_t result = impl_->managed.invoke(reinterpret_cast<const u8*>(method.data()),
+                                                      static_cast<std::int32_t>(method.size()));
+    if (result == -2) {
+        return std::unexpected(std::format("{} gibt es in den Skripten nicht", method));
+    }
+    if (result != 0) {
+        return std::unexpected(std::format("Fehler in {}", method));
     }
     return {};
 }

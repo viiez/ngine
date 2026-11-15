@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -20,6 +21,11 @@ public static unsafe class Host
     private static readonly List<IScript> scripts = new();
 
     internal static NativeApi* Api => initialized ? (NativeApi*)Unsafe.AsPointer(ref api) : null;
+    internal static ScriptApi* ScriptApi => &Api->Script;
+
+    // Skript-Klassen der geladenen Assembly, nach Namen sortiert (feste Reihenfolge der Aufrufe).
+    private static readonly List<ScriptClass> classes = new();
+    private static int tick;
 
     [UnmanagedCallersOnly]
     public static int Initialize(NativeApi* native, int size)
@@ -68,14 +74,21 @@ public static unsafe class Host
             using var stream = new MemoryStream(File.ReadAllBytes(file));
             Assembly assembly = loading.LoadFromStream(stream);
             var created = new List<IScript>();
+            var found = new List<ScriptClass>();
             foreach (Type type in assembly.GetTypes())
             {
                 if (!type.IsAbstract && typeof(IScript).IsAssignableFrom(type))
                 {
                     created.Add((IScript)Activator.CreateInstance(type)!);
                 }
+                if (!type.IsAbstract && type.IsSubclassOf(typeof(Script)))
+                {
+                    found.Add(ScriptClass.Create(type));
+                }
             }
             scripts.AddRange(created);
+            found.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+            classes.AddRange(found);
             context = loading;
         }
         catch
@@ -84,8 +97,8 @@ public static unsafe class Host
             loading.Unload();
             throw;
         }
-        Log.Info($"{scripts.Count} Skript(e) aus {Path.GetFileName(file)} geladen");
-        return scripts.Count;
+        Log.Info($"{scripts.Count + classes.Count} Skript(e) aus {Path.GetFileName(file)} geladen");
+        return scripts.Count + classes.Count;
     }
 
     [UnmanagedCallersOnly]
@@ -157,10 +170,392 @@ public static unsafe class Host
             script.Stop();
         }
         scripts.Clear();
+        StopInstances();
+        classes.Clear();
+        runOrder.Clear();
         var weak = new WeakReference(context);
         context!.Unload();
         context = null;
         return weak;
+    }
+
+    // --- Skript-Komponenten (R4.4) --------------------------------------------------------------
+
+    // Meldet alle Skript-Klassen als Komponententypen an. Liefert die Zahl der angemeldeten.
+    [UnmanagedCallersOnly]
+    public static int RegisterScripts()
+    {
+        try
+        {
+            int registered = 0;
+            foreach (ScriptClass cls in classes)
+            {
+                if (cls.Register())
+                {
+                    ++registered;
+                }
+                else
+                {
+                    Log.Error($"Skript {cls.Name} lässt sich nicht als Komponente anmelden");
+                }
+            }
+            return registered;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Skripte lassen sich nicht anmelden: {e}");
+            return -1;
+        }
+    }
+
+    // Ruft FixedUpdate (phase 0) oder Update (phase 1) aller Skript-Komponenten der gebundenen
+    // Welt auf; neue bekommen vorher Start, verschwundene Stop. Liefert die Zahl der Fehler.
+    [UnmanagedCallersOnly]
+    public static int RunScripts(int phase, float delta)
+    {
+        int errors = 0;
+        try
+        {
+            Time.Delta = delta;
+            if (phase == 0)
+            {
+                Time.Elapsed += delta;
+            }
+            ++tick;
+            List<Script> order = runOrder;
+            foreach (ScriptClass cls in classes)
+            {
+                if (cls.TypeIndex < 0)
+                {
+                    continue;
+                }
+                order.Clear();
+                ReadOnlySpan<int> types = [cls.TypeIndex];
+                int count = World.Chunks(types, out NativeChunk* chunks);
+                for (int c = 0; c < count; ++c)
+                {
+                    for (int row = 0; row < chunks[c].Count; ++row)
+                    {
+                        ulong entity = chunks[c].Entities[row];
+                        if (!cls.Instances.TryGetValue(entity, out Script? script))
+                        {
+                            script = (Script)Activator.CreateInstance(cls.Type)!;
+                            script.Entity = new Entity(entity);
+                            cls.Load(script, (byte*)chunks[c].Columns[0] + (long)row * SizeOf(cls));
+                            cls.Instances.Add(entity, script);
+                        }
+                        script.seen = tick;
+                        order.Add(script);
+                    }
+                }
+                // Verschwundene zuerst stoppen, in fester Reihenfolge. Sind alle bekannten in order,
+                // fehlt keine (der übliche Fall, ohne Suche).
+                if (cls.Instances.Count != order.Count)
+                {
+                    foreach (ulong gone in cls.Instances.Where(p => p.Value.seen != tick).Select(p => p.Key).OrderBy(k => k).ToList())
+                    {
+                        errors += Call(cls.Instances[gone], s => s.Stop());
+                        cls.Instances.Remove(gone);
+                    }
+                }
+                for (int i = 0; i < order.Count; ++i)
+                {
+                    Script script = order[i];
+                    try
+                    {
+                        if (!script.started)
+                        {
+                            script.started = true;
+                            script.Start();
+                        }
+                        if (phase == 0)
+                        {
+                            script.FixedUpdate();
+                        }
+                        else
+                        {
+                            script.Update();
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Error($"Fehler in {script.GetType().Name} an {script.Entity}: {e}");
+                        ++errors;
+                    }
+                }
+            }
+            // Keine Verweise auf Skripte behalten, sonst lässt sich ihr Kontext nicht entladen.
+            order.Clear();
+            return errors;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Fehler beim Ausführen der Skripte: {e}");
+            return errors + 1;
+        }
+    }
+
+    // Stellt Ereignisse der Physik den Skripten der beteiligten Entities zu.
+    [UnmanagedCallersOnly]
+    public static int DeliverEvents(NativeEvent* events, int count)
+    {
+        int errors = 0;
+        try
+        {
+            if (count <= 0)
+            {
+                return 0;
+            }
+            var byEntity = new Dictionary<ulong, List<Script>>();
+            foreach (ScriptClass cls in classes)
+            {
+                foreach (var (entity, script) in cls.Instances)
+                {
+                    if (!byEntity.TryGetValue(entity, out var list))
+                    {
+                        byEntity[entity] = list = new List<Script>();
+                    }
+                    list.Add(script);
+                }
+            }
+            if (byEntity.Count == 0)
+            {
+                return 0;
+            }
+            foreach (var list in byEntity.Values)
+            {
+                list.Sort((a, b) => string.CompareOrdinal(a.GetType().Name, b.GetType().Name));
+            }
+            void Each(ulong entity, Action<Script> action)
+            {
+                if (byEntity.TryGetValue(entity, out var list))
+                {
+                    foreach (Script script in list)
+                    {
+                        errors += Call(script, action);
+                    }
+                }
+            }
+            for (int i = 0; i < count; ++i)
+            {
+                NativeEvent e = events[i];
+                var a = new Entity(e.A);
+                var b = new Entity(e.B);
+                switch (e.Kind)
+                {
+                    case EventKind.ContactBegan:
+                        Each(e.A, s => s.OnContactBegan(new Contact { Other = b, Point = e.Point, Normal = e.Normal }));
+                        Each(e.B, s => s.OnContactBegan(new Contact { Other = a, Point = e.Point, Normal = -e.Normal }));
+                        break;
+                    case EventKind.ContactEnded:
+                        Each(e.A, s => s.OnContactEnded(b));
+                        Each(e.B, s => s.OnContactEnded(a));
+                        break;
+                    case EventKind.TriggerEntered:
+                        Each(e.A, s => s.OnTriggerEntered(b));
+                        Each(e.B, s => s.OnTriggerEntered(a));
+                        break;
+                    case EventKind.TriggerLeft:
+                        Each(e.A, s => s.OnTriggerLeft(b));
+                        Each(e.B, s => s.OnTriggerLeft(a));
+                        break;
+                    case EventKind.Landed:
+                        Each(e.A, s => s.OnLanded(e.Value, e.Material));
+                        break;
+                    case EventKind.Step:
+                        Each(e.A, s => s.OnStep(e.Point, e.Material, e.Value != 0));
+                        break;
+                }
+            }
+            return errors;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Ereignisse lassen sich nicht zustellen: {e}");
+            return errors + 1;
+        }
+    }
+
+    // Schreibt die Felder aller Instanzen in ihre Komponenten (vor dem Speichern, Snapshot, ...).
+    [UnmanagedCallersOnly]
+    public static int StoreFields() => Guard(() => ForEachInstance((cls, script, data) => cls.Store(script, data), write: true));
+
+    // Liest die Felder aller Instanzen aus ihren Komponenten (nach Änderungen im Inspector, Undo).
+    [UnmanagedCallersOnly]
+    public static int LoadFields() => Guard(() => ForEachInstance((cls, script, data) => cls.Load(script, data), write: false));
+
+    // Stoppt alle Instanzen und vergisst sie; beim nächsten Lauf entstehen sie neu.
+    [UnmanagedCallersOnly]
+    public static int ResetInstances() => Guard(StopInstances);
+
+    // Ruft OnValidate für jede Skript-Komponente der gebundenen Welt auf, deren Klasse es
+    // überschreibt, auf einer frischen Instanz (außerhalb des Spiels). Liefert die Zahl der Fehler.
+    [UnmanagedCallersOnly]
+    public static int ValidateScripts()
+    {
+        int errors = 0;
+        try
+        {
+            foreach (ScriptClass cls in classes)
+            {
+                if (cls.TypeIndex < 0 ||
+                    cls.Type.GetMethod(nameof(Script.OnValidate))!.DeclaringType == typeof(Script))
+                {
+                    continue;
+                }
+                ReadOnlySpan<int> types = [cls.TypeIndex];
+                int count = World.Chunks(types, out NativeChunk* chunks);
+                // Erst alle Entities sammeln: OnValidate darf Komponenten schreiben, aber die
+                // Chunks sollen beim Durchlaufen gleich bleiben.
+                var entities = new List<ulong>();
+                for (int c = 0; c < count; ++c)
+                {
+                    for (int row = 0; row < chunks[c].Count; ++row)
+                    {
+                        entities.Add(chunks[c].Entities[row]);
+                    }
+                }
+                foreach (ulong entity in entities)
+                {
+                    void* data = Api->World.Get(entity, cls.TypeIndex, 0);
+                    if (data == null)
+                    {
+                        continue;
+                    }
+                    var script = (Script)Activator.CreateInstance(cls.Type)!;
+                    script.Entity = new Entity(entity);
+                    cls.Load(script, data);
+                    errors += Call(script, s => s.OnValidate());
+                }
+            }
+            return errors;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Fehler beim Abgleich der Skripte: {e}");
+            return errors + 1;
+        }
+    }
+
+    private static void StopInstances()
+    {
+        foreach (ScriptClass cls in classes)
+        {
+            foreach (ulong entity in cls.Instances.Keys.OrderBy(k => k).ToList())
+            {
+                Call(cls.Instances[entity], s => s.Stop());
+            }
+            cls.Instances.Clear();
+        }
+        Time.Elapsed = 0;
+    }
+
+    private delegate void InstanceAction(ScriptClass cls, Script script, void* data);
+
+    private static void ForEachInstance(InstanceAction action, bool write)
+    {
+        foreach (ScriptClass cls in classes)
+        {
+            if (cls.TypeIndex < 0)
+            {
+                continue;
+            }
+            foreach (var (entity, script) in cls.Instances)
+            {
+                void* data = Api->World.Get(entity, cls.TypeIndex, write ? 1 : 0);
+                if (data != null)
+                {
+                    action(cls, script, data);
+                }
+            }
+        }
+    }
+
+    private static long SizeOf(ScriptClass cls) => Api->Script.FieldOffset(cls.TypeIndex, -1);
+
+    // Ruft eine Methode eines Skripts auf; ein Fehler darin hält die übrigen nicht auf.
+    // Reihenfolge eines Laufs, wiederverwendet.
+    private static readonly List<Script> runOrder = new();
+
+    private static int Call(Script script, Action<Script> action)
+    {
+        try
+        {
+            action(script);
+            return 0;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Fehler in {script.GetType().Name} an {script.Entity}: {e}");
+            return 1;
+        }
+    }
+
+    // --- Welt und Bindings (R4.4) ----------------------------------------------------------------
+
+    // Die Engine hat eine andere Welt gebunden (oder keine); Typen werden neu nachgeschlagen.
+    [UnmanagedCallersOnly]
+    public static void WorldChanged()
+    {
+        ++World.Generation;
+    }
+
+    // Meldet Größe und Offsets aller erzeugten Structs, wie C# sie sieht.
+    [UnmanagedCallersOnly]
+    public static int DescribeLayout(delegate* unmanaged<byte*, int, byte*, int, long, void> report)
+    {
+        try
+        {
+            GeneratedBindings.DescribeLayout(new LayoutWriter(report));
+            return 0;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Anordnung der Bindings lässt sich nicht melden: {e}");
+            return -1;
+        }
+    }
+
+    // Ruft eine statische Methode ohne Parameter aus den geladenen Skripten auf, z. B.
+    // "Tests.Scripts.WorldTests.MoveAll". 0: gut, -1: Fehler im Skript, -2: nicht gefunden.
+    [UnmanagedCallersOnly]
+    public static int Invoke(byte* name, int length)
+    {
+        try
+        {
+            string full = System.Text.Encoding.UTF8.GetString(name, length);
+            int dot = full.LastIndexOf('.');
+            if (context == null || dot <= 0)
+            {
+                Log.Error($"{full}: keine Skripte geladen oder kein Name der Form Typ.Methode");
+                return -2;
+            }
+            string typeName = full[..dot];
+            string methodName = full[(dot + 1)..];
+            foreach (Assembly assembly in context.Assemblies)
+            {
+                Type? type = assembly.GetType(typeName);
+                MethodInfo? method = type?.GetMethod(methodName,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, Type.EmptyTypes);
+                if (method != null)
+                {
+                    method.Invoke(null, null);
+                    return 0;
+                }
+            }
+            Log.Error($"{full} gibt es in den Skripten nicht");
+            return -2;
+        }
+        catch (TargetInvocationException e) when (e.InnerException != null)
+        {
+            Log.Error($"Fehler im Skript: {e.InnerException}");
+            return -1;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Fehler im Skript: {e}");
+            return -1;
+        }
     }
 
     // --- Prüfen und Messen des Aufrufwegs -------------------------------------------------------

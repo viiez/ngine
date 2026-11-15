@@ -74,6 +74,7 @@ import ngine.platform;
 import ngine.profile;
 import ngine.render;
 import ngine.rhi;
+import ngine.script;
 import ngine.rhi.vulkan;
 import ngine.world;
 import ngine.editor_ui;
@@ -81,6 +82,7 @@ import app.model_scene;
 import app.input_bindings;
 import app.paths;
 import app.player;
+import app.scripting;
 import app.prefabs;
 import ngine.input;
 import ngine.cook;
@@ -92,6 +94,7 @@ import editor.inspector;
 import editor.menu;
 import editor.overlay;
 import editor.scene_tree;
+import editor.scripts;
 import editor.terrain_materials;
 import editor.terrain_tools;
 import editor.viewport_tools;
@@ -286,6 +289,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             scene_assets.loading = {
                 .cache = &*cache, .cook = cook::model_cooker(), .cook_image = cook::image_cooker()};
         }
+        // .NET für die Skripte (R4.4); lebt länger als die Szene.
+        const std::unique_ptr<script::ScriptRuntime> script_runtime = app::start_script_runtime();
         auto scene =
             app::ModelScene::create(**device, viewport_format, options.model_path, math::DVec3{},
                                     app::SceneMode::Editor, std::move(scene_assets));
@@ -308,16 +313,41 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         edit::Selection selection{&bus};
         editor::SceneTreePanel tree_panel;
         editor::InspectorPanel inspector_panel;
-        const events::Subscription on_reset = bus.subscribe<edit::DocumentReset>(
-            [&](const edit::DocumentReset&) { selection.clear(); });
-        const events::Subscription on_change = bus.subscribe<edit::EntityChanged>(
-            [&](const edit::EntityChanged&) { selection.validate(document); });
+        const events::Subscription on_reset =
+            bus.subscribe<edit::DocumentReset>([&](const edit::DocumentReset&) {
+                selection.clear();
+                // Neue Szene oder Welt nach dem Stoppen: Skripte gleichen ihre Komponenten ab.
+                if (!document.playing() && (*scene)->scripts() != nullptr) {
+                    (*scene)->scripts()->validate();
+                }
+            });
+        const events::Subscription on_change =
+            bus.subscribe<edit::EntityChanged>([&](const edit::EntityChanged&) {
+                selection.validate(document);
+                // Beim Spielen gehen Änderungen aus dem Inspector an die laufenden Skripte.
+                // Sonst gleichen Skripte mit OnValidate andere Komponenten ab (Laterne aus).
+                if ((*scene)->scripts() != nullptr) {
+                    if (document.playing()) {
+                        (*scene)->scripts()->runtime().load_fields();
+                    } else {
+                        (*scene)->scripts()->validate();
+                    }
+                }
+            });
         const events::Subscription on_select =
             bus.subscribe<edit::SelectionChanged>([&](const edit::SelectionChanged& change) {
                 if (change.current != 0) {
                     log::debug("Ausgewählt: {}", change.current);
                 }
             });
+        // Eingabe als Aktionen (R4.1): Tastatur und Maus nur beim Fliegen, das Gamepad immer.
+        app::InputBindings bindings{database ? std::optional{database->root()} : std::nullopt};
+        input::ActionState actions{bindings.load()};
+        // Skripte aus assets/skripte: Bau im Hintergrund, Hot Reload; laufen beim Spielen. Vor dem
+        // Öffnen der Szene, damit die Skript-Typen aus dem Cache schon bekannt sind.
+        if (script_runtime) {
+            (*scene)->enable_scripts(*script_runtime, &actions);
+        }
         if (options.scene_path) {
             if (auto opened = document.open(*options.scene_path); opened) {
                 log::info("Szene geöffnet: {} ({} Entities)", *options.scene_path, *opened);
@@ -343,9 +373,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
         render::TexturePool pool{**device};
         render::GpuProfiler gpu_profiler{**device};
-        // Eingabe als Aktionen (R4.1): Tastatur und Maus nur beim Fliegen, das Gamepad immer.
-        app::InputBindings bindings{database ? std::optional{database->root()} : std::nullopt};
-        input::ActionState actions{bindings.load()};
+        editor::ScriptsPanel scripts_panel;
         Panels panels;
         FrameTimes times;
         bool running = true;
@@ -362,6 +390,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         // Dauer des laufenden Frames für Werkzeuge, die pro Sekunde wirken (Pinsel).
         f32 frame_dt = 0.0f;
         PlayControls play;
+        play.scripts = (*scene)->scripts();
         EditorMenu menu{options.scene_path.value_or("szene.json")};
         MenuTargets targets{.document = document,
                             .selection = selection,
@@ -525,6 +554,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             }
             terrain_materials_panel.draw(**scene, database ? &*database : nullptr,
                                          panels.terrain_materials);
+            scripts_panel.draw((*scene)->scripts(), panels.scripts);
             if (panels.stats) {
                 if (ui::begin_window(stats_window, &panels.stats)) {
                     const render::RenderStats& stats = (*scene)->renderer().stats();
@@ -628,6 +658,10 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     simulation.step();
                 }
                 (*scene)->simulate(dt);
+                // Aktuelle Werte der Skripte für den Inspector.
+                if (script::ScriptSystem* scripts = (*scene)->scripts()) {
+                    scripts->runtime().store_fields();
+                }
             } else {
                 (*scene)->simulation().reset_clock();
                 // Gestoppt: Die Welt kommt aus der Sicherung, die Körper der Physik sind veraltet.

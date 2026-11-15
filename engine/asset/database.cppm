@@ -60,13 +60,14 @@ enum class AssetType : u8 {
     Scene,
     Prefab,
     Input,
-    TerrainMaterials
+    TerrainMaterials,
+    Script
 };
 
 // Art nach der Endung: .gltf/.glb Modell, .png/.jpg/.jpeg/.tga/.bmp Textur, .slang Shader,
 // .json und .nscene Szene, .prefab Prefab (R2.5), .input Belegung der Eingabe (R4.1),
-// .terrain-materials Materialtabelle des Terrains (R4.3). Dateien unbekannter Art bekommen keine
-// Kennung.
+// .terrain-materials Materialtabelle des Terrains (R4.3), .cs Skript (R4.4). Dateien unbekannter
+// Art bekommen keine Kennung.
 [[nodiscard]] AssetType type_of(std::string_view path);
 [[nodiscard]] std::string_view to_string(AssetType type);
 

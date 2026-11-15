@@ -6,7 +6,15 @@ target_sources(ngine_platform
         FILE_SET CXX_MODULES
         FILES
             platform.cppm
+            process.cppm
             window.cppm)
+
+# Plattformcode nur in den Adaptern: je eine Datei pro Betriebssystem.
+if(WIN32)
+    target_sources(ngine_platform PRIVATE process_windows.cpp)
+else()
+    target_sources(ngine_platform PRIVATE process_posix.cpp)
+endif()
 
 target_link_libraries(ngine_platform PUBLIC ngine::core)
 

@@ -110,6 +110,12 @@ public:
         fixed_stages_.push_back(std::move(stage));
     }
 
+    // Stufe nach den Systemen von Phase::Frame, vor Phase::Late, einmal pro Bild im Hauptthread,
+    // z. B. Update der Skripte (R4.4). Darf die Struktur ändern.
+    void add_frame_stage(std::function<void()> stage) {
+        frame_stages_.push_back(std::move(stage));
+    }
+
     // Wird nach jedem festen Schritt aufgerufen, nachdem die Befehlspuffer ausgeführt sind. Die
     // Eingabe gibt darüber ihre Flanken frei (input::ActionState::end_fixed_step()).
     void set_after_fixed_step(std::function<void()> callback) {
@@ -133,6 +139,7 @@ private:
     Schedule schedule_;
     Query<Interpolated, const Transform> interpolated_;
     std::vector<std::function<void()>> fixed_stages_;
+    std::vector<std::function<void()>> frame_stages_;
     std::function<void()> after_fixed_step_;
     SimulationStats stats_;
     f64 accumulator_ = 0.0;

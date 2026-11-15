@@ -56,6 +56,9 @@ AssetType type_of(std::string_view path) {
     if (extension == ".terrain-materials") {
         return AssetType::TerrainMaterials;
     }
+    if (extension == ".cs") {
+        return AssetType::Script;
+    }
     return AssetType::Unknown;
 }
 
@@ -68,6 +71,7 @@ std::string_view to_string(AssetType type) {
     case AssetType::Prefab: return "Prefab";
     case AssetType::Input: return "Eingabe";
     case AssetType::TerrainMaterials: return "Terrain-Materialien";
+    case AssetType::Script: return "Skript";
     case AssetType::Unknown: break;
     }
     return "Unbekannt";

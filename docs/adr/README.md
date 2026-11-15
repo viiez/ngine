@@ -55,3 +55,4 @@ betroffene Code einreichen.
 | [0044](0044-game-loop-phases-fixed-step-commands.md) | Spielschleife mit Phasen, festem Zeitschritt, Interpolation nur für `Interpolated` und Befehlspuffer in fester Reihenfolge | angenommen |
 | [0045](0045-physics-jolt-double-precision.md) | Physik mit Jolt in doppelter Genauigkeit über einen eigenen Overlay-Port, die Welt als Quelle der Wahrheit, reproduzierbar im selben Build | angenommen |
 | [0046](0046-terrain-collision-character-virtual.md) | Terrain-Kollision als `MeshShape` pro Chunk um Anker mit Einfrieren, Spielfigur mit Jolts `CharacterVirtual`, Materialtabelle als Asset mit Reibung pro Dreieck | angenommen |
+| [0047](0047-script-components-bindings-hot-reload.md) | Skript-Klassen als Komponententypen der Registry, C#-Bindings aus der Reflection mit Prüfung beim Start, Hot Reload über `dotnet build` im Hintergrund | angenommen |

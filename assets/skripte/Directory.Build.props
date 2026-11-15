@@ -1,0 +1,8 @@
+<Project>
+  <!-- Zwischendateien gehören in den Cache, nicht neben die Quellen im Asset-Ordner. -->
+  <PropertyGroup>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../.cache/skripte/artifacts</ArtifactsPath>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../.cache/skripte/ngine.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)../.cache/skripte/ngine.props')" />
+</Project>

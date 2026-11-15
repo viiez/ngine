@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 import ngine.core;
 import ngine.reflect;
@@ -92,7 +93,7 @@ TEST_CASE("Scene files are written and read", "[world][scene]") {
     static_cast<void>(filesystem::remove(dir));
 }
 
-TEST_CASE("Scenes skip unknown components and keep defaults for missing fields", "[world][scene]") {
+TEST_CASE("Scenes keep unknown components and defaults for missing fields", "[world][scene]") {
     const auto types = make_types();
     world::World world{types};
     const auto count = world::load_scene(world, R"({
@@ -109,6 +110,49 @@ TEST_CASE("Scenes skip unknown components and keep defaults for missing fields",
         CHECK(orbit.radius == 0.0);
         CHECK(entity.parent().name() == "A");
     });
+}
+
+TEST_CASE("Unknown components survive saving and are adopted once the type exists",
+          "[world][scene]") {
+    const std::string text = R"({
+        "format": "ngine.scene", "version": 1,
+        "entities": [
+            {"id": 1, "components": {"Name": {"value": "A"}, "Laterne": {"an": true, "farbe": {"x": 1, "y": 0.5, "z": 0}}}}
+        ]
+    })";
+    // Ohne den Typ (z. B. Skript fehlt): Werte bleiben als JSON und kommen beim Speichern zurück.
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    world::World world{types};
+    REQUIRE(world::load_scene(world, text));
+    const std::string saved = world::save_scene(world);
+    CHECK(saved.find("\"Laterne\": {") != std::string::npos);
+    CHECK(saved.find("\"an\": true") != std::string::npos);
+    CHECK(saved.find("UnknownComponents") == std::string::npos);
+    world::World again{types};
+    REQUIRE(world::load_scene(again, saved));
+    CHECK(world::save_scene(again) == saved);
+
+    // Der Typ kommt dazu (Skripte gebaut): adopt_unknown_components übernimmt die Werte.
+    const reflect::TypeInfo& bool_type = *types.find("bool");
+    const reflect::TypeInfo* vec3 = types.find("Vec3");
+    REQUIRE(vec3 != nullptr);
+    const std::vector<reflect::TypeRegistry::CompositeField> fields{
+        {.name = "an", .type = &bool_type}, {.name = "farbe", .type = vec3}};
+    const reflect::TypeInfo& lantern = types.add_composite("Laterne", fields);
+    CHECK(world::adopt_unknown_components(world) == 1);
+    usize found = 0;
+    world.each<const world::Name>([&](world::Entity entity, const world::Name&) {
+        const void* data = world.get(entity.id(), world.component(lantern));
+        REQUIRE(data != nullptr);
+        CHECK(*static_cast<const bool*>(data));
+        CHECK_FALSE(entity.has<world::UnknownComponents>());
+        ++found;
+    });
+    CHECK(found == 1);
+    const std::string adopted = world::save_scene(world);
+    CHECK(adopted.find("\"an\": true") != std::string::npos);
+    CHECK(adopted.find("\"x\": 1.0") != std::string::npos); // jetzt mit Typ geschrieben
 }
 
 TEST_CASE("Scenes keep their order when the world reuses ids", "[world][scene]") {

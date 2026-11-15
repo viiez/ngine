@@ -63,6 +63,7 @@ import ngine.profile;
 import ngine.reflect;
 import ngine.render;
 import ngine.rhi;
+import ngine.script;
 import ngine.world;
 import app.prefabs;
 import app.physics;
@@ -243,6 +244,16 @@ export constexpr asset::AssetId default_scene_id = asset::generated_id("app.mode
 // Kennung des Bodens unter einem Modell aus --model.
 export constexpr asset::AssetId model_ground_id = asset::generated_id("app.model_scene.ground");
 
+// Wie die Szene ihre Skripte bekommt (R4.4).
+export struct ScriptOptions {
+    // Mit dem .NET-SDK bauen; sonst nur die Assembly aus dem Cache (Server).
+    bool build = true;
+    // Bei geänderten .cs-Dateien neu bauen und laden (Hot Reload).
+    bool watch = true;
+    // Auf den ersten Bau warten (ohne Fenster, damit die Skripte ab dem ersten Bild laufen).
+    bool wait = false;
+};
+
 export class ModelScene {
 public:
     // Ohne model_path das Kugelraster. origin verschiebt alles, auch die Kamera (--far).
@@ -320,6 +331,49 @@ public:
 
     // Steuert die Figur mit PlayerInput (im Spiel immer, im Editor beim Spielen, siehe
     // set_player_enabled()).
+    // Skripte aus assets/skripte (R4.4): bauen, laden, bei Änderungen neu laden. runtime muss die
+    // Szene überleben. Sie sehen die Welt, die Aktionen und die Physik der Szene; im Editor laufen
+    // sie nur beim Spielen (scripts()->set_active()).
+    void enable_scripts(script::ScriptRuntime& runtime, input::ActionState* actions,
+                        ScriptOptions options = {}) {
+        if (database_ == nullptr) {
+            log::warn("Skripte: kein Asset-Ordner");
+            return;
+        }
+        const std::string project = filesystem::join(database_->root(), "skripte/Skripte.csproj");
+        if (!filesystem::exists(project)) {
+            log::warn("Skripte: {} fehlt", project);
+            return;
+        }
+        scripts_ = std::make_unique<script::ScriptSystem>(
+            runtime, types_,
+            script::ScriptSystemDesc{.project = project,
+                                     .cache_dir =
+                                         filesystem::join(database_->root(), ".cache/skripte"),
+                                     .build = options.build,
+                                     .watch = options.watch});
+        scripts_->bind(&world_, actions, &physics_, &events_);
+        script_actions_ = actions;
+        // Flanken für FixedUpdate gelten bis nach dem festen Schritt, der sie gesehen hat.
+        if (actions != nullptr) {
+            simulation_.set_after_fixed_step([actions] { actions->end_fixed_step(); });
+        }
+        scripts_->set_active(mode_ == SceneMode::Game);
+        scripts_->start(options.wait);
+    }
+    [[nodiscard]] script::ScriptSystem* scripts() noexcept {
+        return scripts_.get();
+    }
+    // Ob ein laufendes Skript Spielersteuerung die Figur steuert.
+    [[nodiscard]] bool scripted_player(world::Entity player) {
+        if (!scripts_ || !scripts_->active() || !scripts_->runtime().scripts_loaded()) {
+            return false;
+        }
+        const reflect::TypeInfo* type = types_.find("Spielersteuerung");
+        return type != nullptr && !type->retired &&
+               world_.has(player.id(), world_.component(*type));
+    }
+
     void set_player_enabled(bool enabled) {
         player_enabled_ = enabled;
     }
@@ -350,7 +404,14 @@ public:
     // Kamera folgt ihr. Im Spiel rechnet danach die Spielschleife ein Bild (simulate()).
     void update(f32 dt, const FlyInput& input, const PlayerControls& controls = {}) {
         world::Entity player = active_player();
-        if (player) {
+        // Steuert ein Skript die Figur (Spielersteuerung.cs, R4.4), entfällt die Steuerung in C++;
+        // im Flugmodus bekommen die Skripte keine Eingabe.
+        const bool scripted = player && scripted_player(player);
+        if (scripts_) {
+            scripts_->update();
+            scripts_->runtime().bind_input(fly_ ? nullptr : script_actions_);
+        }
+        if (player && !scripted) {
             app::apply_controls(player, fly_ ? PlayerControls{} : controls);
         }
         const bool fly = !player || fly_;
@@ -381,7 +442,9 @@ public:
             view_position_ = view.position;
             view_rotation_ = view.rotation;
             throw_origin_ = view.eye;
-            update_dig(dt, player, view, controls);
+            if (!scripted) {
+                update_dig(dt, player, view, controls);
+            }
         }
         if (mode_ == SceneMode::Game) {
             camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
@@ -635,6 +698,19 @@ private:
         // Physik nach den Systemen jedes festen Schritts (R4.2). Im Editor nur beim Spielen, weil
         // dann erst die Spielschleife läuft.
         physics_.set_shape_source(shapes_.source());
+        // Skripte (R4.4): FixedUpdate vor der Physik, Update nach den Systemen eines Bildes.
+        // Kontakte und Auslöser erreichen sie über events_.
+        simulation_.add_fixed_stage([this] {
+            if (scripts_) {
+                scripts_->run(script::ScriptPhase::Fixed, world_.time().fixed_delta);
+            }
+        });
+        simulation_.add_frame_stage([this] {
+            if (scripts_) {
+                scripts_->run(script::ScriptPhase::Frame, world_.time().delta);
+            }
+        });
+        physics_.set_events(&events_);
         physics::add_to(simulation_, physics_);
         // Modell des Spielplatzes (Kisten, Kugeln, Figur) gibt es immer, damit der Editor dessen
         // Szene und das Prefab der Spielfigur öffnen kann.
@@ -643,6 +719,11 @@ private:
             log::warn("Modell des Spielplatzes: {}", added.error());
         }
         shapes_.add(playground_id, std::move(model));
+        // Ebenso das Modell der Standardszene: Prefabs wie die Laterne nehmen ihre Netze daraus,
+        // auch im Spielplatz ohne Standardszene.
+        if (auto added = add_default_model(); !added) {
+            log::warn("Modell der Standardszene: {}", added.error());
+        }
         player_enabled_ = mode_ == SceneMode::Game;
         if (mode_ == SceneMode::Game) {
             camera_ = world_.create("Kamera");
@@ -763,9 +844,6 @@ private:
     // Punktlichter mit leuchtenden Kugeln und ein Spotlicht.
     rhi::Result<void> build_default() {
         renderer_->shadows.distance = 100.0f;
-        if (auto result = add_default_model(); !result) {
-            return result;
-        }
         // Boden und Säulen aus dem Asset-Ordner (R2.5), sonst erzeugt wie bis R2.4.
         if (const asset::AssetId ground = asset_id("modelle/boden.gltf"); ground != 0) {
             world_.create("Boden")
@@ -849,6 +927,14 @@ private:
             const asset::AssetId figure = asset_id("prefabs/spielfigur.prefab");
             (void)app::spawn_player(world_, layout.spawn,
                                     figure != 0 ? prefabs_.get(figure) : nullptr, figure);
+            const asset::AssetId lantern = asset_id("prefabs/laterne.prefab");
+            if (const world::Prefab* prefab = lantern != 0 ? prefabs_.get(lantern) : nullptr) {
+                if (auto placed = world::instantiate(world_, *prefab, lantern)) {
+                    world::Transform transform = *placed->get<world::Transform>();
+                    transform.position = layout.lantern;
+                    placed->set(transform);
+                }
+            }
             spawn = layout.spawn;
         }
         (void)world::update_transforms(world_);
@@ -1037,6 +1123,11 @@ private:
     DVec3 view_position_{0.0, 0.0, 0.0};
     math::Quat view_rotation_{0.0f, 0.0f, 0.0f, 1.0f};
     DVec3 throw_origin_{0.0, 0.0, 0.0};
+    // Ereignisse der Physik für die Skripte; zuletzt angelegt, damit die Skripte vor Welt und
+    // Physik gehen.
+    events::EventBus events_;
+    input::ActionState* script_actions_ = nullptr;
+    std::unique_ptr<script::ScriptSystem> scripts_;
 };
 
 } // namespace app

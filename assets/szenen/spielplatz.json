@@ -2677,6 +2677,24 @@
     },
     {
       "id": 39,
+      "prefab": 1715020559191065870,
+      "overrides": [
+        {
+          "node": 1,
+          "components": {
+            "Transform": {
+              "position": {
+                "x": 18.5,
+                "y": 1.1290283203125,
+                "z": -0.5
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 40,
       "components": {
         "Name": {
           "value": "Plattform"

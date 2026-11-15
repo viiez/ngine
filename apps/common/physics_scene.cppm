@@ -397,6 +397,8 @@ export struct PlaygroundLayout {
     DVec3 spawn{0.0, 0.0, 0.0};
     // Lose Kisten auf dem Terrain (zum Graben).
     std::vector<world::Entity> loose_boxes;
+    // Fußpunkt einer Laterne neben dem Start (R4.4, Prefab prefabs/laterne.prefab).
+    DVec3 lantern{0.0, 0.0, 0.0};
 };
 
 // Spielfigur aus Code: Kapsel mit CharacterController, PlayerInput und TerrainObserver, Körper als
@@ -541,6 +543,11 @@ export PlaygroundLayout build_playground(world::World& world, DVec3 origin, jobs
     const f64 front = best.z + hz + 4.0;
     layout.spawn = {best.x, surface_height(layout.terrain, best.x, front, top).value_or(best.y),
                     front};
+    const f64 lantern_x = best.x + 2.5;
+    const f64 lantern_z = front - 1.5;
+    layout.lantern = {lantern_x,
+                      surface_height(layout.terrain, lantern_x, lantern_z, top).value_or(best.y),
+                      lantern_z};
     for (i32 i = 0; i < 4; ++i) {
         const f64 x = best.x - 4.5 + static_cast<f64>(i) * 3.0;
         const f64 z = front + 4.0;

@@ -86,19 +86,19 @@ TEST_CASE("Type operations construct, copy, move and destroy", "[reflect]") {
 
     alignas(Body) std::byte a[sizeof(Body)];
     alignas(Body) std::byte b[sizeof(Body)];
-    body.ops.construct(a);
+    body.construct(a);
     CHECK(reinterpret_cast<Body*>(a)->label == "Körper");
 
     reinterpret_cast<Body*>(a)->label = "ein langer Text, der nicht in den kleinen Puffer passt";
-    body.ops.copy_construct(b, a);
+    body.copy_construct(b, a);
     CHECK(reinterpret_cast<Body*>(b)->label == reinterpret_cast<Body*>(a)->label);
 
-    body.ops.destroy(b);
-    body.ops.move_construct(b, a);
+    body.destroy(b);
+    body.move_construct(b, a);
     CHECK(reinterpret_cast<Body*>(b)->label.starts_with("ein langer"));
 
-    body.ops.destroy(a);
-    body.ops.destroy(b);
+    body.destroy(a);
+    body.destroy(b);
 }
 
 TEST_CASE("Registered types are listed in order", "[reflect]") {

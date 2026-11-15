@@ -1,5 +1,7 @@
 module;
 
+#include <algorithm>
+#include <cstddef>
 #include <deque>
 #include <format>
 #include <memory>
@@ -15,6 +17,74 @@ module ngine.reflect;
 import ngine.core;
 
 namespace ngine::reflect {
+
+// Vorlage eines zusammengesetzten Typs (Speicher und die Felder, mit denen er gebaut wurde).
+struct CompositeData {
+    std::unique_ptr<std::byte[]> storage;
+    std::byte* prototype = nullptr;
+    std::vector<Field> fields;
+
+    CompositeData() = default;
+    CompositeData(const CompositeData&) = delete;
+    CompositeData& operator=(const CompositeData&) = delete;
+    ~CompositeData() {
+        if (prototype != nullptr) {
+            for (auto field = fields.rbegin(); field != fields.rend(); ++field) {
+                field->type->destroy(prototype + field->offset);
+            }
+        }
+    }
+};
+
+namespace {
+
+std::byte* at(void* base, usize offset) {
+    return static_cast<std::byte*>(base) + offset;
+}
+const std::byte* at(const void* base, usize offset) {
+    return static_cast<const std::byte*>(base) + offset;
+}
+
+// Lebenszyklus zusammengesetzter Typen: Feld für Feld über die Feldtypen.
+void composite_copy_construct(const TypeInfo& type, void* target, const void* source) {
+    for (const Field& field : type.fields) {
+        field.type->copy_construct(at(target, field.offset), at(source, field.offset));
+    }
+}
+
+const TypeOps composite_ops{
+    .construct =
+        [](const TypeInfo& type, void* target) {
+            composite_copy_construct(type, target, type.composite->prototype);
+        },
+    .destroy =
+        [](const TypeInfo& type, void* target) noexcept {
+            for (auto field = type.fields.rbegin(); field != type.fields.rend(); ++field) {
+                field->type->destroy(at(target, field->offset));
+            }
+        },
+    .copy_construct = composite_copy_construct,
+    .move_construct =
+        [](const TypeInfo& type, void* target, void* source) noexcept {
+            for (const Field& field : type.fields) {
+                field.type->move_construct(at(target, field.offset), at(source, field.offset));
+            }
+        },
+    .copy_assign =
+        [](const TypeInfo& type, void* target, const void* source) {
+            for (const Field& field : type.fields) {
+                field.type->copy_assign(at(target, field.offset), at(source, field.offset));
+            }
+        },
+    .move_assign =
+        [](const TypeInfo& type, void* target, void* source) noexcept {
+            for (const Field& field : type.fields) {
+                field.type->move_assign(at(target, field.offset), at(source, field.offset));
+            }
+        },
+};
+
+} // namespace
 
 struct TypeRegistry::Impl {
     // std::deque verschiebt seine Elemente beim Wachsen nicht; TypeInfo-Zeiger bleiben gültig.
@@ -128,6 +198,63 @@ const TypeInfo& TypeRegistry::get_key(TypeKey key) const {
 
 std::span<const TypeInfo* const> TypeRegistry::types() const noexcept {
     return impl_->ordered;
+}
+
+TypeInfo& TypeRegistry::add_composite(std::string_view name,
+                                      std::span<const CompositeField> fields) {
+    auto data = std::make_shared<CompositeData>();
+    TypeInfo info{.name = std::string{name},
+                  .id = type_id(name),
+                  .size = 0,
+                  .alignment = 1,
+                  .kind = Kind::Struct,
+                  .trivial = true,
+                  .ops = composite_ops,
+                  .fields = {}};
+    usize offset = 0;
+    for (const CompositeField& field : fields) {
+        verify(field.type != nullptr && field.type->alignment > 0,
+               "Feld eines zusammengesetzten Typs ohne Typ");
+        if (info.find_field(field.name) != nullptr) {
+            log::fatal("Reflection: Feld '{}.{}' gibt es schon", name, field.name);
+            verify(false, "Feld doppelt registriert");
+        }
+        offset =
+            (offset + field.type->alignment - 1) / field.type->alignment * field.type->alignment;
+        info.fields.push_back(Field{.name = field.name,
+                                    .type = field.type,
+                                    .offset = offset,
+                                    .range = field.range,
+                                    .hint = field.hint});
+        offset += field.type->size;
+        info.alignment = std::max(info.alignment, field.type->alignment);
+        info.trivial = info.trivial && field.type->trivial;
+    }
+    info.size = std::max<usize>((offset + info.alignment - 1) / info.alignment * info.alignment, 1);
+    verify(info.alignment <= alignof(std::max_align_t),
+           "Zusammengesetzter Typ: Ausrichtung zu groß");
+
+    // Vorlage: jedes Feld mit dem Standardwert seines Typs.
+    data->storage = std::make_unique<std::byte[]>(info.size);
+    data->fields = info.fields;
+    for (const Field& field : info.fields) {
+        field.type->construct(data->storage.get() + field.offset);
+    }
+    data->prototype = data->storage.get();
+    info.composite = data;
+    // Schlüssel: die Vorlage, eindeutig pro zusammengesetztem Typ.
+    return add_type(data.get(), std::move(info));
+}
+
+void* TypeRegistry::composite_prototype(const TypeInfo& type) {
+    verify(type.composite != nullptr, "Kein zusammengesetzter Typ");
+    return type.composite->prototype;
+}
+
+void TypeRegistry::retire(const TypeInfo& type) {
+    verify(find_id(type.id) == &type, "Typ ist nicht (mehr) unter seinem Namen registriert");
+    impl_->by_id.erase(type.id);
+    impl_->storage[type.index].retired = true;
 }
 
 } // namespace ngine::reflect

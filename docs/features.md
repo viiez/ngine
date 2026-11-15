@@ -72,7 +72,7 @@ eine Komponente.
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
 | WORLD-01 | ECS | flecs hinter `World`, `Entity` und `Query`; Systeme über `Schedule` auf dem Job-System ([ADR 0019](adr/0019-systems-on-job-system.md)) | A4 | fertig |
-| WORLD-02 | Entity-API | Bequeme Schicht im Stil von GameObjects (`entity.set(...)`, `get<T>()`, `name()`); die C#-Seite folgt mit D2 / R4 | A4 | in Arbeit |
+| WORLD-02 | Entity-API | Bequeme Schicht im Stil von GameObjects (`entity.set(...)`, `get<T>()`, `name()`); in C# `Entity` mit `ref T Get<T>()`, `Set`, `Remove`, Eltern, Namen und `World.Query` über die Chunks ([ADR 0047](adr/0047-script-components-bindings-hot-reload.md)) | A4 / R4.4 | fertig |
 | WORLD-03 | Hierarchie | Eltern-Kind-Beziehungen (A4); `Transform` und `WorldTransform`, Propagation Eltern vor Kindern mit `update_transforms()` (R1.1), nur für geänderte Teilbäume (R2.3) | A4 / R1.1 / R2.3 | fertig |
 | WORLD-04 | Prefabs | Vorlagen als `.prefab`-Datei, Instanzen in der Welt voll ausgebaut, in Szenen als Kennung mit Überschreibungen auf Feldebene; geänderte Vorlagen ziehen alle Instanzen nach (Hot Reload), im Editor anlegen, übernehmen, aufbrechen und aus dem Asset-Browser ziehen ([ADR 0037](adr/0037-prefabs-field-overrides.md)) | R2.5 | fertig |
 | WORLD-05 | Szenen speichern und laden | JSON über Reflection, Hierarchie bleibt erhalten (A4); binär als `.nscene` mit Typtabelle (R2.5) | A4 / R2.5 | fertig |
@@ -140,10 +140,10 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| SCR-01 | .NET-Hosting | Eingebettetes .NET 10 über hostfxr, Aufrufe in beide Richtungen über Funktionszeiger ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)) | D2 / R4 | in Arbeit |
-| SCR-02 | Bindings | Aus der Reflection erzeugte C#-API | R4 | geplant |
-| SCR-03 | Skript-Komponenten | Gameplay-Logik als C#-Komponenten | R4 | geplant |
-| SCR-04 | Hot Reload | Skripte zur Laufzeit neu laden; D2: Entladen und Neuladen über einen entladbaren Kontext funktioniert, Dateiüberwachung fehlt | D2 / R4 | in Arbeit |
+| SCR-01 | .NET-Hosting | Eingebettetes .NET 10 über hostfxr, Aufrufe in beide Richtungen über Funktionszeiger ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)) | D2 / R4.4 | fertig |
+| SCR-02 | Bindings | Aus der Reflection erzeugte C#-Structs und -Enums (`ngine_bindgen`, Komponenten der Anwendung zur Laufzeit), Prüfung der Anordnung beim Start; Eingabe, Physik, Terrain und Ereignisse über eine Tabelle von Hand ([ADR 0047](adr/0047-script-components-bindings-hot-reload.md)) | R4.4 | fertig |
+| SCR-03 | Skript-Komponenten | Jede Klasse, die von `NGine.Script` erbt, ist ein Typ der Registry: Felder im Inspector, in Szenen, Prefabs und im Spielmodus; `Start`, `FixedUpdate`, `Update`, `Stop` und Ereignisse der Physik; fehlende Klassen bleiben als JSON erhalten | R4.4 | fertig |
+| SCR-04 | Hot Reload | `dotnet build` im Hintergrund beim Speichern einer `.cs`-Datei, Neuladen im laufenden Spiel mit Feldwerten, Fehler mit Datei und Zeile im Fenster „Skripte“, ohne SDK die letzte DLL aus dem Cache | D2 / R4.4 | fertig |
 
 ## Netzwerk
 
@@ -175,7 +175,7 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 | EDIT-03 | Szenenbaum | Entities und Hierarchie; Auswahl auch per Klick im Viewport (ID-Puffer), Umbenennen, Umhängen per Ziehen | R2.2 | fertig |
 | EDIT-04 | Inspector | Komponenten über Reflection bearbeiten; Felder allein aus der Reflection mit Enums, Bereichen und Hinweisen (Farbe, Rotation, Winkel), `ngine.edit` | R2.2 | fertig |
 | EDIT-05 | Gizmos | Verschieben, Drehen, Skalieren, lokal und global, mit Raster und Undo; Treffertests über Strahlen in `ngine.edit` ([ADR 0031](adr/0031-gizmos-own-math-ui-draw-list.md)) | R2.3 | fertig |
-| EDIT-06 | Spielen im Editor | Spiel im Editor starten, pausieren und stoppen; die Welt kommt bitgenau zurück ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)). C#-Skripte im Spielmodus folgen mit R4 | R2.3 / R4 | in Arbeit |
+| EDIT-06 | Spielen im Editor | Spiel im Editor starten, pausieren und stoppen; die Welt kommt bitgenau zurück ([ADR 0032](adr/0032-play-in-editor-binary-snapshot.md)). C#-Skripte laufen im Spielmodus mit, ihre Felder zeigt und ändert der Inspector während des Spielens (R4.4) | R2.3 / R4.4 | fertig |
 | EDIT-07 | Undo und Redo | Alle Editor-Aktionen umkehrbar; Befehle mit reflektierten Werten ([ADR 0030](adr/0030-undo-commands-reflected-values.md)) | R2.2 | fertig |
 | EDIT-08 | Voxel-Werkzeuge | Terrain im Editor formen und bemalen; R3.4: Abtragen, Auftragen, Glätten, Ebnen und Bemalen mit Radius, Stärke und Material, Kreis als Vorschau auf dem Terrain, ein Strich ein Schritt im Verlauf mit Undo und Redo über Deltas | R3 | fertig |
 | EDIT-09 | Asset-Browser | Assets finden (Liste mit Filter) und Modelle ins Viewport ziehen (Undo-Schritt); seit R2.5 auch Prefabs ziehen und alle Modelle kochen; Vorschaubilder und Import fremder Formate folgen später | R2.4 / R2.5 | in Arbeit |
