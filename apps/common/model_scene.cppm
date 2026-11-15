@@ -719,6 +719,11 @@ private:
             log::warn("Modell des Spielplatzes: {}", added.error());
         }
         shapes_.add(playground_id, std::move(model));
+        // Ebenso das Modell der Standardszene: Prefabs wie die Laterne nehmen ihre Netze daraus,
+        // auch im Spielplatz ohne Standardszene.
+        if (auto added = add_default_model(); !added) {
+            log::warn("Modell der Standardszene: {}", added.error());
+        }
         player_enabled_ = mode_ == SceneMode::Game;
         if (mode_ == SceneMode::Game) {
             camera_ = world_.create("Kamera");
@@ -839,9 +844,6 @@ private:
     // Punktlichter mit leuchtenden Kugeln und ein Spotlicht.
     rhi::Result<void> build_default() {
         renderer_->shadows.distance = 100.0f;
-        if (auto result = add_default_model(); !result) {
-            return result;
-        }
         // Boden und Säulen aus dem Asset-Ordner (R2.5), sonst erzeugt wie bis R2.4.
         if (const asset::AssetId ground = asset_id("modelle/boden.gltf"); ground != 0) {
             world_.create("Boden")

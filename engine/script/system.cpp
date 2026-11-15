@@ -327,6 +327,9 @@ struct ScriptSystem::Impl {
         for (const reflect::TypeInfo* type : runtime->script_types()) {
             status.classes.push_back(type->name);
         }
+        if (!active) {
+            runtime->validate();
+        }
         return true;
     }
 
@@ -482,6 +485,13 @@ void ScriptSystem::set_active(bool active) {
         impl_->runtime->reset_instances();
     }
     impl_->active = active;
+    validate();
+}
+
+void ScriptSystem::validate() {
+    if (!impl_->active) {
+        impl_->runtime->validate();
+    }
 }
 
 bool ScriptSystem::active() const noexcept {

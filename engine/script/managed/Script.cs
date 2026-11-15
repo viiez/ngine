@@ -45,6 +45,11 @@ public abstract class Script
     public virtual void Update() { }
     // Wenn die Komponente oder die Entity verschwindet, beim Stoppen und vor dem Neuladen.
     public virtual void Stop() { }
+    // Außerhalb des Spiels (Editor), wenn sich Felder ändern (Inspector, Undo, Szene laden,
+    // Stoppen, Neuladen), auf einer frischen Instanz mit den Werten der Komponente. Zum Abgleich
+    // anderer Komponenten mit den Feldern, z. B. ein Licht aus, wenn das Feld aus ist. Nur Werte
+    // ändern, keine Struktur; privater Zustand und Start gibt es hier nicht.
+    public virtual void OnValidate() { }
 
     // Ereignisse der Physik aus dem letzten Schritt, vor FixedUpdate zugestellt, in fester
     // Reihenfolge. Kontakte und Auslöser erreichen die Skripte beider Entities.

@@ -136,6 +136,9 @@ public:
     // Nur aktive Skripte laufen (Editor: beim Spielen). Abschalten stoppt alle (Stop).
     void set_active(bool active);
     [[nodiscard]] bool active() const noexcept;
+    // Außerhalb des Spiels: OnValidate der Skript-Komponenten (nach Inspector, Undo, Laden).
+    // Läuft auch von selbst nach dem Neuladen und beim Abschalten. Im Spiel tut es nichts.
+    void validate();
 
     [[nodiscard]] const ScriptStatus& status() const noexcept;
     [[nodiscard]] ScriptRuntime& runtime() noexcept;

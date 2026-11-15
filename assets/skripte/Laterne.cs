@@ -43,6 +43,16 @@ public class Laterne : Script
         Apply();
     }
 
+    // Im Editor außerhalb des Spiels: Das Licht folgt dem Feld An, ohne Flackern.
+    public override void OnValidate()
+    {
+        Entity found = FindLight(Entity);
+        if (found != Entity.None)
+        {
+            found.Get<PointLight>().Active = An;
+        }
+    }
+
     public override void Stop()
     {
         running.Remove(this);

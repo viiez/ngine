@@ -123,6 +123,15 @@ public class Spawner : Script
             World.Create("Gespawnt").Set(new Transform());
         }
     }
+
+    // Außerhalb des Spiels: zeigt Count in der Breite der eigenen Lage.
+    public override void OnValidate()
+    {
+        if (Entity.Has<Transform>())
+        {
+            Get<Transform>().Scale.X = Count;
+        }
+    }
 }
 
 // Eingabe und Physik aus C# (Aufruf über ScriptRuntime::invoke).

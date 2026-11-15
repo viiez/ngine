@@ -437,6 +437,7 @@ gebauten Assembly aus `assets/.cache/skripte`, sonst ohne Skripte; die Figur ste
    Der Inspector zeigt „Laterne“ mit `An`, `Flackern` (Schieber) und `Reichweite`. Spielen (F5),
    F drücken: Im Inspector springt `An` mit. `Flackern` im Inspector ändern, dann die Datei wie in
    Schritt 3 speichern: Der Wert aus dem Inspector bleibt. Stoppen stellt alles wieder her.
+   Ohne zu spielen `An` ausschalten: Das Licht geht sofort aus (`OnValidate`).
    „Komponente hinzufügen“ bietet die Skript-Klassen an wie jede Komponente.
 5. **Ohne Skripte:** `ngine_sandbox --playground --no-scripts` steuert die Figur mit dem Rückfall in
    C++; `--headless --playground` mit und ohne `--no-scripts` ergibt dieselbe „Prüfsumme der Lagen“.

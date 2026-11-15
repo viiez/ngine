@@ -313,14 +313,25 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         edit::Selection selection{&bus};
         editor::SceneTreePanel tree_panel;
         editor::InspectorPanel inspector_panel;
-        const events::Subscription on_reset = bus.subscribe<edit::DocumentReset>(
-            [&](const edit::DocumentReset&) { selection.clear(); });
+        const events::Subscription on_reset =
+            bus.subscribe<edit::DocumentReset>([&](const edit::DocumentReset&) {
+                selection.clear();
+                // Neue Szene oder Welt nach dem Stoppen: Skripte gleichen ihre Komponenten ab.
+                if (!document.playing() && (*scene)->scripts() != nullptr) {
+                    (*scene)->scripts()->validate();
+                }
+            });
         const events::Subscription on_change =
             bus.subscribe<edit::EntityChanged>([&](const edit::EntityChanged&) {
                 selection.validate(document);
                 // Beim Spielen gehen Änderungen aus dem Inspector an die laufenden Skripte.
-                if (document.playing() && (*scene)->scripts() != nullptr) {
-                    (*scene)->scripts()->runtime().load_fields();
+                // Sonst gleichen Skripte mit OnValidate andere Komponenten ab (Laterne aus).
+                if ((*scene)->scripts() != nullptr) {
+                    if (document.playing()) {
+                        (*scene)->scripts()->runtime().load_fields();
+                    } else {
+                        (*scene)->scripts()->validate();
+                    }
                 }
             });
         const events::Subscription on_select =

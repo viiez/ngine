@@ -84,6 +84,9 @@ public:
     // Stoppt alle laufenden Skripte (Stop) und vergisst sie, z. B. beim Verlassen des
     // Spielmodus. Beim nächsten run() entstehen sie neu aus den Komponenten.
     void reset_instances();
+    // Ruft OnValidate der Skript-Komponenten auf frischen Instanzen (außerhalb des Spiels, z. B.
+    // nach Änderungen im Inspector), damit andere Komponenten zu den Feldern passen.
+    void validate();
 
     // Welt, auf die Skripte über Entity und World zugreifen (R4.4); nullptr löst sie. Die Welt
     // muss leben, solange sie gebunden ist, und vor ihrem Ende gelöst werden.

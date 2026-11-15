@@ -388,6 +388,55 @@ public static unsafe class Host
     [UnmanagedCallersOnly]
     public static int ResetInstances() => Guard(StopInstances);
 
+    // Ruft OnValidate für jede Skript-Komponente der gebundenen Welt auf, deren Klasse es
+    // überschreibt, auf einer frischen Instanz (außerhalb des Spiels). Liefert die Zahl der Fehler.
+    [UnmanagedCallersOnly]
+    public static int ValidateScripts()
+    {
+        int errors = 0;
+        try
+        {
+            foreach (ScriptClass cls in classes)
+            {
+                if (cls.TypeIndex < 0 ||
+                    cls.Type.GetMethod(nameof(Script.OnValidate))!.DeclaringType == typeof(Script))
+                {
+                    continue;
+                }
+                ReadOnlySpan<int> types = [cls.TypeIndex];
+                int count = World.Chunks(types, out NativeChunk* chunks);
+                // Erst alle Entities sammeln: OnValidate darf Komponenten schreiben, aber die
+                // Chunks sollen beim Durchlaufen gleich bleiben.
+                var entities = new List<ulong>();
+                for (int c = 0; c < count; ++c)
+                {
+                    for (int row = 0; row < chunks[c].Count; ++row)
+                    {
+                        entities.Add(chunks[c].Entities[row]);
+                    }
+                }
+                foreach (ulong entity in entities)
+                {
+                    void* data = Api->World.Get(entity, cls.TypeIndex, 0);
+                    if (data == null)
+                    {
+                        continue;
+                    }
+                    var script = (Script)Activator.CreateInstance(cls.Type)!;
+                    script.Entity = new Entity(entity);
+                    cls.Load(script, data);
+                    errors += Call(script, s => s.OnValidate());
+                }
+            }
+            return errors;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Fehler beim Abgleich der Skripte: {e}");
+            return errors + 1;
+        }
+    }
+
     private static void StopInstances()
     {
         foreach (ScriptClass cls in classes)

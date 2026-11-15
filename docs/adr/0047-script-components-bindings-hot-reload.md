@@ -40,7 +40,10 @@ Abstimmung zum Plan (#54) hat die Richtung festgelegt; dieses ADR hält fest, wi
   Tabelle Entity → Objekt.
 - **Ablauf:** `FixedUpdate` läuft als feste Stufe vor der Physik, `Update` als Stufe nach den
   Systemen von `Phase::Frame`, beide im Hauptthread, nach Klassenname und dann in der Reihenfolge
-  der Chunks. Neue Komponenten bekommen vorher `Start`, verschwundene `Stop`. Kontakte, Auslöser,
+  der Chunks. Neue Komponenten bekommen vorher `Start`, verschwundene `Stop`. Außerhalb des Spiels laufen
+  Skripte nicht; wer andere Komponenten zu seinen Feldern passend halten will (Licht aus, wenn
+  `An` aus ist), überschreibt `OnValidate`. Der Editor ruft es nach Änderungen, Laden, Stoppen und
+  Neuladen auf einer frischen Instanz auf. Kontakte, Auslöser,
   Landungen und Schritte der Physik sammeln sich und gehen vor dem nächsten `FixedUpdate` an die
   Skripte der beteiligten Entities. Aktionen liefern in `FixedUpdate` die Flanken seit dem letzten
   festen Schritt.

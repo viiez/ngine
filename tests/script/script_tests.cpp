@@ -354,9 +354,16 @@ TEST_CASE("Script classes become components with fields and a life cycle", "[scr
     field<std::string>(w.ensure(entity.id(), spinner_id), *spinner, "Label") = "Erster";
     world::Entity spawner = w.create("Spawner");
     (void)w.ensure(spawner.id(), w.component(*types.find("Spawner")));
+    spawner.set(world::Transform{});
     rt.bind_world(&w);
 
+    // OnValidate (außerhalb des Spiels) läuft auf frischen Instanzen, ohne Start.
     const usize before = w.entity_count();
+    rt.validate();
+    CHECK(spawner.get<world::Transform>()->scale.x == 2.0f);
+    CHECK(w.entity_count() == before);
+    CHECK(entity.get<world::Transform>()->position.x == 0.0);
+
     REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.5f));
     REQUIRE(rt.run(script::ScriptPhase::Fixed, 0.5f));
     REQUIRE(rt.run(script::ScriptPhase::Frame, 0.016f));

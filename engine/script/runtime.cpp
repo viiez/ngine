@@ -126,6 +126,7 @@ struct ManagedApi {
     std::int32_t (*store_fields)() = nullptr;
     std::int32_t (*load_fields)() = nullptr;
     std::int32_t (*reset_instances)() = nullptr;
+    std::int32_t (*validate_scripts)() = nullptr;
     std::int32_t (*deliver_events)(const NativeEvent*, std::int32_t) = nullptr;
 };
 
@@ -361,6 +362,7 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         !function(m.register_scripts, "RegisterScripts") ||
         !function(m.run_scripts, "RunScripts") || !function(m.store_fields, "StoreFields") ||
         !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances") ||
+        !function(m.validate_scripts, "ValidateScripts") ||
         !function(m.deliver_events, "DeliverEvents")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
@@ -474,6 +476,14 @@ void ScriptRuntime::load_fields() {
 
 void ScriptRuntime::reset_instances() {
     (void)impl_->managed.reset_instances();
+    apply_script_commands();
+}
+
+void ScriptRuntime::validate() {
+    if (!impl_->scripts_loaded || script_world() == nullptr) {
+        return;
+    }
+    (void)impl_->managed.validate_scripts();
     apply_script_commands();
 }
 
