@@ -351,3 +351,152 @@ TEST_CASE("Prefab files load from disk", "[world][prefab]") {
     CHECK(prefab->nodes.size() == 3);
     CHECK_FALSE(world::load_prefab_file(dir.file("fehlt.prefab")));
 }
+
+TEST_CASE("Instances remove template nodes and components for good", "[world][prefab][scene]") {
+    const auto types = make_types();
+    const world::Prefab prefab = lantern();
+    const world::PrefabLookup lookup = [&](u64 id) { return id == lantern_id ? &prefab : nullptr; };
+    world::World original{types};
+    auto root = world::instantiate(original, prefab, lantern_id);
+    REQUIRE(root);
+    // Ohne Pfahl und mit einer Leuchte ohne Lamp.
+    original.destroy(node_entity(original, root->id(), 2));
+    const u64 bulb = node_entity(original, root->id(), 3);
+    original.remove(bulb, original.component<Lamp>());
+
+    const json::Value overrides = world::prefab_overrides(original, root->id(), prefab);
+    CHECK(json::write(overrides) ==
+          json::write(*json::parse(
+              R"([{"node":2,"removed":true},{"node":3,"removed_components":["Lamp"]}])")));
+
+    // Neu anlegen, speichern und laden: Pfahl und Lamp bleiben weg.
+    auto again = world::instantiate(original, prefab, lantern_id, &overrides);
+    REQUIRE(again);
+    CHECK(node_entity(original, again->id(), 2) == 0);
+    CHECK(original.entity(node_entity(original, again->id(), 3)).get<Lamp>() == nullptr);
+    const std::string text = world::save_scene(original, lookup);
+    world::World loaded{types};
+    REQUIRE(world::load_scene(loaded, text, lookup));
+    CHECK(loaded.entity_count() == 4);
+    CHECK(world::save_scene(loaded, lookup) == text);
+
+    // Die Vorlage ändert sich: Die Instanz bekommt den neuen Sockel, aber nicht den Pfahl und
+    // nicht die Lampe zurück.
+    world::Prefab after = prefab;
+    after.nodes[2].components["Lamp"]["intensity"] = 9.0;
+    world::Prefab::Node base{.id = 4, .parent = 0, .components = {}};
+    base.components["Name"]["value"] = "Sockel";
+    after.nodes.push_back(base);
+    CHECK(world::update_instances(original, lantern_id, prefab, after) == 2);
+    CHECK(node_entity(original, root->id(), 2) == 0);
+    CHECK(node_entity(original, root->id(), 4) != 0);
+    CHECK(original.entity(bulb).get<Lamp>() == nullptr);
+}
+
+TEST_CASE("Prefabs nest instances of other prefabs", "[world][prefab][scene]") {
+    const auto types = make_types();
+    const world::Prefab lamp_post = lantern();
+    std::vector<world::Prefab> made;
+    made.reserve(4);
+    constexpr u64 street_id = 777;
+    const world::PrefabLookup lookup = [&](u64 id) -> const world::Prefab* {
+        if (id == lantern_id) {
+            return &lamp_post;
+        }
+        return id == street_id && !made.empty() ? &made.back() : nullptr;
+    };
+
+    // Straße: Wurzel mit zwei Laternen, die zweite leuchtet kalt.
+    world::World world{types};
+    world::Entity street = world.create("Straße");
+    street.set(world::Transform{});
+    auto left = world::instantiate(world, lamp_post, lantern_id, nullptr, street.id());
+    auto right = world::instantiate(world, lamp_post, lantern_id, nullptr, street.id());
+    REQUIRE(left);
+    REQUIRE(right);
+    world::Transform moved = *right->get<world::Transform>();
+    moved.position = {8.0, 0.0, 0.0};
+    right->set(moved);
+    world.entity(node_entity(world, right->id(), 3)).get_mut<Lamp>()->color = "kalt";
+
+    made.push_back(world::make_prefab(world, street.id(), lookup));
+    const world::Prefab& prefab = made.back();
+    REQUIRE(prefab.nodes.size() == 3);
+    CHECK(prefab.nodes[1].prefab == lantern_id);
+    CHECK(prefab.nodes[1].overrides.array()->empty());
+    CHECK(prefab.nodes[2].prefab == lantern_id);
+    CHECK(json::write(prefab.nodes[2].overrides).find("kalt") != std::string::npos);
+    // Datei mit Version 2, liest sich gleich zurück.
+    const std::string file = world::write_prefab(prefab);
+    CHECK(file.find("\"version\": 2") != std::string::npos);
+    auto parsed = world::parse_prefab(file);
+    REQUIRE(parsed);
+    CHECK(world::write_prefab(*parsed) == file);
+    // Unter einer verschachtelten Instanz darf in der Datei nichts hängen.
+    CHECK_FALSE(world::parse_prefab(
+        R"({"format":"ngine.prefab","version":2,"entities":[{"id":1},{"id":2,"parent":1,"prefab":5},{"id":3,"parent":2}]})"));
+
+    // Instanz der Straße: zwei voll ausgebaute Laternen als verschachtelte Instanzen.
+    world::World other{types};
+    auto instance = world::instantiate(other, prefab, street_id, nullptr, 0, lookup);
+    REQUIRE(instance);
+    CHECK(other.entity_count() == 7);
+    const auto nested = world::nested_instances(other, instance->id());
+    REQUIRE(nested.size() == 2);
+    const u64 second = nested[1].second;
+    CHECK(other.entity(second).get<world::PrefabInstance>()->nested == nested[1].first);
+    CHECK(other.entity(node_entity(other, second, 3)).get<Lamp>()->color == "kalt");
+    CHECK(other.entity(second).get<world::Transform>()->position.x == 8.0);
+    CHECK(world::prefab_overrides(other, instance->id(), prefab, lookup).array()->empty());
+
+    // Eigene Änderung an einer verschachtelten Laterne, eine entfernte: beides übersteht die Szene.
+    other.entity(node_entity(other, nested[0].second, 3)).get_mut<Lamp>()->intensity = 2.0f;
+    other.destroy(second);
+    const std::string text = world::save_scene(other, lookup);
+    CHECK(text.find("\"removed\": true") != std::string::npos);
+    world::World loaded{types};
+    REQUIRE(world::load_scene(loaded, text, lookup));
+    CHECK(loaded.entity_count() == 4);
+    CHECK(world::save_scene(loaded, lookup) == text);
+    u64 loaded_root = 0;
+    for (const u64 entity : loaded.entity_ids()) {
+        if (const auto* found = loaded.entity(entity).get<world::PrefabInstance>();
+            found != nullptr && found->prefab == street_id) {
+            loaded_root = entity;
+        }
+    }
+    REQUIRE(loaded_root != 0);
+    const auto loaded_nested = world::nested_instances(loaded, loaded_root);
+    REQUIRE(loaded_nested.size() == 1);
+    CHECK(loaded.entity(node_entity(loaded, loaded_nested[0].second, 3)).get<Lamp>()->intensity ==
+          2.0f);
+
+    // Die Laterne ändert sich: Auch die verschachtelten ziehen nach und behalten ihre Werte.
+    world::Prefab brighter = lamp_post;
+    brighter.nodes[2].components["Lamp"]["range"] = 12.0;
+    CHECK(world::update_instances(loaded, lantern_id, lamp_post, brighter, lookup) == 1);
+    const Lamp* lamp = loaded.entity(node_entity(loaded, loaded_nested[0].second, 3)).get<Lamp>();
+    CHECK(lamp->range == 12.0f);
+    CHECK(lamp->intensity == 2.0f);
+    CHECK(loaded.entity(loaded_nested[0].second).get<world::PrefabInstance>()->nested != 0);
+
+    // Aufbrechen der Straße lässt die Laternen als eigene Instanzen stehen.
+    world::unpack_instance(loaded, loaded_root);
+    CHECK(loaded.entity(loaded_nested[0].second).get<world::PrefabInstance>()->nested == 0);
+
+    // Eine Vorlage, die sich selbst enthält, bricht nach einigen Ebenen ab statt endlos.
+    world::Prefab loop;
+    loop.nodes.push_back({.id = 1});
+    loop.nodes.push_back({.id = 2, .parent = 0, .prefab = 99});
+    const world::PrefabLookup self = [&](u64 id) { return id == 99 ? &loop : nullptr; };
+    world::World endless{types};
+    CHECK(world::instantiate(endless, loop, 99, nullptr, 0, self));
+}
+
+TEST_CASE("Prefab files of version 1 still load", "[world][prefab]") {
+    auto prefab = world::parse_prefab(lantern_text);
+    REQUIRE(prefab);
+    CHECK(world::write_prefab(*prefab).find("\"version\": 2") != std::string::npos);
+    CHECK_FALSE(world::parse_prefab(
+        R"({"format":"ngine.prefab","version":3,"entities":[{"id":1}]})"));
+}

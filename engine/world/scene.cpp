@@ -90,7 +90,7 @@ private:
                         .prefab = prefab->prefab,
                         .overrides = {}};
             if (const Prefab* found = prefabs_ ? prefabs_(prefab->prefab) : nullptr) {
-                entry.overrides = prefab_overrides(world_, entity, *found);
+                entry.overrides = prefab_overrides(world_, entity, *found, prefabs_);
             } else if (const auto* stored = get<PrefabOverrides>(entity, overrides_type_);
                        stored != nullptr && !stored->json.empty()) {
                 // Vorlage fehlt: die Überschreibungen von damals unverändert zurück.
@@ -133,11 +133,32 @@ private:
     }
 
     void visit_under_node(u64 child, i64 instance, u32 node) {
-        if (get<PrefabInstance>(child, instance_type_) == nullptr &&
-            get<PrefabNode>(child, node_type_) != nullptr) {
+        const auto* nested = get<PrefabInstance>(child, instance_type_);
+        if (nested == nullptr && get<PrefabNode>(child, node_type_) != nullptr) {
             visit(child, instance, node, instance);
+        } else if (nested != nullptr && nested->nested != 0) {
+            // Verschachtelte Instanz: steckt im Eintrag der äußeren.
+            visit_nested(child, instance, nested->nested);
         } else {
             visit(child, instance, node, 0);
+        }
+    }
+
+    // Fremdes unter den Knoten einer verschachtelten Instanz hängt beim Laden an deren Wurzel
+    // (Knoten outer_node der äußeren Instanz); tiefer geht der Verweis nicht.
+    void visit_nested(u64 nested_root, i64 instance, u32 outer_node) {
+        for (const auto& [node, entity] : instance_nodes(world_, nested_root)) {
+            for (const u64 child : world_.children(entity)) {
+                const auto* inner = get<PrefabInstance>(child, instance_type_);
+                if (inner == nullptr && get<PrefabNode>(child, node_type_) != nullptr) {
+                    continue; // Knoten der verschachtelten Instanz
+                }
+                if (inner != nullptr && inner->nested != 0) {
+                    visit_nested(child, instance, outer_node);
+                    continue;
+                }
+                visit(child, instance, outer_node, 0);
+            }
         }
     }
 
@@ -229,12 +250,16 @@ Result<usize> create_entries(World& world, std::span<const LoadEntry> entries,
             const Prefab* prefab = prefabs ? prefabs(entry.prefab) : nullptr;
             if (prefab != nullptr) {
                 auto instance = instantiate_at(world, *prefab, entry.prefab, entry.overrides,
-                                               parent, fresh[next++]);
+                                               parent, fresh[next++], prefabs);
                 if (!instance) {
                     return fail(entity_error(entry.id, instance.error()));
                 }
-                created.emplace(entry.id, Created{.entity = instance->id(),
-                                                  .nodes = instance_nodes(world, instance->id())});
+                Created made{.entity = instance->id(),
+                             .nodes = instance_nodes(world, instance->id())};
+                for (const auto& nested : nested_instances(world, instance->id())) {
+                    made.nodes.push_back(nested);
+                }
+                created.emplace(entry.id, std::move(made));
                 continue;
             }
             // Vorlage fehlt: nur die Wurzel mit der Kennung und den Überschreibungen als Text,

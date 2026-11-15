@@ -130,22 +130,106 @@ json::Value node_overrides(const World& world, u64 entity, const Prefab::Node* n
     return result;
 }
 
-// Überschreibungen aus dem Format von prefab_overrides() als Knoten → Komponenten.
-std::unordered_map<u32, const json::Value*> overrides_by_node(const json::Value* overrides) {
-    std::unordered_map<u32, const json::Value*> result;
+// Eintrag der Überschreibungen für einen Knoten (Format von prefab_overrides()).
+struct NodeOverride {
+    const json::Value* components = nullptr;
+    const json::Value* removed_components = nullptr;
+    const json::Value* overrides = nullptr;
+    bool removed = false;
+};
+
+// Überschreibungen aus dem Format von prefab_overrides() als Knoten → Eintrag.
+std::unordered_map<u32, NodeOverride> overrides_by_node(const json::Value* overrides) {
+    std::unordered_map<u32, NodeOverride> result;
     if (overrides == nullptr || overrides->array() == nullptr) {
         return result;
     }
     for (const json::Value& entry : *overrides->array()) {
         const json::Value* node = member(entry, "node");
-        const json::Value* components = member(entry, "components");
         const auto id = node != nullptr ? node->to_u64() : std::nullopt;
-        if (id && components != nullptr && components->object() != nullptr) {
-            result[static_cast<u32>(*id)] = components;
+        if (!id || *id == 0 || *id > 0xFFFFFFFFu) {
+            continue;
+        }
+        NodeOverride& target = result[static_cast<u32>(*id)];
+        if (const json::Value* components = member(entry, "components");
+            components != nullptr && components->object() != nullptr) {
+            target.components = components;
+        }
+        if (const json::Value* removed = member(entry, "removed_components");
+            removed != nullptr && removed->array() != nullptr) {
+            target.removed_components = removed;
+        }
+        if (const json::Value* nested = member(entry, "overrides");
+            nested != nullptr && nested->array() != nullptr) {
+            target.overrides = nested;
+        }
+        if (const json::Value* removed = member(entry, "removed");
+            removed != nullptr && removed->to_bool().value_or(false)) {
+            target.removed = true;
         }
     }
     return result;
 }
+
+const NodeOverride* find_override(const std::unordered_map<u32, NodeOverride>& by_node, u32 node) {
+    const auto it = by_node.find(node);
+    return it != by_node.end() ? &it->second : nullptr;
+}
+
+// Entfernt die Komponenten aus removed (Array von Namen), auch unbekannte.
+void remove_components(World& world, u64 entity, const json::Value* removed) {
+    if (removed == nullptr || removed->array() == nullptr) {
+        return;
+    }
+    for (const json::Value& name : *removed->array()) {
+        if (name.string() == nullptr) {
+            continue;
+        }
+        if (const reflect::TypeInfo* type = world.types().find(*name.string());
+            type != nullptr && type->kind == reflect::Kind::Struct) {
+            world.remove(entity, world.component(*type));
+            continue;
+        }
+        const reflect::TypeInfo* unknown_type = world.types().find<UnknownComponents>();
+        if (unknown_type == nullptr) {
+            continue;
+        }
+        const ComponentId unknown = world.component(*unknown_type);
+        auto* stored = static_cast<UnknownComponents*>(world.get_mut(entity, unknown));
+        if (stored == nullptr) {
+            continue;
+        }
+        if (auto parsed = json::parse(stored->json); parsed && parsed->object() != nullptr) {
+            json::Value rest{json::Object{}};
+            for (json::Member& entry : *parsed->object()) {
+                if (entry.key != *name.string()) {
+                    rest[entry.key] = std::move(entry.value);
+                }
+            }
+            if (rest.object()->empty()) {
+                world.remove(entity, unknown);
+            } else {
+                stored->json = json::write(rest);
+                world.modified(entity, unknown);
+            }
+        }
+    }
+}
+
+// Knoten, die eine Instanz nicht hat: entfernt oder unter einem entfernten Knoten.
+std::vector<bool> removed_nodes(const Prefab& prefab,
+                                const std::unordered_map<u32, NodeOverride>& by_node) {
+    std::vector<bool> removed(prefab.nodes.size(), false);
+    for (usize i = 1; i < prefab.nodes.size(); ++i) {
+        const Prefab::Node& node = prefab.nodes[i];
+        const NodeOverride* entry = find_override(by_node, node.id);
+        removed[i] = (entry != nullptr && entry->removed) || (node.parent && removed[*node.parent]);
+    }
+    return removed;
+}
+
+// Höchste Tiefe verschachtelter Instanzen; schützt vor Vorlagen, die sich selbst enthalten.
+constexpr u32 max_nesting = 8;
 
 template <typename T>
 void set_value(World& world, u64 entity, const T& value) {
@@ -299,10 +383,12 @@ Result<Prefab> parse_prefab(std::string_view text) {
         return std::unexpected(
             std::string{"Kein NGine-Prefab (\"format\" fehlt oder passt nicht)"});
     }
+    // Version 1 kennt keine verschachtelten Instanzen, liest sich sonst gleich.
     const json::Value* version = parsed->find("version");
-    if (version == nullptr || version->to_i64() != prefab_version) {
-        return std::unexpected(
-            std::format("Prefab-Version wird nicht unterstützt (erwartet {})", prefab_version));
+    const auto number = version != nullptr ? version->to_i64() : std::nullopt;
+    if (!number || *number < 1 || *number > prefab_version) {
+        return std::unexpected(std::format(
+            "Prefab-Version wird nicht unterstützt (erwartet 1 bis {})", prefab_version));
     }
     const json::Value* entities = parsed->find("entities");
     if (entities == nullptr || entities->array() == nullptr || entities->array()->empty()) {
@@ -317,13 +403,17 @@ Result<Prefab> parse_prefab(std::string_view text) {
             return std::unexpected(
                 std::string{"Prefab: Entity ohne gültige oder mit doppelter \"id\""});
         }
-        Prefab::Node node{.id = static_cast<u32>(*id), .parent = std::nullopt, .components = {}};
+        Prefab::Node node{.id = static_cast<u32>(*id)};
         if (const json::Value* parent = object.find("parent")) {
             const auto parent_id = parent->to_u64();
             const auto it = parent_id ? index.find(*parent_id) : index.end();
             if (it == index.end()) {
                 return std::unexpected(std::format(
                     "Prefab, Entity {}: Elternteil fehlt oder steht nach dem Kind", *id));
+            }
+            if (prefab.nodes[it->second].prefab != 0) {
+                return std::unexpected(std::format(
+                    "Prefab, Entity {}: Elternteil ist eine verschachtelte Instanz", *id));
             }
             node.parent = it->second;
         } else if (!prefab.nodes.empty()) {
@@ -339,6 +429,22 @@ Result<Prefab> parse_prefab(std::string_view text) {
                     std::format("Prefab, Entity {}: \"components\" ist kein Objekt", *id));
             }
             node.components = *components;
+        }
+        if (const json::Value* nested = object.find("prefab")) {
+            const auto nested_id = nested->to_u64();
+            if (!nested_id || *nested_id == 0 || prefab.nodes.empty()) {
+                return std::unexpected(std::format(
+                    "Prefab, Entity {}: \"prefab\" ist keine Kennung oder steht an der Wurzel",
+                    *id));
+            }
+            node.prefab = *nested_id;
+            if (const json::Value* overrides = object.find("overrides")) {
+                if (overrides->array() == nullptr) {
+                    return std::unexpected(
+                        std::format("Prefab, Entity {}: \"overrides\" ist kein Array", *id));
+                }
+                node.overrides = *overrides;
+            }
         }
         index.emplace(*id, prefab.nodes.size());
         prefab.nodes.push_back(std::move(node));
@@ -366,7 +472,14 @@ std::string write_prefab(const Prefab& prefab) {
         if (node.parent) {
             object["parent"] = prefab.nodes[*node.parent].id;
         }
-        object["components"] = node.components;
+        if (node.prefab != 0) {
+            object["prefab"] = node.prefab;
+            if (node.overrides.array() != nullptr && !node.overrides.array()->empty()) {
+                object["overrides"] = node.overrides;
+            }
+        } else {
+            object["components"] = node.components;
+        }
         entities.push_back(std::move(object));
     }
     json::Value root;
@@ -376,20 +489,65 @@ std::string write_prefab(const Prefab& prefab) {
     return json::write(root);
 }
 
-Prefab make_prefab(const World& world, u64 root) {
-    Prefab prefab;
-    // Tiefensuche, Eltern vor Kindern; IDs zählen ab 1.
+std::vector<PrefabLayoutNode> prefab_layout(const World& world, u64 root,
+                                            const PrefabLookup& prefabs) {
+    // Ist root eine Instanz, behalten ihre Knoten die IDs: Überschreibungen in Szenen beziehen
+    // sich darauf. Neue Entities zählen danach weiter.
+    std::unordered_map<u64, u32> kept;
+    u32 next = 1;
+    if (instance_of(world, root) != nullptr) {
+        for (const auto& [node, entity] : instance_nodes(world, root)) {
+            kept.emplace(entity, node);
+            next = std::max(next, node + 1);
+        }
+        for (const auto& [node, entity] : nested_instances(world, root)) {
+            kept.emplace(entity, node);
+            next = std::max(next, node + 1);
+        }
+    }
+    std::vector<PrefabLayoutNode> layout;
     const auto visit = [&](auto& self, u64 entity, std::optional<usize> parent) -> void {
-        Prefab::Node node{.id = static_cast<u32>(prefab.nodes.size() + 1),
-                          .parent = parent,
-                          .components = components_to_json(world, entity)};
-        const usize index = prefab.nodes.size();
-        prefab.nodes.push_back(std::move(node));
+        const PrefabInstance* instance = entity != root ? instance_of(world, entity) : nullptr;
+        const bool nested = instance != nullptr && prefabs && prefabs(instance->prefab) != nullptr;
+        const auto it = kept.find(entity);
+        const u32 id = it != kept.end() ? it->second : next++;
+        const usize index = layout.size();
+        layout.push_back({.entity = entity, .node = id, .parent = parent, .nested = nested});
+        if (nested) {
+            // Verschachtelte Knoten haben keine Kinder in der Vorlage; Fremdes darunter fehlt.
+            for (const auto& [node, member] : instance_nodes(world, entity)) {
+                for (const u64 child : world.children(member)) {
+                    if (node_of(world, child) == nullptr) {
+                        log::warn("Prefab: Entity {} unter der verschachtelten Instanz {} kommt "
+                                  "nicht in die Vorlage",
+                                  child, entity);
+                    }
+                }
+            }
+            return;
+        }
         for (const u64 child : world.children(entity)) {
             self(self, child, index);
         }
     };
     visit(visit, root, std::nullopt);
+    return layout;
+}
+
+Prefab make_prefab(const World& world, u64 root, const PrefabLookup& prefabs) {
+    Prefab prefab;
+    for (const PrefabLayoutNode& entry : prefab_layout(world, root, prefabs)) {
+        Prefab::Node node{.id = entry.node, .parent = entry.parent};
+        if (entry.nested) {
+            const PrefabInstance* instance = instance_of(world, entry.entity);
+            node.prefab = instance->prefab;
+            node.overrides =
+                prefab_overrides(world, entry.entity, *prefabs(instance->prefab), prefabs);
+        } else {
+            node.components = components_to_json(world, entry.entity);
+        }
+        prefab.nodes.push_back(std::move(node));
+    }
     // Die Wurzel in den Ursprung: Wo eine Instanz steht, sagt ihre Überschreibung.
     if (json::Value* transform = prefab.nodes.front().components.object() != nullptr
                                      ? &prefab.nodes.front().components["Transform"]
@@ -428,28 +586,136 @@ std::vector<std::pair<u32, u64>> instance_nodes(const World& world, u64 root) {
     return nodes;
 }
 
-json::Value prefab_overrides(const World& world, u64 root, const Prefab& prefab) {
-    json::Array result;
+std::vector<std::pair<u32, u64>> nested_instances(const World& world, u64 root) {
+    std::vector<std::pair<u32, u64>> nested;
     for (const auto& [node, entity] : instance_nodes(world, root)) {
-        json::Value components = node_overrides(world, entity, prefab.find(node));
-        if (components.object()->empty()) {
+        for (const u64 child : world.children(entity)) {
+            if (const PrefabInstance* instance = instance_of(world, child);
+                instance != nullptr && instance->nested != 0) {
+                nested.emplace_back(instance->nested, child);
+            }
+        }
+    }
+    return nested;
+}
+
+json::Value prefab_overrides(const World& world, u64 root, const Prefab& prefab,
+                             const PrefabLookup& prefabs) {
+    std::unordered_map<u32, u64> present;
+    for (const auto& [node, entity] : instance_nodes(world, root)) {
+        present.emplace(node, entity);
+    }
+    std::unordered_map<u32, u64> nested;
+    for (const auto& [node, entity] : nested_instances(world, root)) {
+        nested.emplace(node, entity);
+    }
+    // Die Wurzel ist immer da, auch wenn sich ihre ID in der Vorlage geändert hat.
+    if (!prefab.nodes.empty()) {
+        present[prefab.nodes.front().id] = root;
+    }
+    std::vector<bool> exists(prefab.nodes.size(), false);
+    json::Array result;
+    for (usize i = 0; i < prefab.nodes.size(); ++i) {
+        const Prefab::Node& node = prefab.nodes[i];
+        json::Value entry;
+        entry["node"] = node.id;
+        const auto& map = node.prefab != 0 ? nested : present;
+        const auto it = map.find(node.id);
+        if (it == map.end()) {
+            // Nur den obersten entfernten Knoten nennen; was darunter hing, fehlt mit ihm.
+            if (node.parent && exists[*node.parent]) {
+                entry["removed"] = true;
+                result.push_back(std::move(entry));
+            }
             continue;
         }
-        json::Value entry;
-        entry["node"] = node;
-        entry["components"] = std::move(components);
+        exists[i] = true;
+        if (node.prefab != 0) {
+            json::Value current{json::Array{}};
+            if (const Prefab* template_ = prefabs ? prefabs(node.prefab) : nullptr) {
+                current = prefab_overrides(world, it->second, *template_, prefabs);
+            } else if (const auto* stored = static_cast<const PrefabOverrides*>(find_component(
+                           world, it->second, world.types().find<PrefabOverrides>()));
+                       stored != nullptr && !stored->json.empty()) {
+                if (auto parsed = json::parse(stored->json); parsed && parsed->array() != nullptr) {
+                    current = *std::move(parsed);
+                }
+            } else {
+                continue; // Ohne Vorlage und ohne gespeicherten Stand nichts zu vergleichen.
+            }
+            if (!(current == node.overrides)) {
+                entry["overrides"] = std::move(current);
+                result.push_back(std::move(entry));
+            }
+            continue;
+        }
+        json::Value components = node_overrides(world, it->second, &node);
+        json::Array removed;
+        if (node.components.object() != nullptr) {
+            const json::Value current = components_to_json(world, it->second);
+            for (const json::Member& component : *node.components.object()) {
+                if (current.find(component.key) == nullptr) {
+                    removed.emplace_back(component.key);
+                }
+            }
+        }
+        if (components.object()->empty() && removed.empty()) {
+            continue;
+        }
+        if (!components.object()->empty()) {
+            entry["components"] = std::move(components);
+        }
+        if (!removed.empty()) {
+            entry["removed_components"] = json::Value{std::move(removed)};
+        }
         result.push_back(std::move(entry));
     }
     return json::Value{std::move(result)};
 }
 
+namespace {
+
+// Legt die verschachtelte Instanz eines Knotens unter parent an; ohne Vorlage (oder zu tief) nur
+// ihre Wurzel mit den Überschreibungen als Text.
+Result<u64> create_nested(World& world, const Prefab::Node& node, const json::Value* overrides,
+                          u64 parent, const PrefabLookup& prefabs, u32 depth) {
+    const Prefab* nested = prefabs ? prefabs(node.prefab) : nullptr;
+    if (nested != nullptr && depth < max_nesting) {
+        auto instance =
+            instantiate_at(world, *nested, node.prefab, overrides, parent, 0, prefabs, depth + 1);
+        if (!instance) {
+            return std::unexpected(std::move(instance.error()));
+        }
+        set_value(world, instance->id(), PrefabInstance{.prefab = node.prefab, .nested = node.id});
+        return instance->id();
+    }
+    if (nested != nullptr) {
+        log::error("Prefab {}: zu tief verschachtelt (enthält es sich selbst?)", node.prefab);
+    } else if (prefabs) {
+        log::error("Verschachteltes Prefab {} gibt es nicht", node.prefab);
+    }
+    const u64 entity = world.create().id();
+    if (parent != 0) {
+        world.set_parent(entity, parent);
+    }
+    set_value(world, entity, PrefabInstance{.prefab = node.prefab, .nested = node.id});
+    set_value(world, entity, PrefabNode{.node = 1});
+    if (overrides != nullptr) {
+        set_value(world, entity, PrefabOverrides{.json = json::write(*overrides)});
+    }
+    return entity;
+}
+
+} // namespace
+
 Result<Entity> instantiate(World& world, const Prefab& prefab, u64 prefab_id,
-                           const json::Value* overrides, u64 parent) {
-    return instantiate_at(world, prefab, prefab_id, overrides, parent, 0);
+                           const json::Value* overrides, u64 parent, const PrefabLookup& prefabs) {
+    return instantiate_at(world, prefab, prefab_id, overrides, parent, 0, prefabs);
 }
 
 Result<Entity> instantiate_at(World& world, const Prefab& prefab, u64 prefab_id,
-                              const json::Value* overrides, u64 parent, u64 root) {
+                              const json::Value* overrides, u64 parent, u64 root,
+                              const PrefabLookup& prefabs, u32 depth) {
     if (prefab.nodes.empty()) {
         if (root != 0) {
             world.destroy(root);
@@ -457,18 +723,40 @@ Result<Entity> instantiate_at(World& world, const Prefab& prefab, u64 prefab_id,
         return std::unexpected(std::string{"Prefab ohne Entities"});
     }
     const auto by_node = overrides_by_node(overrides);
-    std::vector<u64> created;
-    created.reserve(prefab.nodes.size());
+    const std::vector<bool> removed = removed_nodes(prefab, by_node);
+    std::vector<u64> created(prefab.nodes.size(), 0);
+    std::vector<u64> order;
     const auto fail = [&](std::string message) -> Result<Entity> {
-        for (auto it = created.rbegin(); it != created.rend(); ++it) {
-            world.destroy(*it);
+        for (auto it = order.rbegin(); it != order.rend(); ++it) {
+            if (world.alive(*it)) {
+                world.destroy(*it);
+            }
         }
         return std::unexpected(std::move(message));
     };
-    for (const Prefab::Node& node : prefab.nodes) {
-        const u64 entity = created.empty() && root != 0 ? root : world.create().id();
-        created.push_back(entity);
+    for (usize i = 0; i < prefab.nodes.size(); ++i) {
+        if (removed[i]) {
+            continue;
+        }
+        const Prefab::Node& node = prefab.nodes[i];
         const u64 node_parent = node.parent ? created[*node.parent] : parent;
+        const NodeOverride* entry = find_override(by_node, node.id);
+        if (node.prefab != 0) {
+            const json::Value* nested = entry != nullptr && entry->overrides != nullptr
+                                            ? entry->overrides
+                                            : &node.overrides;
+            auto made = create_nested(world, node, nested, node_parent, prefabs, depth);
+            if (!made) {
+                return fail(
+                    std::format("Prefab {}, Knoten {}: {}", prefab_id, node.id, made.error()));
+            }
+            created[i] = *made;
+            order.push_back(*made);
+            continue;
+        }
+        const u64 entity = order.empty() && root != 0 ? root : world.create().id();
+        created[i] = entity;
+        order.push_back(entity);
         if (node_parent != 0) {
             world.set_parent(entity, node_parent);
         }
@@ -476,10 +764,14 @@ Result<Entity> instantiate_at(World& world, const Prefab& prefab, u64 prefab_id,
         if (auto result = components_from_json(world, entity, node.components, context); !result) {
             return fail(result.error());
         }
-        if (const auto it = by_node.find(node.id); it != by_node.end()) {
-            if (auto result = components_from_json(world, entity, *it->second, context); !result) {
-                return fail(result.error());
+        if (entry != nullptr) {
+            if (entry->components != nullptr) {
+                if (auto result = components_from_json(world, entity, *entry->components, context);
+                    !result) {
+                    return fail(result.error());
+                }
             }
+            remove_components(world, entity, entry->removed_components);
         }
         set_value(world, entity, PrefabNode{.node = node.id});
     }
@@ -487,7 +779,8 @@ Result<Entity> instantiate_at(World& world, const Prefab& prefab, u64 prefab_id,
     return Entity{world, created.front()};
 }
 
-usize update_instances(World& world, u64 prefab_id, const Prefab& before, const Prefab& after) {
+usize update_instances(World& world, u64 prefab_id, const Prefab& before, const Prefab& after,
+                       const PrefabLookup& prefabs) {
     if (after.nodes.empty()) {
         return 0;
     }
@@ -500,8 +793,10 @@ usize update_instances(World& world, u64 prefab_id, const Prefab& before, const 
     }
     for (const u64 root : roots) {
         // Erst die Abweichungen vom alten Stand festhalten, dann auf den neuen Stand bringen.
-        const json::Value overrides = prefab_overrides(world, root, before);
+        const json::Value overrides = prefab_overrides(world, root, before, prefabs);
         const auto by_node = overrides_by_node(&overrides);
+        const std::vector<bool> removed = removed_nodes(after, by_node);
+        const u32 nested_in = instance_of(world, root)->nested;
         std::unordered_map<u32, u64> entities;
         std::vector<u64> old_entities;
         for (const auto& [node, entity] : instance_nodes(world, root)) {
@@ -510,12 +805,44 @@ usize update_instances(World& world, u64 prefab_id, const Prefab& before, const 
             }
             old_entities.push_back(entity);
         }
+        std::unordered_map<u32, u64> nested;
+        for (const auto& [node, entity] : nested_instances(world, root)) {
+            nested.emplace(node, entity);
+            old_entities.push_back(entity);
+        }
         // Die Wurzel bleibt dieselbe Entity, auch wenn sich ihre ID in der Vorlage ändert.
         entities[after.nodes.front().id] = root;
         std::vector<u64> current(after.nodes.size(), 0);
         for (usize i = 0; i < after.nodes.size(); ++i) {
+            if (removed[i]) {
+                continue;
+            }
             const Prefab::Node& node = after.nodes[i];
             const u64 parent = node.parent ? current[*node.parent] : world.parent(root);
+            const NodeOverride* override = find_override(by_node, node.id);
+            if (node.prefab != 0) {
+                const bool own = override != nullptr && override->overrides != nullptr;
+                const Prefab::Node* old = before.find(node.id);
+                const auto it = nested.find(node.id);
+                const bool unchanged = it != nested.end() && world.alive(it->second) &&
+                                       old != nullptr && old->prefab == node.prefab &&
+                                       (own || old->overrides == node.overrides);
+                if (unchanged) {
+                    current[i] = it->second;
+                    if (world.parent(it->second) != parent) {
+                        world.set_parent(it->second, parent);
+                    }
+                    continue;
+                }
+                auto made = create_nested(world, node, own ? override->overrides : &node.overrides,
+                                          parent, prefabs, 1);
+                if (made) {
+                    current[i] = *made;
+                } else {
+                    log::error("Prefab {}, Knoten {}: {}", prefab_id, node.id, made.error());
+                }
+                continue;
+            }
             u64 entity = 0;
             if (const auto it = entities.find(node.id);
                 it != entities.end() && world.alive(it->second)) {
@@ -533,15 +860,15 @@ usize update_instances(World& world, u64 prefab_id, const Prefab& before, const 
             }
             current[i] = entity;
             const std::string context = std::format("Prefab {}, Knoten {}", prefab_id, node.id);
-            const auto override = by_node.find(node.id);
+            const json::Value* own = override != nullptr ? override->components
+                                                         : static_cast<const json::Value*>(nullptr);
             // Komponenten, die die alte Vorlage hatte und die neue nicht mehr, fallen weg, wenn
             // die Instanz sie nicht überschreibt.
             if (const Prefab::Node* old = before.find(node.id);
                 old != nullptr && old->components.object() != nullptr) {
                 for (const json::Member& component : *old->components.object()) {
                     const bool kept = member(node.components, component.key) != nullptr ||
-                                      (override != by_node.end() &&
-                                       member(*override->second, component.key) != nullptr);
+                                      (own != nullptr && member(*own, component.key) != nullptr);
                     const reflect::TypeInfo* type = world.types().find(component.key);
                     if (!kept && type != nullptr) {
                         world.remove(entity, world.component(*type));
@@ -552,17 +879,24 @@ usize update_instances(World& world, u64 prefab_id, const Prefab& before, const 
                 !result) {
                 log::error("{}", result.error());
             }
-            if (override != by_node.end()) {
-                if (auto result = components_from_json(world, entity, *override->second, context);
-                    !result) {
+            if (own != nullptr) {
+                if (auto result = components_from_json(world, entity, *own, context); !result) {
                     log::error("{}", result.error());
                 }
+            }
+            if (override != nullptr) {
+                remove_components(world, entity, override->removed_components);
             }
             if (node_of(world, entity)->node != node.id) {
                 set_value(world, entity, PrefabNode{.node = node.id});
             }
         }
-        // Knoten, die die Vorlage nicht mehr hat (mit allem, was darunter hängt).
+        // Eine verschachtelte Wurzel bleibt es auch nach dem Nachziehen.
+        if (nested_in != 0) {
+            set_value(world, root, PrefabInstance{.prefab = prefab_id, .nested = nested_in});
+        }
+        // Knoten, die die Vorlage nicht mehr hat oder die neu entstanden sind (mit allem, was
+        // darunter hängt).
         for (const u64 entity : old_entities) {
             if (std::ranges::find(current, entity) == current.end() && world.alive(entity)) {
                 world.destroy(entity);
@@ -574,9 +908,15 @@ usize update_instances(World& world, u64 prefab_id, const Prefab& before, const 
 
 void unpack_instance(World& world, u64 root) {
     const auto nodes = instance_nodes(world, root);
+    const auto nested = nested_instances(world, root);
     const ComponentId node_component = world.component<PrefabNode>();
     for (const auto& [node, entity] : nodes) {
         world.remove(entity, node_component);
+    }
+    // Verschachtelte Instanzen stehen danach für sich.
+    for (const auto& [node, entity] : nested) {
+        const PrefabInstance instance = *instance_of(world, entity);
+        set_value(world, entity, PrefabInstance{.prefab = instance.prefab, .nested = 0});
     }
     world.remove(root, world.component<PrefabInstance>());
     world.remove(root, world.component<PrefabOverrides>());
@@ -587,7 +927,8 @@ void register_prefab_types(reflect::TypeRegistry& types) {
         types.add<PrefabInstance>("PrefabInstance")
             .transient()
             .field("prefab", &PrefabInstance::prefab)
-            .hint(reflect::Hint::Asset);
+            .hint(reflect::Hint::Asset)
+            .field("nested", &PrefabInstance::nested);
     }
     if (types.find<PrefabNode>() == nullptr) {
         types.add<PrefabNode>("PrefabNode").transient().field("node", &PrefabNode::node);

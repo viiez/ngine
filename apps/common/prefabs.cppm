@@ -67,7 +67,8 @@ public:
             if (current == nullptr || entry.handle.version() == entry.version) {
                 continue;
             }
-            const usize count = world::update_instances(world, id, *entry.applied, *current);
+            const usize count =
+                world::update_instances(world, id, *entry.applied, *current, lookup());
             log::info("Prefab {}: {} Instanzen nachgezogen", id, count);
             updated += count;
             entry.version = entry.handle.version();

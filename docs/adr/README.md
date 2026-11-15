@@ -45,7 +45,7 @@ betroffene Code einreichen.
 | [0034](0034-hot-reload-polling-slang-runtime.md) | Hot Reload über Polling und Slang zur Laufzeit | angenommen |
 | [0035](0035-transfer-queue-concurrent-sharing.md) | Uploads im Hintergrund über eine Transfer-Queue mit gemeinsam genutzten Ressourcen | angenommen |
 | [0036](0036-cooked-assets-ktx2-cache.md) | Gekochte Modelle mit KTX2 und Basis Universal in einem Cache neben den Quellen | angenommen |
-| [0037](0037-prefabs-field-overrides.md) | Prefabs als Dateien, Instanzen voll ausgebaut mit Überschreibungen auf Feldebene | angenommen |
+| [0037](0037-prefabs-field-overrides.md) | Prefabs als Dateien, Instanzen voll ausgebaut mit Überschreibungen auf Feldebene | angenommen, ergänzt durch 0048 |
 | [0038](0038-terrain-chunks-shared-geometry.md) | Terrain aus Chunks mit Randschicht, Terrain als Komponente, gemeinsame Geometriepuffer | angenommen |
 | [0039](0039-deterministic-noise-rule-generator.md) | Eigenes deterministisches Rauschen in `f64` ohne FMA und ein Generator aus Regeln, Prüfsumme in beiden CI-Läufen | angenommen |
 | [0040](0040-terrain-materials-weights-triplanar.md) | Terrain-Materialien als Gewichte je Eckpunkt mit Palette pro Chunk, triplanar im Shader | angenommen |
@@ -56,3 +56,4 @@ betroffene Code einreichen.
 | [0045](0045-physics-jolt-double-precision.md) | Physik mit Jolt in doppelter Genauigkeit über einen eigenen Overlay-Port, die Welt als Quelle der Wahrheit, reproduzierbar im selben Build | angenommen |
 | [0046](0046-terrain-collision-character-virtual.md) | Terrain-Kollision als `MeshShape` pro Chunk um Anker mit Einfrieren, Spielfigur mit Jolts `CharacterVirtual`, Materialtabelle als Asset mit Reibung pro Dreieck | angenommen |
 | [0047](0047-script-components-bindings-hot-reload.md) | Skript-Klassen als Komponententypen der Registry, C#-Bindings aus der Reflection mit Prüfung beim Start, Hot Reload über `dotnet build` im Hintergrund | angenommen |
+| [0048](0048-prefab-removals-nested-instances.md) | Prefabs mit entfernten Knoten und Komponenten und verschachtelten Instanzen, Prefab-Format Version 2 | angenommen |
