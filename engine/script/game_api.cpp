@@ -1,7 +1,6 @@
 module;
 
 #include <algorithm>
-#include <cstdint>
 #include <cstring>
 #include <optional>
 #include <string_view>
@@ -36,7 +35,7 @@ Context& context() {
     return instance;
 }
 
-std::string_view text(const u8* data, std::int32_t length) {
+std::string_view text(const u8* data, i32 length) {
     return {reinterpret_cast<const char*>(data), static_cast<usize>(length < 0 ? 0 : length)};
 }
 
@@ -73,7 +72,7 @@ void write(NativeHit& out, u64 entity, math::DVec3 point, math::Vec3 normal, f32
            .material = material};
 }
 
-std::int32_t api_action(const u8* name, std::int32_t length, NativeAction* out) {
+i32 api_action(const u8* name, i32 length, NativeAction* out) {
     const Context& c = context();
     *out = {};
     if (c.actions == nullptr || !c.actions->map().find(text(name, length))) {
@@ -89,8 +88,8 @@ std::int32_t api_action(const u8* name, std::int32_t length, NativeAction* out) 
     return 1;
 }
 
-std::int32_t api_raycast(const f64* origin, const f32* direction, f32 max_distance,
-                         const NativeFilter* filter, NativeHit* out) {
+i32 api_raycast(const f64* origin, const f32* direction, f32 max_distance,
+                const NativeFilter* filter, NativeHit* out) {
     const Context& c = context();
     if (c.physics == nullptr) {
         return 0;
@@ -104,9 +103,9 @@ std::int32_t api_raycast(const f64* origin, const f32* direction, f32 max_distan
     return 1;
 }
 
-std::int32_t api_shape_cast(const NativeShape* shape, const f64* origin, const f32* rotation,
-                            const f32* direction, f32 max_distance, const NativeFilter* filter,
-                            NativeHit* out) {
+i32 api_shape_cast(const NativeShape* shape, const f64* origin, const f32* rotation,
+                   const f32* direction, f32 max_distance, const NativeFilter* filter,
+                   NativeHit* out) {
     const Context& c = context();
     if (c.physics == nullptr) {
         return 0;
@@ -120,8 +119,8 @@ std::int32_t api_shape_cast(const NativeShape* shape, const f64* origin, const f
     return 1;
 }
 
-std::int32_t api_overlap(const NativeShape* shape, const f64* position, const f32* rotation,
-                         const NativeFilter* filter, u64* out, std::int32_t capacity) {
+i32 api_overlap(const NativeShape* shape, const f64* position, const f32* rotation,
+                const NativeFilter* filter, u64* out, i32 capacity) {
     const Context& c = context();
     if (c.physics == nullptr) {
         return 0;
@@ -132,11 +131,10 @@ std::int32_t api_overlap(const NativeShape* shape, const f64* position, const f3
     if (out != nullptr && count > 0) {
         std::memcpy(out, found.data(), count * sizeof(u64));
     }
-    return static_cast<std::int32_t>(found.size());
+    return static_cast<i32>(found.size());
 }
 
-std::int32_t api_terrain_edit(u64 terrain, const f64* point, f32 radius, std::int32_t add,
-                              std::int32_t material) {
+i32 api_terrain_edit(u64 terrain, const f64* point, f32 radius, i32 add, i32 material) {
     world::World* world = script_world();
     if (world == nullptr || terrain == 0 || world::Commands::is_pending(terrain) ||
         !world->alive(terrain)) {

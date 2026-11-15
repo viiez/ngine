@@ -62,21 +62,21 @@ struct InitializeParameters {
     const char_t* dotnet_root;
 };
 
-using InitializeForRuntimeConfigFn = std::int32_t (*)(const char_t*, const InitializeParameters*,
-                                                      HostHandle*);
-using GetRuntimeDelegateFn = std::int32_t (*)(HostHandle, std::int32_t, void**);
-using CloseFn = std::int32_t (*)(HostHandle);
+using InitializeForRuntimeConfigFn = i32 (*)(const char_t*, const InitializeParameters*,
+                                             HostHandle*);
+using GetRuntimeDelegateFn = i32 (*)(HostHandle, i32, void**);
+using CloseFn = i32 (*)(HostHandle);
 using ErrorWriterFn = void (*)(const char_t*);
 using SetErrorWriterFn = ErrorWriterFn (*)(ErrorWriterFn);
 
 // Werte aus hostfxr_delegate_type.
-constexpr std::int32_t delegate_get_function_pointer = 6;
-constexpr std::int32_t delegate_load_assembly = 7;
+constexpr i32 delegate_get_function_pointer = 6;
+constexpr i32 delegate_load_assembly = 7;
 
-using LoadAssemblyFn = std::int32_t (*)(const char_t* path, void* load_context, void* reserved);
-using GetFunctionPointerFn = std::int32_t (*)(const char_t* type_name, const char_t* method_name,
-                                              const char_t* delegate_type_name, void* load_context,
-                                              void* reserved, void** delegate);
+using LoadAssemblyFn = i32 (*)(const char_t* path, void* load_context, void* reserved);
+using GetFunctionPointerFn = i32 (*)(const char_t* type_name, const char_t* method_name,
+                                     const char_t* delegate_type_name, void* load_context,
+                                     void* reserved, void** delegate);
 
 // Statt eines Delegate-Typs: Die Methode trägt [UnmanagedCallersOnly].
 const char_t* const unmanaged_callers_only =
@@ -90,55 +90,53 @@ void write_hostfxr_error(const char_t* message) {
 
 // Gleicher Aufbau wie NGine.NativeApi in Native.cs.
 struct NativeApi {
-    void (*log)(std::int32_t level, const u8* text, std::int32_t length);
-    std::int32_t (*add)(std::int32_t a, std::int32_t b);
+    void (*log)(i32 level, const u8* text, i32 length);
+    i32 (*add)(i32 a, i32 b);
     WorldApi world;
     ScriptApi script;
     GameApi game;
 };
 
-void native_log(std::int32_t level, const u8* text, std::int32_t length) {
-    const auto clamped = std::clamp(level, 0, static_cast<std::int32_t>(log::Level::Fatal));
+void native_log(i32 level, const u8* text, i32 length) {
+    const auto clamped = std::clamp(level, 0, static_cast<i32>(log::Level::Fatal));
     log::write(static_cast<log::Level>(clamped),
                std::string_view{reinterpret_cast<const char*>(text), static_cast<usize>(length)});
 }
 
-std::int32_t native_add(std::int32_t a, std::int32_t b) {
+i32 native_add(i32 a, i32 b) {
     return a + b;
 }
 
 // --- Funktionen in C# (NGine.Host) --------------------------------------------------------
 
 struct ManagedApi {
-    std::int32_t (*initialize)(NativeApi*, std::int32_t) = nullptr;
-    std::int32_t (*load_scripts)(const u8*, std::int32_t) = nullptr;
-    std::int32_t (*start)() = nullptr;
-    std::int32_t (*update)(f32, Position*, std::int32_t) = nullptr;
-    std::int32_t (*unload_scripts)() = nullptr;
-    std::int32_t (*add)(std::int32_t, std::int32_t) = nullptr;
-    std::int64_t (*benchmark_native_calls)(std::int32_t, std::int32_t*) = nullptr;
+    i32 (*initialize)(NativeApi*, i32) = nullptr;
+    i32 (*load_scripts)(const u8*, i32) = nullptr;
+    i32 (*start)() = nullptr;
+    i32 (*update)(f32, Position*, i32) = nullptr;
+    i32 (*unload_scripts)() = nullptr;
+    i32 (*add)(i32, i32) = nullptr;
+    i64 (*benchmark_native_calls)(i32, i32*) = nullptr;
     void (*world_changed)() = nullptr;
-    std::int32_t (*describe_layout)(void (*)(const u8*, std::int32_t, const u8*, std::int32_t,
-                                             std::int64_t)) = nullptr;
-    std::int32_t (*invoke)(const u8*, std::int32_t) = nullptr;
-    std::int32_t (*register_scripts)() = nullptr;
-    std::int32_t (*run_scripts)(std::int32_t, f32) = nullptr;
-    std::int32_t (*store_fields)() = nullptr;
-    std::int32_t (*load_fields)() = nullptr;
-    std::int32_t (*reset_instances)() = nullptr;
-    std::int32_t (*validate_scripts)() = nullptr;
-    std::int32_t (*deliver_events)(const NativeEvent*, std::int32_t) = nullptr;
+    i32 (*describe_layout)(void (*)(const u8*, i32, const u8*, i32, i64)) = nullptr;
+    i32 (*invoke)(const u8*, i32) = nullptr;
+    i32 (*register_scripts)() = nullptr;
+    i32 (*run_scripts)(i32, f32) = nullptr;
+    i32 (*store_fields)() = nullptr;
+    i32 (*load_fields)() = nullptr;
+    i32 (*reset_instances)() = nullptr;
+    i32 (*validate_scripts)() = nullptr;
+    i32 (*deliver_events)(const NativeEvent*, i32) = nullptr;
 };
 
 // Anordnung der Structs, wie C# sie meldet: Typ → Größe und Offsets der Felder.
 struct ReportedType {
-    std::int64_t size = -1;
-    std::map<std::string, std::int64_t, std::less<>> fields;
+    i64 size = -1;
+    std::map<std::string, i64, std::less<>> fields;
 };
 std::map<std::string, ReportedType, std::less<>>* layout_report = nullptr;
 
-void report_layout(const u8* type, std::int32_t type_length, const u8* field,
-                   std::int32_t field_length, std::int64_t value) {
+void report_layout(const u8* type, i32 type_length, const u8* field, i32 field_length, i64 value) {
     if (layout_report == nullptr) {
         return;
     }
@@ -316,11 +314,11 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
     const InitializeParameters parameters{sizeof(InitializeParameters), nullptr,
                                           root_native.c_str()};
     // 0: gestartet, 1: lief schon, 2: lief schon mit anderen Einstellungen.
-    if (const std::int32_t result = initialize(config.c_str(), &parameters, &host.handle);
+    if (const i32 result = initialize(config.c_str(), &parameters, &host.handle);
         result < 0 || result > 2) {
         return std::unexpected(
             std::format("hostfxr_initialize_for_runtime_config fehlgeschlagen: 0x{:08x}",
-                        static_cast<std::uint32_t>(result)));
+                        static_cast<u32>(result)));
     }
 
     // 3. NGine.Scripting in den Standardkontext laden und die Einstiege holen.
@@ -332,22 +330,21 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
                      reinterpret_cast<void**>(&get_function)) != 0) {
         return std::unexpected("hostfxr liefert keine Delegates (braucht .NET 8 oder neuer)");
     }
-    if (const std::int32_t result = load_assembly(assembly.c_str(), nullptr, nullptr);
-        result != 0) {
+    if (const i32 result = load_assembly(assembly.c_str(), nullptr, nullptr); result != 0) {
         return std::unexpected(std::format("NGine.Scripting lässt sich nicht laden: 0x{:08x}",
-                                           static_cast<std::uint32_t>(result)));
+                                           static_cast<u32>(result)));
     }
 
     const native_string type = to_native("NGine.Host, NGine.Scripting");
     auto function = [&]<typename T>(T& out, std::string_view method) {
         const native_string name = to_native(method);
         void* pointer = nullptr;
-        const std::int32_t result = get_function(type.c_str(), name.c_str(), unmanaged_callers_only,
-                                                 nullptr, nullptr, &pointer);
+        const i32 result = get_function(type.c_str(), name.c_str(), unmanaged_callers_only, nullptr,
+                                        nullptr, &pointer);
         out = reinterpret_cast<T>(pointer);
         if (result != 0 || pointer == nullptr) {
             log::error("C#-Methode NGine.Host.{} nicht gefunden: 0x{:08x}", method,
-                       static_cast<std::uint32_t>(result));
+                       static_cast<u32>(result));
             return false;
         }
         return true;
@@ -367,7 +364,7 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
     impl->assembly_dir = desc.assembly_dir;
-    if (m.initialize(&impl->native, static_cast<std::int32_t>(sizeof(NativeApi))) != 0) {
+    if (m.initialize(&impl->native, static_cast<i32>(sizeof(NativeApi))) != 0) {
         return std::unexpected("NGine.Host.Initialize ist fehlgeschlagen");
     }
 
@@ -394,9 +391,8 @@ ScriptRuntime::~ScriptRuntime() {
 
 Result<u32> ScriptRuntime::load_scripts(std::string_view assembly_path) {
     NGINE_PROFILE_ZONE("ScriptRuntime::load_scripts");
-    const std::int32_t count =
-        impl_->managed.load_scripts(reinterpret_cast<const u8*>(assembly_path.data()),
-                                    static_cast<std::int32_t>(assembly_path.size()));
+    const i32 count = impl_->managed.load_scripts(reinterpret_cast<const u8*>(assembly_path.data()),
+                                                  static_cast<i32>(assembly_path.size()));
     if (count < 0) {
         return std::unexpected(
             std::format("Skripte aus {} lassen sich nicht laden", assembly_path));
@@ -436,14 +432,13 @@ Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
     if (script_world() == nullptr) {
         return {};
     }
-    std::int32_t errors = 0;
+    i32 errors = 0;
     set_script_input_fixed(phase == ScriptPhase::Fixed);
     if (phase == ScriptPhase::Fixed) {
         // Ereignisse des letzten Schritts der Physik vor FixedUpdate.
         const std::vector<NativeEvent> events = take_script_events();
         if (!events.empty()) {
-            errors += impl_->managed.deliver_events(events.data(),
-                                                    static_cast<std::int32_t>(events.size()));
+            errors += impl_->managed.deliver_events(events.data(), static_cast<i32>(events.size()));
         }
     }
     errors += impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
@@ -489,7 +484,7 @@ void ScriptRuntime::validate() {
 
 Result<bool> ScriptRuntime::unload_scripts() {
     NGINE_PROFILE_ZONE("ScriptRuntime::unload_scripts");
-    const std::int32_t result = impl_->managed.unload_scripts();
+    const i32 result = impl_->managed.unload_scripts();
     if (result < 0) {
         return std::unexpected("Skripte lassen sich nicht entladen");
     }
@@ -506,8 +501,8 @@ Result<void> ScriptRuntime::start() {
 
 Result<void> ScriptRuntime::update(f32 delta_time, std::span<Position> positions) {
     NGINE_PROFILE_ZONE("ScriptRuntime::update");
-    if (impl_->managed.update(delta_time, positions.data(),
-                              static_cast<std::int32_t>(positions.size())) != 0) {
+    if (impl_->managed.update(delta_time, positions.data(), static_cast<i32>(positions.size())) !=
+        0) {
         return std::unexpected("Fehler in einem Skript");
     }
     return {};
@@ -525,11 +520,11 @@ void ScriptRuntime::apply_commands() {
 
 namespace {
 
-Result<std::map<std::string, ReportedType, std::less<>>> describe_layout(std::int32_t (*describe)(
-    void (*)(const u8*, std::int32_t, const u8*, std::int32_t, std::int64_t))) {
+Result<std::map<std::string, ReportedType, std::less<>>>
+describe_layout(i32 (*describe)(void (*)(const u8*, i32, const u8*, i32, i64))) {
     std::map<std::string, ReportedType, std::less<>> reported;
     layout_report = &reported;
-    const std::int32_t result = describe(report_layout);
+    const i32 result = describe(report_layout);
     layout_report = nullptr;
     if (result != 0) {
         return std::unexpected("C# kann die Anordnung der Bindings nicht melden");
@@ -577,7 +572,7 @@ Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, 
         }
         ++compared;
         const ReportedType& seen = found->second;
-        if (seen.size != static_cast<std::int64_t>(type->size)) {
+        if (seen.size != static_cast<i64>(type->size)) {
             problem(
                 std::format("{}: Größe {} in C#, {} in C++", type->name, seen.size, type->size));
         }
@@ -588,7 +583,7 @@ Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, 
             const auto offset = seen.fields.find(field.name);
             if (offset == seen.fields.end()) {
                 problem(std::format("{}.{} fehlt in C#", type->name, field.name));
-            } else if (offset->second != static_cast<std::int64_t>(field.offset)) {
+            } else if (offset->second != static_cast<i64>(field.offset)) {
                 problem(std::format("{}.{}: Offset {} in C#, {} in C++", type->name, field.name,
                                     offset->second, field.offset));
             }
@@ -613,8 +608,8 @@ Result<void> ScriptRuntime::verify_bindings(const reflect::TypeRegistry& types, 
 
 Result<void> ScriptRuntime::invoke(std::string_view method) {
     NGINE_PROFILE_ZONE("ScriptRuntime::invoke");
-    const std::int32_t result = impl_->managed.invoke(reinterpret_cast<const u8*>(method.data()),
-                                                      static_cast<std::int32_t>(method.size()));
+    const i32 result = impl_->managed.invoke(reinterpret_cast<const u8*>(method.data()),
+                                             static_cast<i32>(method.size()));
     if (result == -2) {
         return std::unexpected(std::format("{} gibt es in den Skripten nicht", method));
     }
@@ -629,21 +624,20 @@ i32 ScriptRuntime::add(i32 a, i32 b) {
 }
 
 f64 ScriptRuntime::measure_calls_to_managed(u32 count) {
-    std::int32_t sum = 0;
+    i32 sum = 0;
     const auto start = std::chrono::steady_clock::now();
     for (u32 i = 0; i < count; ++i) {
         sum = impl_->managed.add(sum, 1);
     }
     const auto elapsed = std::chrono::steady_clock::now() - start;
-    verify(sum == static_cast<std::int32_t>(count), "Falsche Summe beim Messen der Aufrufe");
+    verify(sum == static_cast<i32>(count), "Falsche Summe beim Messen der Aufrufe");
     return std::chrono::duration<f64, std::nano>(elapsed).count() / std::max<f64>(count, 1);
 }
 
 f64 ScriptRuntime::measure_calls_to_native(u32 count) {
-    std::int32_t sum = 0;
-    const std::int64_t ns =
-        impl_->managed.benchmark_native_calls(static_cast<std::int32_t>(count), &sum);
-    verify(sum == static_cast<std::int32_t>(count), "Falsche Summe beim Messen der Aufrufe");
+    i32 sum = 0;
+    const i64 ns = impl_->managed.benchmark_native_calls(static_cast<i32>(count), &sum);
+    verify(sum == static_cast<i32>(count), "Falsche Summe beim Messen der Aufrufe");
     return static_cast<f64>(ns) / std::max<f64>(count, 1);
 }
 

@@ -1,6 +1,5 @@
 module;
 
-#include <cstdint>
 #include <vector>
 
 // Dienste der Engine für Skripte (R4.4): Aktionen der Eingabe, Abfragen der Physik und die
@@ -40,14 +39,14 @@ struct NativeHit {
 };
 
 struct NativeShape {
-    std::int32_t shape = 0;
+    i32 shape = 0;
     f32 radius = 0.5f;
     f32 half_extents[3] = {0.5f, 0.5f, 0.5f};
     f32 half_height = 0.5f;
 };
 
 // Ereignis für Skripte; kind wie NGine.EventKind.
-enum class EventKind : std::int32_t {
+enum class EventKind : i32 {
     ContactBegan,
     ContactEnded,
     TriggerEntered,
@@ -69,19 +68,18 @@ struct NativeEvent {
 
 struct GameApi {
     // 1, wenn es die Aktion gibt; Wert in *out.
-    std::int32_t (*action)(const u8* name, std::int32_t length, NativeAction* out);
-    std::int32_t (*raycast)(const f64* origin, const f32* direction, f32 max_distance,
-                            const NativeFilter* filter, NativeHit* out);
-    std::int32_t (*shape_cast)(const NativeShape* shape, const f64* origin, const f32* rotation,
-                               const f32* direction, f32 max_distance, const NativeFilter* filter,
-                               NativeHit* out);
+    i32 (*action)(const u8* name, i32 length, NativeAction* out);
+    i32 (*raycast)(const f64* origin, const f32* direction, f32 max_distance,
+                   const NativeFilter* filter, NativeHit* out);
+    i32 (*shape_cast)(const NativeShape* shape, const f64* origin, const f32* rotation,
+                      const f32* direction, f32 max_distance, const NativeFilter* filter,
+                      NativeHit* out);
     // Anzahl der Treffer; höchstens capacity Kennungen in out.
-    std::int32_t (*overlap)(const NativeShape* shape, const f64* position, const f32* rotation,
-                            const NativeFilter* filter, u64* out, std::int32_t capacity);
+    i32 (*overlap)(const NativeShape* shape, const f64* position, const f32* rotation,
+                   const NativeFilter* filter, u64* out, i32 capacity);
     // Kugel an point (Weltkoordinaten) aus dem Terrain abtragen (add = 0) oder auftragen, mit
     // material für Neues. 1: geändert, 0: keine Änderung, -1: kein Terrain.
-    std::int32_t (*terrain_edit)(u64 terrain, const f64* point, f32 radius, std::int32_t add,
-                                 std::int32_t material);
+    i32 (*terrain_edit)(u64 terrain, const f64* point, f32 radius, i32 add, i32 material);
 };
 
 [[nodiscard]] GameApi make_game_api();
