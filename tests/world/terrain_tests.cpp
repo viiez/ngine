@@ -254,7 +254,7 @@ TEST_CASE("Terrain material table round-trips and matches the asset file", "[wor
     const world::TerrainMaterials standard = world::standard_terrain_materials();
     REQUIRE(standard.materials.size() == 5);
     CHECK(standard.materials[voxel::grass].name == "Gras");
-    CHECK(standard.materials[voxel::rock].footsteps == "fels");
+    CHECK(standard.materials[voxel::rock].name == "Fels");
 
     const auto parsed = world::parse_terrain_materials(world::write_terrain_materials(standard));
     REQUIRE(parsed.has_value());
@@ -274,10 +274,18 @@ TEST_CASE("Terrain material table round-trips and matches the asset file", "[wor
         CHECK(a.normal_scale == b.normal_scale);
         CHECK(a.friction == b.friction);
         CHECK(a.restitution == b.restitution);
-        CHECK(a.footsteps == b.footsteps);
-        // Gras, Fels, Erde und Sand haben Texturen.
+        // Gras, Fels, Erde und Sand haben Texturen und Klänge für Schritte (R4.5).
         CHECK((a.albedo != 0) == (i != 0));
+        CHECK((a.footstep_sounds != 0) == (i != 0));
     }
+
+    // Version 1 mit dem Namen der Schritte liest sich weiter.
+    const auto v1 = world::parse_terrain_materials(
+        R"({"format": "ngine.terrain-materials", "version": 1,
+            "materials": [{"name": "Luft"}, {"name": "Gras", "footsteps": "gras"}]})");
+    REQUIRE(v1.has_value());
+    CHECK(v1->materials[1].name == "Gras");
+    CHECK(v1->materials[1].footstep_sounds == 0);
 
     CHECK_FALSE(world::parse_terrain_materials("{}").has_value());
     CHECK_FALSE(

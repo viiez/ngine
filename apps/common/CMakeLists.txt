@@ -5,5 +5,5 @@ target_sources(ngine_app_common PUBLIC FILE_SET CXX_MODULES FILES
     player.cppm scripting.cppm terrain_materials.cppm)
 target_link_libraries(ngine_app_common PUBLIC
     ngine::core ngine::math ngine::profile ngine::reflect ngine::world ngine::asset ngine::rhi
-    ngine::render ngine::filesystem ngine::jobs ngine::input ngine::platform ngine::physics ngine::voxel ngine::script)
+    ngine::render ngine::filesystem ngine::jobs ngine::input ngine::platform ngine::physics ngine::voxel ngine::script ngine::audio)
 ngine_set_compiler_options(ngine_app_common)

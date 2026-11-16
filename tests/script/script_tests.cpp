@@ -14,6 +14,7 @@
 #include <vector>
 
 import ngine.core;
+import ngine.asset;
 import ngine.filesystem;
 import ngine.input;
 import ngine.jobs;
@@ -21,6 +22,7 @@ import ngine.math;
 import ngine.reflect;
 import ngine.world;
 import ngine.physics;
+import ngine.audio;
 import ngine.platform;
 import ngine.render;
 import ngine.script;
@@ -199,6 +201,19 @@ void register_engine_types(reflect::TypeRegistry& types) {
     world::register_types(types);
     physics::register_types(types);
     render::register_types(types);
+    audio::register_types(types);
+}
+
+// Kurzer Ton im Speicher als Klang für die Tests mit Audio (R4.5).
+audio::Sound test_sound() {
+    auto data = std::make_shared<audio::SoundData>();
+    data->channels = 1;
+    data->sample_rate = 48000;
+    data->samples.assign(4800, 0.25f);
+    audio::Sound sound;
+    sound.info = {.channels = 1, .sample_rate = 48000, .frames = 4800};
+    sound.data = std::move(data);
+    return sound;
 }
 
 } // namespace
@@ -461,6 +476,39 @@ TEST_CASE("Scripts read input, query physics and get physics events", "[script]"
 
     rt.bind_input(nullptr);
     rt.bind_world(nullptr);
+    REQUIRE(rt.unload_scripts());
+    rt.use_types(nullptr);
+}
+
+TEST_CASE("Scripts play sounds and change bus volumes", "[script]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    rt.use_types(&types);
+    REQUIRE(rt.load_scripts(test_scripts()));
+
+    audio::AudioEngine engine{{.mode = audio::DeviceMode::Manual}};
+    asset::ResourceManager resources;
+    static_cast<void>(resources.add(4242, test_sound()));
+    audio::AudioSystem system{engine, resources};
+    world::TerrainMaterials materials = world::standard_terrain_materials();
+    materials.materials[1].footstep_sounds = 777;
+    // Ohne Audio tut nichts etwas, und es gibt keine Schritte.
+    REQUIRE(rt.invoke("Tests.Scripts.GameTests.CheckAudio"));
+    CHECK(capture()->contains("GameTests: Klang False False, Effekte 0.00, Schritte 0"));
+
+    rt.bind_audio(&system, &engine, &materials);
+    REQUIRE(rt.invoke("Tests.Scripts.GameTests.CheckAudio"));
+    CHECK(capture()->contains("GameTests: Klang True True, Effekte 0.25, Schritte 777"));
+    CHECK(engine.bus_volume(audio::AudioBus::Effects) == 0.25f);
+    world::World w{types};
+    system.update(w, 1.0 / 60.0);
+    CHECK(system.stats().one_shots == 2);
+    REQUIRE(engine.manual_device() != nullptr);
+    engine.manual_device()->render(1024);
+    CHECK(engine.stats().mixer.active == 2);
+
+    rt.bind_audio(nullptr, nullptr);
     REQUIRE(rt.unload_scripts());
     rt.use_types(nullptr);
 }
@@ -737,7 +785,17 @@ TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
         script::ScriptSystemDesc{.project = NGINE_ASSET_SOURCE_DIR "/skripte/Skripte.csproj",
                                  .cache_dir = cache.string(),
                                  .watch = false});
-    system->bind(&w, &actions);
+    events::EventBus bus;
+    system->bind(&w, &actions, nullptr, &bus);
+    // Schritte (R4.5): Material 1 hat den Klang 4242, Körper (Material 0) den Klang 4343.
+    audio::AudioEngine engine{{.mode = audio::DeviceMode::Manual}};
+    asset::ResourceManager resources;
+    static_cast<void>(resources.add(4242, test_sound()));
+    static_cast<void>(resources.add(4343, test_sound()));
+    audio::AudioSystem sounds{engine, resources};
+    world::TerrainMaterials materials = world::standard_terrain_materials();
+    materials.materials[1].footstep_sounds = 4242;
+    system->bind_audio(&sounds, &engine, &materials);
     system->start(true);
     const auto& status = system->status();
     REQUIRE(status.last_build.has_value());
@@ -750,7 +808,7 @@ TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
     }
     INFO(status.last_build->output);
     REQUIRE(status.last_build->ok);
-    CHECK(status.classes == std::vector<std::string>{"Laterne", "Spielersteuerung"});
+    CHECK(status.classes == std::vector<std::string>{"Laterne", "Schritte", "Spielersteuerung"});
     system->add_to(simulation);
     simulation.set_after_fixed_step([&] { actions.end_fixed_step(); });
 
@@ -768,6 +826,9 @@ TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
         .set(physics::CharacterController{})
         .set(physics::CharacterMotion{});
     (void)w.ensure(player.id(), w.component(*types.find("Spielersteuerung")));
+    const reflect::TypeInfo* steps = types.find("Schritte");
+    REQUIRE(steps != nullptr);
+    field<u64>(w.ensure(player.id(), w.component(*steps)), *steps, "AufKoerpern") = 4343;
 
     const auto frame = [&](std::vector<platform::Event> events = {}) {
         actions.begin_frame();
@@ -804,11 +865,23 @@ TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
     CHECK(motion->jump);
     CHECK_FALSE(motion->run);
 
+    // Ein Schritt auf Material 1 und einer auf einem Körper spielen je ihren Klang; Landen aus
+    // geringer Höhe bleibt still.
+    bus.publish(physics::CharacterStep{.entity = player.id(), .position = {1.0, 0.0, 0.0},
+                                       .material = 1, .run = false});
+    bus.publish(physics::CharacterStep{.entity = player.id(), .position = {1.0, 0.0, 0.0},
+                                       .material = 0, .run = true});
+    bus.publish(physics::CharacterLanded{.entity = player.id(), .height = 0.2f, .material = 1});
+    frame();
+    sounds.update(w, 1.0 / 60.0);
+    CHECK(sounds.stats().one_shots == 2);
+
     // Ohne die Laterne kommt das ruhige Licht zurück (Stop).
     w.remove(lantern.id(), w.component(*types.find("Laterne")));
     frame();
     CHECK(light.get<render::PointLight>()->intensity == 6.0f);
 
+    system->bind_audio(nullptr, nullptr);
     system->bind(nullptr);
     system.reset();
     std::error_code ignored;

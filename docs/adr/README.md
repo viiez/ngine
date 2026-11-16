@@ -57,3 +57,4 @@ betroffene Code einreichen.
 | [0046](0046-terrain-collision-character-virtual.md) | Terrain-Kollision als `MeshShape` pro Chunk um Anker mit Einfrieren, Spielfigur mit Jolts `CharacterVirtual`, Materialtabelle als Asset mit Reibung pro Dreieck | angenommen |
 | [0047](0047-script-components-bindings-hot-reload.md) | Skript-Klassen als Komponententypen der Registry, C#-Bindings aus der Reflection mit Prüfung beim Start, Hot Reload über `dotnet build` im Hintergrund | angenommen |
 | [0048](0048-prefab-removals-nested-instances.md) | Prefabs mit entfernten Knoten und Komponenten und verschachtelten Instanzen, Prefab-Format Version 2 | angenommen |
+| [0049](0049-audio-own-mixer-miniaudio.md) | Audio mit eigenem Mixer im Thread des Geräts über miniaudio (nur Gerät und Dekodieren), Befehle ohne Sperren, Ströme in eigenem Thread, Räumlichkeit im Hauptthread | angenommen |

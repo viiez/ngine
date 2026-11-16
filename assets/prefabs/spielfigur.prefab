@@ -60,6 +60,12 @@
         },
         "Spielersteuerung": {
           "Grabpause": 0.15
+        },
+        "Schritte": {
+          "Gehen": 0.5,
+          "Rennen": 0.9,
+          "AufKoerpern": 4953476202135479694,
+          "Landehoehe": 0.6
         }
       }
     },

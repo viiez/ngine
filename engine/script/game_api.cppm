@@ -10,6 +10,8 @@ module ngine.script:game_api;
 import ngine.core;
 import ngine.input;
 import ngine.physics;
+import ngine.world;
+import ngine.audio;
 
 namespace ngine::script {
 
@@ -80,6 +82,17 @@ struct GameApi {
     // Kugel an point (Weltkoordinaten) aus dem Terrain abtragen (add = 0) oder auftragen, mit
     // material für Neues. 1: geändert, 0: keine Änderung, -1: kein Terrain.
     i32 (*terrain_edit)(u64 terrain, const f64* point, f32 radius, i32 add, i32 material);
+    // Audio (R4.5). Klang oder Klangsatz einmal abspielen, an position (nullptr: ohne Ortung);
+    // 1: angenommen, 0: kein Audio oder kein Klang.
+    i32 (*sound_play)(u64 sound, const f64* position, i32 bus, f32 volume, f32 pitch);
+    // AudioSource der Entity starten (play = 1) oder stoppen (0); 1: Audio vorhanden.
+    i32 (*source_play)(u64 entity, i32 play);
+    // 1, wenn die AudioSource der Entity gerade spielt.
+    i32 (*source_playing)(u64 entity);
+    void (*set_bus_volume)(i32 bus, f32 volume);
+    f32 (*bus_volume)(i32 bus);
+    // Klang der Schritte zu einem Material des Terrains (TerrainMaterial::footstep_sounds), 0 ohne.
+    u64 (*footstep_sound)(u32 material);
 };
 
 [[nodiscard]] GameApi make_game_api();
@@ -89,6 +102,9 @@ void bind_script_input(const input::ActionState* actions);
 // gesehen hat.
 void set_script_input_fixed(bool fixed);
 void bind_script_physics(const physics::PhysicsWorld* physics);
+// Audio und Materialtabelle für Skripte (R4.5); nullptr löst sie.
+void bind_script_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
+                       const world::TerrainMaterials* materials);
 // Meldet die Ereignisse der Physik am Bus an; sie sammeln sich bis take_script_events().
 void bind_script_events(events::EventBus* bus);
 [[nodiscard]] std::vector<NativeEvent> take_script_events();

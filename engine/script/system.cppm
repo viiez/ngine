@@ -14,6 +14,7 @@ export module ngine.script:system;
 import ngine.core;
 import ngine.input;
 import ngine.physics;
+import ngine.audio;
 import ngine.reflect;
 import ngine.world;
 import :runtime;
@@ -128,6 +129,9 @@ public:
     // Welt und Dienste für die Skripte; nullptr löst sie. Vor dem Ende der Welt lösen.
     void bind(world::World* world, const input::ActionState* actions = nullptr,
               const physics::PhysicsWorld* physics = nullptr, events::EventBus* bus = nullptr);
+    // Audio und Materialtabelle für die Skripte (R4.5); nullptr löst sie.
+    void bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
+                    const world::TerrainMaterials* materials = nullptr);
     // FixedUpdate bzw. Update aller Skripte, wenn aktiv, gebunden und geladen.
     void run(ScriptPhase phase, f32 delta);
     // Hängt FixedUpdate als feste Stufe (vor der Physik, wenn vor physics::add_to() gerufen) und

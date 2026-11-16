@@ -55,7 +55,8 @@ void register_terrain_material_types(reflect::TypeRegistry& types) {
         .range(0.0, 2.0, 0.01)
         .field("restitution", &TerrainMaterial::restitution)
         .range(0.0, 1.0, 0.01)
-        .field("footsteps", &TerrainMaterial::footsteps);
+        .field("footstep_sounds", &TerrainMaterial::footstep_sounds)
+        .hint(reflect::Hint::Asset);
 }
 
 TerrainMaterials standard_terrain_materials() {
@@ -66,27 +67,23 @@ TerrainMaterials standard_terrain_materials() {
                  .color = {0.045f, 0.13f, 0.02f},
                  .roughness = 0.95f,
                  .scale = 3.0f,
-                 .friction = 0.7f,
-                 .footsteps = "gras"},
+                 .friction = 0.7f},
                 {.name = "Fels",
                  .color = {0.16f, 0.15f, 0.135f},
                  .roughness = 0.85f,
                  .scale = 6.0f,
                  .friction = 0.8f,
-                 .restitution = 0.1f,
-                 .footsteps = "fels"},
+                 .restitution = 0.1f},
                 {.name = "Erde",
                  .color = {0.15f, 0.075f, 0.03f},
                  .roughness = 0.95f,
                  .scale = 3.0f,
-                 .friction = 0.75f,
-                 .footsteps = "erde"},
+                 .friction = 0.75f},
                 {.name = "Sand",
                  .color = {0.45f, 0.38f, 0.24f},
                  .roughness = 0.9f,
                  .scale = 4.0f,
-                 .friction = 0.55f,
-                 .footsteps = "sand"},
+                 .friction = 0.55f},
             }};
 }
 

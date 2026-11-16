@@ -161,6 +161,16 @@ public static class GameTests
         Log.Info(string.Create(CultureInfo.InvariantCulture,
             $"GameTests: Treffer {h.Entity.Name} bei {h.Distance:F2}, ohne {none.HasValue}, Kugel {cast?.Distance:F2}, Overlap {touched.Length}"));
     }
+
+    // Klang 4242 geortet und ohne Ortung, Effekte leiser, Schritte auf Material 1 (R4.5).
+    public static void CheckAudio()
+    {
+        bool spatial = Audio.Play(4242UL, new DVec3(3, 0, 0));
+        bool flat = Audio.Play(4242UL, AudioBus.Music, 0.5f);
+        Audio.SetBusVolume(AudioBus.Effects, 0.25f);
+        Log.Info(string.Create(CultureInfo.InvariantCulture,
+            $"GameTests: Klang {spatial} {flat}, Effekte {Audio.GetBusVolume(AudioBus.Effects):F2}, Schritte {Terrains.FootstepSound(1)}"));
+    }
 }
 
 // Zählt Berührungen und Auslöser seiner Entity.

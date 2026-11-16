@@ -29,6 +29,7 @@ import ngine.core;
 import ngine.profile;
 import ngine.reflect;
 import ngine.world;
+import ngine.audio;
 import :game_api;
 import :native;
 import :script_api;
@@ -245,6 +246,7 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
     bind_script_world(nullptr);
     bind_script_input(nullptr);
     bind_script_physics(nullptr);
+    bind_script_audio(nullptr, nullptr, nullptr);
     bind_script_events(nullptr);
     static_cast<void>(script_registry());
 
@@ -384,6 +386,7 @@ ScriptRuntime::~ScriptRuntime() {
     bind_script_world(nullptr);
     bind_script_input(nullptr);
     bind_script_physics(nullptr);
+    bind_script_audio(nullptr, nullptr, nullptr);
     bind_script_events(nullptr);
     impl_.reset();
     runtime_alive = false;
@@ -457,6 +460,11 @@ void ScriptRuntime::bind_input(const input::ActionState* actions) {
 void ScriptRuntime::bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus) {
     bind_script_physics(physics);
     bind_script_events(bus);
+}
+
+void ScriptRuntime::bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
+                               const world::TerrainMaterials* materials) {
+    bind_script_audio(audio, engine, materials);
 }
 
 void ScriptRuntime::store_fields() {

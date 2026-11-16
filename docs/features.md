@@ -132,8 +132,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| AUD-01 | Audio-Gerät | miniaudio hinter `AudioDevice` | R4 | geplant |
-| AUD-02 | 3D-Klang | Positionierung, Abschwächung | R4 | geplant |
+| AUD-01 | Audio-Gerät | miniaudio hinter `AudioDevice` (Gerät und Dekodieren), eigener Mixer mit Bussen und Strömen, Null-Gerät ohne Soundkarte ([ADR 0049](adr/0049-audio-own-mixer-miniaudio.md)) | R4.5 | fertig |
+| AUD-02 | 3D-Klang | Positionierung, Abschwächung, Panning, Doppler über `AudioSource` und `AudioListener`; Klangsätze, Schritte nach dem Material des Bodens | R4.5 | fertig |
 | AUD-03 | Hall und Verdeckung | Räume und Wände beeinflussen den Klang, wichtig für Horror | später | Idee |
 
 ## Scripting

@@ -59,6 +59,12 @@ AssetType type_of(std::string_view path) {
     if (extension == ".cs") {
         return AssetType::Script;
     }
+    if (extension == ".wav" || extension == ".ogg" || extension == ".flac" || extension == ".mp3") {
+        return AssetType::Sound;
+    }
+    if (extension == ".soundset") {
+        return AssetType::SoundSet;
+    }
     return AssetType::Unknown;
 }
 
@@ -72,6 +78,8 @@ std::string_view to_string(AssetType type) {
     case AssetType::Input: return "Eingabe";
     case AssetType::TerrainMaterials: return "Terrain-Materialien";
     case AssetType::Script: return "Skript";
+    case AssetType::Sound: return "Klang";
+    case AssetType::SoundSet: return "Klangsatz";
     case AssetType::Unknown: break;
     }
     return "Unbekannt";

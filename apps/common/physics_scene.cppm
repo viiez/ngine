@@ -19,6 +19,7 @@ export module app.physics;
 
 import ngine.core;
 import ngine.asset;
+import ngine.audio;
 import ngine.jobs;
 import ngine.math;
 import ngine.physics;
@@ -355,7 +356,7 @@ export asset::Model playground_model() {
     return model;
 }
 
-asset::AssetRef playground_ref(PlaygroundMesh mesh) {
+export asset::AssetRef playground_ref(PlaygroundMesh mesh) {
     return {.asset = playground_id, .index = mesh};
 }
 
@@ -400,6 +401,37 @@ export struct PlaygroundLayout {
     // Fußpunkt einer Laterne neben dem Start (R4.4, Prefab prefabs/laterne.prefab).
     DVec3 lantern{0.0, 0.0, 0.0};
 };
+
+// Klänge des Spielplatzes (R4.5) aus dem Asset-Ordner: ein Radio auf der Ebene als geortete
+// Quelle in Schleife (Strom, weil länger als fünf Sekunden) und leiser Wind ohne Ortung auf dem Bus
+// Atmosphäre. Ohne Datenbank oder ohne die Klänge entsteht nichts.
+export void add_playground_audio(world::World& world, const PlaygroundLayout& layout,
+                                 const asset::AssetDatabase* database) {
+    const auto find = [&](std::string_view path) -> u64 {
+        const asset::AssetInfo* info = database != nullptr ? database->find_path(path) : nullptr;
+        return info != nullptr ? info->id : 0;
+    };
+    if (const u64 radio = find("klaenge/welt/radio.ogg"); radio != 0) {
+        world.create("Radio")
+            .set(world::Transform{.position = layout.platform + DVec3{-3.0, 0.2, 3.0},
+                                  .scale = {0.6f, 0.4f, 0.4f}})
+            .set(physics::RigidBody{.motion = physics::MotionType::Static})
+            .set(physics::Collider{.shape = physics::ShapeType::Box})
+            .set(render::MeshRenderer{.mesh = playground_ref(playground_box)})
+            .set(audio::AudioSource{.sound = radio,
+                                    .volume = 0.8f,
+                                    .loop = true,
+                                    .min_distance = 1.5f,
+                                    .max_distance = 40.0f});
+    }
+    if (const u64 wind = find("klaenge/welt/wind.ogg"); wind != 0) {
+        world.create("Wind").set(audio::AudioSource{.sound = wind,
+                                                    .bus = audio::AudioBus::Ambient,
+                                                    .volume = 0.35f,
+                                                    .loop = true,
+                                                    .spatial = false});
+    }
+}
 
 // Spielfigur aus Code: Kapsel mit CharacterController, PlayerInput und TerrainObserver, Körper als
 // Kind. Dasselbe steht im Prefab prefabs/spielfigur.prefab, das Szenen verwenden.

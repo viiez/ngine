@@ -1,6 +1,8 @@
 module;
 
+#include <algorithm>
 #include <format>
+#include <initializer_list>
 #include <string>
 #include <utility>
 
@@ -107,16 +109,24 @@ private:
         number("Roughness", material.roughness, 0.0, 1.0, 0.01f);
         number("Maßstab (m)", material.scale, 0.1, 100.0, 0.05f);
         number("Normalen", material.normal_scale, 0.0, 4.0, 0.01f);
-        changed = texture("Grundfarbe", material.albedo, database) || changed;
-        changed = texture("Normalen-Textur", material.normal, database) || changed;
+        changed = asset_field("Grundfarbe", material.albedo, database,
+                              {asset::AssetType::Texture}) ||
+                  changed;
+        changed = asset_field("Normalen-Textur", material.normal, database,
+                              {asset::AssetType::Texture}) ||
+                  changed;
         number("Reibung", material.friction, 0.0, 2.0, 0.01f);
         number("Rückprall", material.restitution, 0.0, 1.0, 0.01f);
-        changed = ui::input_text("Schritte", material.footsteps) || changed;
+        changed = asset_field("Schritte", material.footstep_sounds, database,
+                              {asset::AssetType::Sound, asset::AssetType::SoundSet}) ||
+                  changed;
         return changed;
     }
 
-    // Textur als Pfad; Ablegen aus dem Asset-Browser setzt sie, „x“ entfernt sie.
-    static bool texture(const char* label, u64& id, const asset::AssetDatabase* database) {
+    // Asset als Pfad; Ablegen aus dem Asset-Browser setzt es (nur die Arten in accepted), „x“
+    // entfernt es.
+    static bool asset_field(const char* label, u64& id, const asset::AssetDatabase* database,
+                            std::initializer_list<asset::AssetType> accepted) {
         bool changed = false;
         const asset::AssetInfo* info =
             database != nullptr && id != 0 ? database->find(id) : nullptr;
@@ -128,7 +138,7 @@ private:
         if (const auto dropped = ui::drop_target(asset_payload)) {
             const asset::AssetInfo* target =
                 database != nullptr ? database->find(*dropped) : nullptr;
-            if (target != nullptr && target->type == asset::AssetType::Texture) {
+            if (target != nullptr && std::ranges::find(accepted, target->type) != accepted.end()) {
                 id = target->id;
                 changed = true;
             }

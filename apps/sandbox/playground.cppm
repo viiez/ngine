@@ -33,10 +33,13 @@ import ngine.profile;
 import ngine.reflect;
 import ngine.render;
 import ngine.world;
+import ngine.audio;
+import app.model_scene;
 import app.paths;
 import app.physics;
 import app.player;
 import app.scripting;
+import sandbox.audio_bench;
 
 namespace sandbox {
 
@@ -102,16 +105,39 @@ std::vector<platform::Event> scripted_events(u64 frame) {
 }
 
 export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bodies, u32 characters,
-                                   bool use_scripts) {
+                                   bool use_scripts, bool use_audio = true) {
     reflect::TypeRegistry types;
     world::register_types(types);
     render::register_types(types);
     physics::register_types(types);
     app::register_player_types(types);
+    audio::register_types(types);
     world::World world{types};
     jobs::JobSystem jobs;
     const app::PlaygroundLayout layout = app::build_playground(world, origin, jobs);
     world::Entity player = app::add_player(world, layout.spawn);
+    // Audio (R4.5) über das Null-Gerät: ein Summen über der Ebene und die Schritte der Figur mit
+    // erzeugten Klängen. Es liest die Welt nur; mit --no-audio bleibt die Prüfsumme gleich.
+    constexpr u64 hum_id = asset::generated_id("sandbox.playground.hum");
+    constexpr u64 step_id = asset::generated_id("sandbox.playground.step");
+    std::optional<audio::AudioEngine> audio_engine;
+    std::optional<asset::ResourceManager> audio_resources;
+    std::optional<audio::AudioSystem> audio_system;
+    world::TerrainMaterials footsteps = world::standard_terrain_materials();
+    if (use_audio) {
+        audio_engine.emplace(audio::AudioOptions{.mode = audio::DeviceMode::Null});
+        audio_resources.emplace(nullptr, &jobs);
+        static_cast<void>(audio_resources->add(hum_id, generated_hum(audio_engine->sample_rate())));
+        static_cast<void>(
+            audio_resources->add(step_id, generated_hum(audio_engine->sample_rate(), 0.15)));
+        audio_system.emplace(*audio_engine, *audio_resources);
+        for (world::TerrainMaterial& material : footsteps.materials) {
+            material.footstep_sounds = step_id;
+        }
+        world.create("Summer")
+            .set(world::Transform{.position = layout.platform + math::DVec3{0.0, 3.0, 0.0}})
+            .set(audio::AudioSource{.sound = hum_id, .loop = true});
+    }
     if (extra_bodies > 0) {
         app::rain_bodies(world, layout.spawn + math::DVec3{0.0, 2.0, 14.0}, extra_bodies);
     }
@@ -154,6 +180,9 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
                                      .cache_dir = filesystem::join(*assets, ".cache/skripte"),
                                      .watch = false});
         scripts->bind(&world, &actions, &physics, &bus);
+        if (audio_system) {
+            scripts->bind_audio(&*audio_system, &*audio_engine, &footsteps);
+        }
         scripts->start(true);
         scripts->add_to(simulation);
         simulation.set_after_fixed_step([&actions] { actions.end_fixed_step(); });
@@ -162,6 +191,10 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
     const bool scripted = scripts && runtime->scripts_loaded() && steering != nullptr;
     if (scripted) {
         (void)world.ensure(player.id(), world.component(*steering));
+        const reflect::TypeInfo* steps_type = types.find("Schritte");
+        if (audio_system && steps_type != nullptr) {
+            (void)world.ensure(player.id(), world.component(*steps_type));
+        }
     }
     log::info("Spielplatz: Steuerung {}", scripted ? "aus C# (Spielersteuerung.cs)" : "in C++");
     physics::add_to(simulation, physics);
@@ -176,6 +209,7 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
     Timing write_back;
     Timing transforms;
     Timing figures;
+    usize one_shots = 0;
     const auto start = std::chrono::steady_clock::now();
     for (u64 frame = 0; frame < frames; ++frame) {
         NGINE_PROFILE_ZONE("Frame");
@@ -213,6 +247,12 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
         write_back.add(stats.write_back_ms);
         figures.add(stats.characters_ms);
         transforms.add(simulation.stats().transforms_ms);
+        if (audio_system) {
+            audio_system->set_fallback_listener(player.get<world::WorldTransform>()->value);
+            audio_system->update(world, 1.0 / 60.0);
+            audio_engine->update();
+            one_shots = std::max(one_shots, audio_system->stats().one_shots);
+        }
         profile::frame_mark();
     }
     const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - start;
@@ -241,24 +281,38 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
               motion != nullptr && motion->ground == physics::GroundState::Ground
                   ? "auf dem Boden"
                   : "nicht auf dem Boden");
+    if (audio_system) {
+        const audio::AudioStats audio_stats = audio_engine->stats();
+        log::info("Audio: {} Quellen spielen, bis zu {} Einmal-Klänge gleichzeitig, {} Stimmen im "
+                  "Mixer, {} Leerläufe",
+                  audio_system->stats().playing, one_shots, audio_stats.voices,
+                  audio_stats.mixer.underruns);
+        audio_system->stop_all();
+    }
     log::info("Prüfsumme der Lagen: {:016x}", physics::checksum(world));
     if (scripts) {
+        scripts->bind_audio(nullptr, nullptr);
         scripts->bind(nullptr);
     }
     return 0;
 }
 
 // Spielplatz aus Code als Szene (R4.3): mit der Figur aus prefabs/spielfigur.prefab, wenn es den
-// Asset-Ordner gibt. So entsteht assets/szenen/spielplatz.json.
+// Asset-Ordner gibt. So entsteht assets/szenen/spielplatz.json. Seit R4.5 mit Radio, Wind und
+// kreisendem Summen; die Typen stehen in derselben Reihenfolge wie in der Szene der App.
 export int save_playground(const std::string& path, const asset::AssetDatabase* database) {
     reflect::TypeRegistry types;
     world::register_types(types);
     render::register_types(types);
     physics::register_types(types);
+    app::register_types(types);
     app::register_player_types(types);
+    audio::register_types(types);
     world::World world{types};
     jobs::JobSystem jobs;
     const app::PlaygroundLayout layout = app::build_playground(world, {0.0, 0.0, 0.0}, jobs);
+    app::add_playground_audio(world, layout, database);
+    app::add_playground_hum(world, layout, database);
     const asset::AssetInfo* info =
         database != nullptr ? database->find_path("prefabs/spielfigur.prefab") : nullptr;
     std::optional<world::Prefab> prefab;

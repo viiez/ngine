@@ -1,0 +1,12 @@
+{
+  "format": "ngine.soundset",
+  "version": 1,
+  "sounds": [
+    1374276715909059411,
+    7610186229678983898,
+    3698689988440984998,
+    3615955994085486034
+  ],
+  "volume_variation": 0.25,
+  "pitch_variation": 0.08
+}

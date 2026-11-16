@@ -38,6 +38,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.meshlet` | `ngine::meshlet` | Meshlets ohne GPU (R3.5): `Meshlet` mit höchstens 64 Eckpunkten und 124 Dreiecken, Hüllkugel und Normalenkegel; `build()` teilt ein Netz wie einen k-d-Baum und sortiert seine Indizes um, `compute_bounds()`, `valid()`, `local_data()` für Mesh Shader ([ADR 0043](adr/0043-gpu-driven-meshlets.md)). Genutzt von `ngine.voxel` (Netze der Chunks), `ngine.asset` (Teilnetze), `ngine.cook` (meshoptimizer) und `ngine.render` | vorhanden (ab R3.5) |
 | `ngine.voxel` | `ngine::voxel` | Voxel-Terrain ohne GPU (Vektoren aus `ngine.math`): Dichtefeld (`Grid`, 8-Bit-Dichte und Material), Surface Nets (`Mesher`), Pinsel und Strahltest ([ADR 0021](adr/0021-surface-nets-8bit-density.md)); seit R3.1 Chunks (`:chunk`: `ChunkCoord`, `Chunk` mit einheitlichem Wert, `ChunkStore` mit Vormerkung geänderter Chunks, `gather()` mit Randschicht), nahtloses Meshing einzelner Chunks (`Mesher::build_chunk()`) und Meshing und Füllen über `ngine.jobs` (`:meshing`), Pinsel und Strahltest auf dem `ChunkStore` ([ADR 0038](adr/0038-terrain-chunks-shared-geometry.md)); seit R3.2 deterministisches Rauschen (`:noise`: Simplex 2D/3D, fBm, Ridged) und der Generator aus Regeln (`:generator`: `Generator`, `generate_chunks()` in Jobs, `checksum()`), Gewichte der Materialien je Eckpunkt mit Palette pro Netz ([ADR 0039](adr/0039-deterministic-noise-rule-generator.md), [ADR 0040](adr/0040-terrain-materials-weights-triplanar.md)); seit R3.3 LOD (`:lod`: `LodLayout`, `select_lod()`, `LodMesher` und `mesh_leaves()` über Stufengrenzen) und Streaming (`:streaming`: `Streamer` mit Jobs, Budget und Übernahme in einem Schritt, [ADR 0041](adr/0041-lod-octree-surface-nets-streaming.md)); seit R3.4 Deltas gegenüber der Grundwelt (`:delta`: `ChunkDelta`, `TerrainDeltas` mit Momentaufnahmen, `apply_deltas()` für alle Stufen, Regionen-Dateien), Pinsel Ebnen und Bemalen, Strahltest über das `LodLayout` ([ADR 0042](adr/0042-terrain-deltas-region-files.md)) | vorhanden (ab D1) |
 | `ngine.physics` | `ngine::physics` | Physik (R4.2, PHYS-01, PHYS-02, PHYS-04): Jolt in doppelter Genauigkeit hinter `PhysicsWorld` (nur `jolt_world.cpp` kennt Jolt), Komponenten `RigidBody` und `Collider` (Kugel, Quader, Kapsel, konvexe Hülle, Dreiecksnetz über eine `ShapeSource`) in der Reflection, feste Ebenen mit `layers_collide()`; Abgleich mit der Welt vor jedem Schritt und Rückschrieb in `Transform` und `RigidBody`, Schritt als Stufe der festen Simulation (`add_to()`), Jolts Jobs auf `ngine.jobs`; Abfragen `raycast()`, `raycast_all()`, `shape_cast()`, `overlap()` mit `QueryFilter`; Ereignisse `ContactBegan`, `ContactEnded`, `TriggerEntered`, `TriggerLeft` sortiert über den `EventBus`; `checksum()` für Tests ([ADR 0045](adr/0045-physics-jolt-double-precision.md)). Seit R4.3 (VOX-08, PHYS-03) Kollision des Terrains aus den Netzen der Chunks der Stufe 0 um Anker, gebaut in Jobs, mit Einfrieren ohne Form (`PhysicsSettings::terrain_radius`, `wait_for_terrain`, `is_frozen()`, `terrain_shapes()`), Material pro Dreieck mit Reibung aus der Tabelle (`set_terrain_materials()`, `RayHit::material`), Spielfiguren über `CharacterController` und `CharacterMotion` (Jolts `CharacterVirtual` nur im Adapter) mit den Ereignissen `CharacterLanded` und `CharacterStep` ([ADR 0046](adr/0046-terrain-collision-character-virtual.md)) | vorhanden (ab R4.2) |
+| `ngine.audio` | `ngine::audio` | Audio (R4.5, AUD-01, AUD-02): eigener `Mixer` im Thread des Geräts (256 Stimmen, 64 hörbar, virtuelle Stimmen, lineares Resampling, Busse `Master`, `Music`, `Effects`, `Ambient`, `Interface`, Rampen, weicher Begrenzer), Befehle und Meldungen über `SpscQueue` ohne Sperren (`:queue`, `:mixer`); `AudioDevice` mit miniaudio (`miniaudio.cpp`, nur hier und in `miniaudio_impl.cpp` bekannt) oder `NullDevice` im Echtzeit-Takt bzw. blockweise für Tests (`:device`); Dekodieren von WAV, FLAC, MP3 (miniaudio) und Ogg Vorbis (stb_vorbis) (`:decoder`), Ströme ab fünf Sekunden über einen eigenen Thread mit `SampleRing` pro Stimme (`:stream`); Assets `Sound` und `SoundSet` (`.soundset`, zufällige Wahl mit Streuung) mit `register_loaders()` (`:sound`); `AudioEngine` als Fassade mit Stimmen, Bussen und Statistik (`:engine`); Abschwächung, Panning mit gleicher Leistung und Doppler (`:spatial`); Komponenten `AudioSource` und `AudioListener` (`:components`) und `AudioSystem`, das sie pro Bild relativ zum Hörer mischt und Einmal-Klänge spielt (`:system`). `NGINE_WITH_AUDIO=OFF` baut nur das Null-Gerät ([ADR 0049](adr/0049-audio-own-mixer-miniaudio.md)) | vorhanden (ab R4.5) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` (`:runtime`) startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/`. Seit R4.4 C#-Bindings aus der Reflection (`:bindings`, Werkzeug `ngine_bindgen`, Prüfung der Anordnung beim Start), die Tabelle `NativeApi` für Welt, Eingabe, Physik und Terrain, Skript-Klassen als Typen der Registry mit Umzug beim Neuladen, Lauf als feste Stufe vor der Physik und als Stufe des Bildes, Ereignisse der Physik; `ScriptSystem` (`:system`) baut `assets/skripte` mit `dotnet build` im Hintergrund (`ScriptBuilder`, Meldungen als `Diagnostic`), beobachtet den Ordner und lädt neu ([ADR 0047](adr/0047-script-components-bindings-hot-reload.md)) | vorhanden (ab D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
@@ -77,6 +78,11 @@ flowchart BT
     physics --> world
     physics --> jobs
     common --> physics
+    audio["ngine.audio<br/>(miniaudio, stb_vorbis)"]
+    audio --> world
+    audio --> asset
+    common --> audio
+    script --> audio
     voxel["ngine.voxel"]
     meshlet["ngine.meshlet"]
     script["ngine.script<br/>(.NET über hostfxr)"]
@@ -693,6 +699,50 @@ flowchart LR
   `Phase::Frame`; Ereignisse der Physik gehen vor dem nächsten `FixedUpdate` an die Skripte.
 - Ändert sich das Layout einer Klasse, wird der alte Typ ausgemustert und die Komponenten ziehen
   über JSON um. Fehlende Klassen bleiben als `UnknownComponents` an der Entity.
+
+- Seit R4.5 erreichen Skripte das Audio über `NativeApi` (`Audio.Play`, `PlaySource`,
+  Lautstärke der Busse, `Terrains.FootstepSound`); `Schritte.cs` spielt bei `OnStep` und
+  `OnLanded` den Klangsatz des Bodens.
+
+## Audio
+
+`ngine.audio` mischt selbst und nutzt miniaudio nur für Gerät und Dekodieren
+([ADR 0049](adr/0049-audio-own-mixer-miniaudio.md)). Drei Threads teilen sich die Arbeit; zwischen
+ihnen gibt es nur Warteschlangen und Ringpuffer mit einem Schreiber und einem Leser.
+
+```mermaid
+flowchart TB
+    subgraph main["Hauptthread"]
+        sys["AudioSystem<br/>Hörer, Abschwächung, Panning, Doppler"]
+        eng["AudioEngine<br/>Stimmen, Busse"]
+        res["ResourceManager<br/>Sound, SoundSet"]
+        cs["C#: Audio.Play, Schritte.cs"]
+    end
+    subgraph streamer["Strom-Thread"]
+        dec["StreamDecoder<br/>füllt SampleRing"]
+    end
+    subgraph device["Thread des Geräts"]
+        mix["Mixer<br/>Resampling, Rampen, Busse, Begrenzer"]
+    end
+    out["miniaudio ma_device<br/>oder NullDevice"]
+    cs --> sys
+    res --> sys
+    sys -->|"Gains, Tonhöhe"| eng
+    eng -->|"SpscQueue: Start, Update, Stop, Bus"| mix
+    mix -->|"SpscQueue: Finished"| eng
+    dec -->|"SampleRing"| mix
+    mix --> out
+```
+
+- Das `AudioSystem` läuft nach `update_transforms()` und liest die Welt nur; die Prüfsumme der
+  Simulation bleibt gleich. Hörer ist die Entity mit `AudioListener` und kleinster Kennung, sonst
+  die Kamera der App (`set_fallback_listener()`). Geschwindigkeiten für Doppler kommen aus den
+  Lagen zweier Bilder.
+- Der Mixer fordert im Rückruf keinen Speicher an, sperrt nicht und liest keine Dateien. Jede
+  Änderung von Lautstärke und Tonhöhe läuft als Rampe über einen Block, Start und Stopp blenden
+  über mindestens 4 ms. Leerläufe der Ströme, verworfene Befehle und die Last zählt `MixerStats`.
+- Ohne Gerät (`--headless`, `--no-audio`, CI, kein Gerät gefunden) mischt das `NullDevice` im
+  Takt der Echtzeit; Tests mischen mit `DeviceMode::Manual` blockweise.
 
 ## Netzwerk
 

@@ -53,6 +53,10 @@
 //                   --frames läuft er, bis man ihn beendet
 //   --client <adr>  ohne Fenster zu einem Server verbinden, z. B. 127.0.0.1 oder host:27020
 //   --no-cache      Modelle aus den Quellen laden statt gekocht aus dem Cache (Vergleich, R2.5)
+//   --no-audio      ohne Audio-Gerät (Null-Gerät; die Welt klingt, man hört nur nichts)
+//   --mute          Audio stumm schalten (Master-Bus), z. B. für Messungen
+//   --audio-voices <n> n geortete Klangquellen um den Hörer kreisen lassen und messen (R4.5),
+//                   ohne Fenster; mit --headless oder --no-audio über das Null-Gerät
 
 #include <algorithm>
 #include <charconv>
@@ -89,6 +93,8 @@ import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import sandbox.playground;
+import sandbox.audio_bench;
+import ngine.audio;
 import app.scripting;
 import ngine.script;
 import ngine.voxel;
@@ -124,6 +130,10 @@ struct Options {
     bool debug_draw = false;
     bool no_cache = false;
     bool no_scripts = false;
+    // Audio (R4.5): Null-Gerät, stumm, Messung mit vielen Quellen.
+    bool no_audio = false;
+    bool mute = false;
+    std::optional<ngine::u32> audio_voices;
     std::optional<ngine::u32> script_count;
     // Spielplatz der Physik und weitere Körper zum Messen (R4.2).
     bool playground = false;
@@ -235,6 +245,17 @@ Options parse_options(std::span<char*> args) {
             options.no_cache = true;
         } else if (arg == "--no-scripts") {
             options.no_scripts = true;
+        } else if (arg == "--no-audio") {
+            options.no_audio = true;
+        } else if (arg == "--mute") {
+            options.mute = true;
+        } else if (arg == "--audio-voices" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 count = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), count).ec ==
+                std::errc{}) {
+                options.audio_voices = count;
+            }
         } else if (arg == "--scripts" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u32 count = 0;
@@ -297,8 +318,12 @@ int run_windowed(const Options& options) {
         // Ressourcen leben in diesem Block, damit sie vor dem Device zerstört werden.
         // Voxel-Demo (Durchstich D1) oder Standardansicht mit Renderer und Welt (R1.3).
         std::optional<sandbox::VoxelScene> voxels;
-        // Asset-Ordner und Cache leben länger als die Szene.
+        // Asset-Ordner und Cache leben länger als die Szene, ebenso das Audio (R4.5).
         sandbox::SandboxAssets sandbox_assets{options.no_cache};
+        ngine::audio::AudioEngine audio_engine{
+            {.mode = options.no_audio ? ngine::audio::DeviceMode::Null
+                                      : ngine::audio::DeviceMode::Automatic}};
+        audio_engine.set_bus_muted(ngine::audio::AudioBus::Master, options.mute);
         std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
             voxels.emplace(sandbox::voxel_origin(options.far),
@@ -332,6 +357,7 @@ int run_windowed(const Options& options) {
             }
             scene = *std::move(created);
             scene->set_debug_draw(options.debug_draw);
+            scene->enable_audio(audio_engine);
             sandbox::report_load(scene->load_all(**device));
         }
 
@@ -583,10 +609,13 @@ int main(int argc, char** argv) {
     } else if (options.save_playground) {
         const sandbox::SandboxAssets sandbox_assets{true};
         exit_code = sandbox::save_playground(*options.save_playground, sandbox_assets.database());
+    } else if (options.audio_voices) {
+        exit_code = sandbox::run_audio_bench(*options.audio_voices, options.frames.value_or(600),
+                                             !options.headless && !options.no_audio);
     } else if (options.headless && options.playground) {
         exit_code = sandbox::run_playground_headless(
             options.frames.value_or(600), sandbox::voxel_origin(options.far), options.bodies,
-            options.characters, !options.no_scripts);
+            options.characters, !options.no_scripts, !options.no_audio);
     } else if (options.headless) {
         exit_code = sandbox::run_headless(options.frames.value_or(60));
     } else {

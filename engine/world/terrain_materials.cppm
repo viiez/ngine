@@ -24,10 +24,10 @@ import :prefab;
 export namespace ngine::world {
 
 inline constexpr std::string_view terrain_materials_format = "ngine.terrain-materials";
-inline constexpr i64 terrain_materials_version = 1;
+inline constexpr i64 terrain_materials_version = 2;
 
-// Ein Material des Terrains: Aussehen für den Renderer, Oberfläche für die Physik und ein Name für
-// Schritte (Geräusche in R4.6).
+// Ein Material des Terrains: Aussehen für den Renderer, Oberfläche für die Physik und der Klang der
+// Schritte (R4.5).
 struct TerrainMaterial {
     std::string name;
     // Grundfarbe (linear); mit Textur ein Faktor darauf.
@@ -42,8 +42,9 @@ struct TerrainMaterial {
     // Reibung und Rückprall der Oberfläche (wie physics::RigidBody).
     f32 friction = 0.7f;
     f32 restitution = 0.0f;
-    // Art der Schritte, z. B. „gras“ oder „fels“.
-    std::string footsteps;
+    // Asset-Kennung des Klangs oder Klangsatzes der Schritte (R4.5); 0 heißt keiner. Version 1 der
+    // Datei hatte stattdessen den Namen „footsteps“, der beim Lesen wegfällt.
+    u64 footstep_sounds = 0;
 
     friend bool operator==(const TerrainMaterial&, const TerrainMaterial&) = default;
 };
