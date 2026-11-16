@@ -3,6 +3,7 @@ module;
 #include <array>
 #include <format>
 #include <initializer_list>
+#include <memory>
 #include <string>
 
 // Fenster „Audio“ des Editors (R4.5): Gerät, Lautstärke und Stummschaltung der Busse, Stimmen und

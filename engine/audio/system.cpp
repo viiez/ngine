@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vector>

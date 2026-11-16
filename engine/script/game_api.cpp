@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <utility>
