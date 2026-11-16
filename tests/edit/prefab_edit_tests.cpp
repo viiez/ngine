@@ -150,3 +150,39 @@ TEST_CASE("Documents save and open prefab instances through their lookup", "[edi
     CHECK(world::save_scene(f.world, f.document.prefabs()) == before);
     static_cast<void>(filesystem::remove(path));
 }
+
+TEST_CASE("Linking a subtree with instances nests them and unpacking keeps them", "[edit][prefab]") {
+    Fixture f;
+    // Die Lampe wird zuerst selbst ein Prefab, dann hängt eine Instanz davon unter einem Tisch.
+    const edit::EntityId lamp = build_lamp(f);
+    const world::Prefab lamp_prefab = world::make_prefab(f.world, f.document.entity_of(lamp));
+    world::Entity table = f.world.create("Tisch");
+    table.set(world::Transform{});
+    auto placed = world::instantiate(f.world, lamp_prefab, prefab_id, nullptr, table.id());
+    REQUIRE(placed);
+    const world::PrefabLookup lookup = [&](u64 id) {
+        return id == prefab_id ? &lamp_prefab : nullptr;
+    };
+    const edit::EntityId table_id = f.document.id_of(table.id());
+    const world::Prefab table_prefab = world::make_prefab(f.world, table.id(), lookup);
+    REQUIRE(table_prefab.nodes.size() == 2);
+    CHECK(table_prefab.nodes[1].prefab == prefab_id);
+
+    auto command = edit::link_prefab(f.document, table_id, 888, lookup);
+    REQUIRE(command);
+    REQUIRE(f.document.execute(*std::move(command)));
+    CHECK(placed->get<world::PrefabInstance>()->nested == table_prefab.nodes[1].id);
+    CHECK(world::prefab_overrides(f.world, table.id(), table_prefab, lookup).array()->empty());
+
+    // Aufbrechen: Die Lampe bleibt eine eigene Instanz; Undo verschachtelt sie wieder.
+    auto unpack = edit::unpack_prefab(f.document, table_id);
+    REQUIRE(unpack);
+    REQUIRE(f.document.execute(*std::move(unpack)));
+    CHECK(placed->get<world::PrefabInstance>()->nested == 0);
+    CHECK(placed->get<world::PrefabInstance>()->prefab == prefab_id);
+    REQUIRE(f.document.undo());
+    CHECK(placed->get<world::PrefabInstance>()->nested == table_prefab.nodes[1].id);
+    REQUIRE(f.document.undo());
+    CHECK(placed->get<world::PrefabInstance>()->nested == 0);
+    CHECK(table.get<world::PrefabInstance>() == nullptr);
+}

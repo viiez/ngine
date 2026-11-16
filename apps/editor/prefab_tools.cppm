@@ -43,7 +43,7 @@ public:
     // Speichert den Teilbaum unter selected als neue Vorlage und macht ihn zu ihrer Instanz (ein
     // Undo-Schritt löst die Verknüpfung, die Datei bleibt).
     static void save_as_prefab(edit::SceneDocument& document, edit::EntityId selected,
-                               asset::AssetDatabase& database) {
+                               asset::AssetDatabase& database, app::PrefabLibrary& library) {
         world::World& world = document.world();
         const u64 entity = document.entity_of(selected);
         if (entity == 0 || document.read_only()) {
@@ -66,7 +66,7 @@ public:
         }
         const std::string file = filesystem::join(database.root(), relative);
         if (auto written = filesystem::write_text(
-                file, world::write_prefab(world::make_prefab(world, entity)));
+                file, world::write_prefab(world::make_prefab(world, entity, library.lookup())));
             !written) {
             log::error("Prefab: {}", written.error());
             return;
@@ -80,7 +80,7 @@ public:
             log::error("Prefab {} fehlt nach dem Einlesen in der Datenbank", relative);
             return;
         }
-        auto command = edit::link_prefab(document, selected, info->id);
+        auto command = edit::link_prefab(document, selected, info->id, library.lookup());
         if (!command) {
             log::error("{}", command.error());
             return;
@@ -114,7 +114,7 @@ public:
     // Schreibt die Instanz, zu der selected gehört, als neuen Stand ihrer Vorlage. Hot Reload lädt
     // die Datei neu und zieht die anderen Instanzen nach.
     static void apply_to_prefab(edit::SceneDocument& document, edit::EntityId selected,
-                                const asset::AssetDatabase& database) {
+                                const asset::AssetDatabase& database, app::PrefabLibrary& library) {
         world::World& world = document.world();
         const u64 root = world::instance_root(world, document.entity_of(selected));
         if (root == 0) {
@@ -127,7 +127,7 @@ public:
             return;
         }
         if (auto written = filesystem::write_text(
-                info->file, world::write_prefab(world::make_prefab(world, root)));
+                info->file, world::write_prefab(world::make_prefab(world, root, library.lookup())));
             !written) {
             log::error("Prefab: {}", written.error());
             return;
@@ -148,7 +148,8 @@ public:
             log::error("Prefab {} lässt sich nicht laden", info.path);
             return;
         }
-        auto snapshot = edit::prefab_snapshot(document, *prefab, info.id, position);
+        auto snapshot =
+            edit::prefab_snapshot(document, *prefab, info.id, position, 0, library.lookup());
         if (!snapshot) {
             log::error("{}", snapshot.error());
             return;

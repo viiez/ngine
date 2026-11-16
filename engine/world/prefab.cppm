@@ -19,25 +19,31 @@ import :ecs;
 // in Szenen mit Überschreibungen. Eine Prefab-Datei hat das Format einer Szene mit genau einer
 // Wurzel:
 //
-//   { "format": "ngine.prefab", "version": 1,
-//     "entities": [ { "id": 1, "components": { ... } }, { "id": 2, "parent": 1, ... } ] }
+//   { "format": "ngine.prefab", "version": 2,
+//     "entities": [ { "id": 1, "components": { ... } }, { "id": 2, "parent": 1, ... },
+//                   { "id": 3, "parent": 1, "prefab": 42, "overrides": [ ... ] } ] }
 //
-// Die IDs der Datei sind die Knoten der Vorlage. In der Welt ist eine Instanz voll ausgebaut: jede
-// Entity trägt PrefabNode mit ihrem Knoten, die Wurzel zusätzlich PrefabInstance mit der Kennung
-// der Vorlage (Asset). Szenen speichern von einer Instanz nur die Kennung und die Felder, die von
-// der Vorlage abweichen (Überschreibungen); ändert sich die Vorlage, ziehen alle Instanzen nach und
-// behalten ihre Überschreibungen.
+// Die IDs der Datei sind die Knoten der Vorlage. Ein Knoten mit "prefab" ist eine verschachtelte
+// Instanz einer anderen Vorlage mit eigenen Überschreibungen (seit Version 2, R4.4); er hat keine
+// Kinder in der Datei. In der Welt ist eine Instanz voll ausgebaut: jede Entity trägt PrefabNode
+// mit ihrem Knoten, die Wurzel zusätzlich PrefabInstance mit der Kennung der Vorlage (Asset), die
+// Wurzel einer verschachtelten Instanz außerdem den Knoten im äußeren Prefab (nested). Szenen
+// speichern von einer Instanz nur die Kennung und die Abweichungen von der Vorlage
+// (Überschreibungen: Felder, entfernte Knoten und Komponenten, Überschreibungen verschachtelter
+// Instanzen); ändert sich die Vorlage, ziehen alle Instanzen nach und behalten sie.
 export namespace ngine::world {
 
 template <typename T>
 using Result = std::expected<T, std::string>;
 
 inline constexpr std::string_view prefab_format = "ngine.prefab";
-inline constexpr i64 prefab_version = 1;
+inline constexpr i64 prefab_version = 2;
 
 // Wurzel einer Prefab-Instanz. Nur zur Laufzeit: Szenen speichern sie als "prefab" an der Entity.
 struct PrefabInstance {
     u64 prefab = 0;
+    // Knoten im äußeren Prefab, wenn die Instanz dort verschachtelt ist; 0 sonst.
+    u32 nested = 0;
 };
 
 // Knoten der Vorlage, den eine Entity einer Instanz darstellt (ID in der Prefab-Datei).
@@ -66,6 +72,10 @@ struct Prefab {
         // Index des Elternknotens in nodes; nichts bei der Wurzel.
         std::optional<usize> parent;
         json::Value components{json::Object{}};
+        // Verschachtelte Instanz: Kennung ihrer Vorlage und ihre Überschreibungen (Format wie
+        // prefab_overrides()); components bleibt dann leer.
+        u64 prefab = 0;
+        json::Value overrides{json::Array{}};
     };
     std::vector<Node> nodes;
 
@@ -83,12 +93,24 @@ struct Prefab {
 [[nodiscard]] Result<Prefab> load_prefab_file(std::string_view path);
 [[nodiscard]] std::string write_prefab(const Prefab& prefab);
 
-// Vorlage aus dem Teilbaum unter root. Die Wurzel kommt in den Ursprung (Position 0; Drehung und
-// Größe bleiben), Instanzen darin werden aufgelöst (verschachtelte Prefabs gibt es noch nicht).
-[[nodiscard]] Prefab make_prefab(const World& world, u64 root);
-
 // Vorlage zu einer Kennung, nullptr wenn es sie nicht gibt.
 using PrefabLookup = std::function<const Prefab*(u64 prefab)>;
+
+// Knoten, die make_prefab() aus dem Teilbaum unter root macht, in seiner Reihenfolge. Instanzen
+// darin werden verschachtelte Knoten (ohne ihre Kinder), wenn prefabs ihre Vorlage kennt; sonst
+// aufgelöst. Ist root selbst eine Instanz, behalten ihre Knoten ihre IDs, neue zählen danach.
+struct PrefabLayoutNode {
+    u64 entity = 0;
+    u32 node = 0;
+    std::optional<usize> parent;
+    bool nested = false;
+};
+[[nodiscard]] std::vector<PrefabLayoutNode> prefab_layout(const World& world, u64 root,
+                                                          const PrefabLookup& prefabs = {});
+
+// Vorlage aus dem Teilbaum unter root (Knoten wie prefab_layout()). Die Wurzel kommt in den
+// Ursprung (Position 0; Drehung und Größe bleiben).
+[[nodiscard]] Prefab make_prefab(const World& world, u64 root, const PrefabLookup& prefabs = {});
 
 // Reflektierte, nicht transiente Komponenten einer Entity als JSON-Objekt (Name → Werte), in der
 // Reihenfolge der Registrierung.
@@ -104,26 +126,38 @@ usize adopt_unknown_components(World& world);
 // Wurzel der Instanz, zu der entity gehört (entity selbst oder ein Vorfahr mit PrefabInstance),
 // 0 wenn sie zu keiner gehört.
 [[nodiscard]] u64 instance_root(const World& world, u64 entity);
-// Entities einer Instanz mit ihren Knoten, Eltern vor Kindern.
+// Entities einer Instanz mit ihren Knoten, Eltern vor Kindern, ohne verschachtelte Instanzen.
 [[nodiscard]] std::vector<std::pair<u32, u64>> instance_nodes(const World& world, u64 root);
+// Wurzeln der in der Instanz unter root verschachtelten Instanzen mit ihren Knoten.
+[[nodiscard]] std::vector<std::pair<u32, u64>> nested_instances(const World& world, u64 root);
 
-// Überschreibungen der Instanz unter root gegenüber prefab als JSON-Array
-// [{ "node": 2, "components": { "PointLight": { "color": ... } } }], nur Felder, die abweichen,
-// und Komponenten, die die Vorlage nicht hat. Leeres Array ohne Abweichungen.
-[[nodiscard]] json::Value prefab_overrides(const World& world, u64 root, const Prefab& prefab);
+// Überschreibungen der Instanz unter root gegenüber prefab als JSON-Array, ein Eintrag pro Knoten:
+//   { "node": 2, "components": { "PointLight": { "color": ... } } }  abweichende Felder und
+//                                                                      neue Komponenten
+//   { "node": 2, "removed_components": ["Laterne"] }                 entfernte Komponenten
+//   { "node": 3, "removed": true }                                   entfernter Knoten mit Kindern
+//   { "node": 4, "overrides": [ ... ] }                              verschachtelte Instanz mit
+//                                                                      eigenen Überschreibungen
+// Leeres Array ohne Abweichungen. prefabs braucht es für verschachtelte Instanzen.
+[[nodiscard]] json::Value prefab_overrides(const World& world, u64 root, const Prefab& prefab,
+                                           const PrefabLookup& prefabs = {});
 
 // Legt eine Instanz unter parent (0: Wurzel) an und wendet overrides an (Format wie
-// prefab_overrides(); nullptr: keine).
+// prefab_overrides(); nullptr: keine). Verschachtelte Instanzen löst prefabs auf; ohne Vorlage
+// bleibt von ihnen die Wurzel mit den Überschreibungen als Text.
 [[nodiscard]] Result<Entity> instantiate(World& world, const Prefab& prefab, u64 prefab_id,
-                                         const json::Value* overrides = nullptr, u64 parent = 0);
+                                         const json::Value* overrides = nullptr, u64 parent = 0,
+                                         const PrefabLookup& prefabs = {});
 
 // Bringt alle Instanzen von prefab_id von before auf after: Werte der Vorlage ändern sich,
 // Überschreibungen bleiben, neue Knoten kommen dazu, weggefallene verschwinden. Entities, die es
-// weiter gibt, behalten ihre Kennung. Liefert die Zahl der Instanzen.
-usize update_instances(World& world, u64 prefab_id, const Prefab& before, const Prefab& after);
+// weiter gibt, behalten ihre Kennung; verschachtelte Instanzen entstehen neu, wenn sich ihr
+// Eintrag in der Vorlage ändert. Liefert die Zahl der Instanzen.
+usize update_instances(World& world, u64 prefab_id, const Prefab& before, const Prefab& after,
+                       const PrefabLookup& prefabs = {});
 
 // Bricht eine Instanz auf: Die Entities bleiben, wie sie sind, die Verknüpfung mit der Vorlage
-// (PrefabInstance, PrefabNode) verschwindet.
+// (PrefabInstance, PrefabNode) verschwindet. Verschachtelte Instanzen bleiben eigene Instanzen.
 void unpack_instance(World& world, u64 root);
 
 // Registriert PrefabInstance, PrefabNode und PrefabOverrides (aus world::register_types()).
@@ -136,6 +170,7 @@ namespace ngine::world {
 // Wie instantiate(), aber mit einer schon angelegten, leeren Entity als Wurzel (0: neu anlegen).
 // Szenen laden so Instanzen an der Stelle, die ihr Eintrag in der Datei hat.
 [[nodiscard]] Result<Entity> instantiate_at(World& world, const Prefab& prefab, u64 prefab_id,
-                                            const json::Value* overrides, u64 parent, u64 root);
+                                            const json::Value* overrides, u64 parent, u64 root,
+                                            const PrefabLookup& prefabs = {}, u32 depth = 0);
 
 } // namespace ngine::world

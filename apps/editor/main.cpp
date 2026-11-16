@@ -411,11 +411,12 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             if (ui::begin_menu("Prefab")) {
                 if (ui::menu_item("Als Prefab speichern", {}, nullptr,
                                   editable && database && entity != 0 && !in_instance)) {
-                    PrefabTools::save_as_prefab(document, selected, *database);
+                    PrefabTools::save_as_prefab(document, selected, *database, (*scene)->prefabs());
                 }
                 if (ui::menu_item("Änderungen in Vorlage übernehmen", {}, nullptr,
                                   database && in_instance)) {
-                    PrefabTools::apply_to_prefab(document, selected, *database);
+                    PrefabTools::apply_to_prefab(document, selected, *database,
+                                                 (*scene)->prefabs());
                 }
                 if (ui::menu_item("Prefab aufbrechen", {}, nullptr, editable && in_instance)) {
                     PrefabTools::unpack(document, selected);

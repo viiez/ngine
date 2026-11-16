@@ -441,7 +441,13 @@ gebauten Assembly aus `assets/.cache/skripte`, sonst ohne Skripte; die Figur ste
    „Komponente hinzufügen“ bietet die Skript-Klassen an wie jede Komponente.
 5. **Ohne Skripte:** `ngine_sandbox --playground --no-scripts` steuert die Figur mit dem Rückfall in
    C++; `--headless --playground` mit und ohne `--no-scripts` ergibt dieselbe „Prüfsumme der Lagen“.
-6. **Messung:** Im Release-Build `ngine_sandbox --scripts 10000`. Das Log meldet die Zeit des
+6. **Prefabs (Schritt 5):** Im Editor im Spielplatz bei der Laterne das Kind „Pfahl“ löschen und
+   an der Laterne die Komponente „Laterne“ entfernen, speichern und die Szene neu öffnen: Pfahl
+   und Skript bleiben weg. Zwei Laternen unter eine leere Entity hängen, eine davon im Inspector
+   ändern, die Entity auswählen und „Prefab“, „Als Prefab speichern“: Die neue Vorlage enthält
+   die Laternen als verschachtelte Instanzen. `prefabs/laterne.prefab` im Editor ändern (z. B.
+   über „Änderungen in Vorlage übernehmen“): Auch die Laternen in der neuen Vorlage ziehen nach.
+7. **Messung:** Im Release-Build `ngine_sandbox --scripts 10000`. Das Log meldet die Zeit des
    ersten Bildes und den Median und das 99. Perzentil von `Update` für 10 000 Skripte pro Bild. Die
    Zahlen gehören ins Iterationsdokument.
 

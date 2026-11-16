@@ -18,26 +18,27 @@ namespace ngine::edit {
 
 namespace {
 
-// Ein Knoten einer Instanz im Dokument.
+// Ein Knoten einer Instanz im Dokument; nested: Wurzel einer verschachtelten Instanz.
 struct LinkedNode {
     EntityId entity = 0;
     u32 node = 0;
+    bool nested = false;
 };
-
-void append(SceneDocument& document, u64 entity, std::vector<LinkedNode>& out) {
-    out.push_back({.entity = document.id_of(entity), .node = static_cast<u32>(out.size() + 1)});
-    for (const u64 child : document.world().children(entity)) {
-        append(document, child, out);
-    }
-}
 
 // Setzt bzw. entfernt die Verknüpfung einer Instanz.
 void link(SceneDocument& document, const std::vector<LinkedNode>& nodes, u64 prefab,
           const std::string& overrides) {
     world::World& world = document.world();
     for (const LinkedNode& node : nodes) {
-        if (const u64 entity = document.entity_of(node.entity); entity != 0) {
+        const u64 entity = document.entity_of(node.entity);
+        if (entity == 0) {
+            continue;
+        }
+        if (!node.nested) {
             world.entity(entity).set(world::PrefabNode{.node = node.node});
+        } else if (const auto* nested = world.entity(entity).get<world::PrefabInstance>()) {
+            world.entity(entity).set(
+                world::PrefabInstance{.prefab = nested->prefab, .nested = node.node});
         }
     }
     if (const u64 root = document.entity_of(nodes.front().entity); root != 0) {
@@ -107,8 +108,8 @@ private:
 
 } // namespace
 
-Result<std::unique_ptr<Command>> link_prefab(SceneDocument& document, EntityId root,
-                                             u64 prefab_id) {
+Result<std::unique_ptr<Command>> link_prefab(SceneDocument& document, EntityId root, u64 prefab_id,
+                                             const world::PrefabLookup& prefabs) {
     const u64 entity = document.entity_of(root);
     if (entity == 0) {
         return std::unexpected(std::string{"Keine Entity ausgewählt"});
@@ -121,7 +122,11 @@ Result<std::unique_ptr<Command>> link_prefab(SceneDocument& document, EntityId r
             std::string{"Die Entity gehört schon zu einer Prefab-Instanz; erst aufbrechen"});
     }
     std::vector<LinkedNode> nodes;
-    append(document, entity, nodes);
+    for (const world::PrefabLayoutNode& node :
+         world::prefab_layout(document.world(), entity, prefabs)) {
+        nodes.push_back(
+            {.entity = document.id_of(node.entity), .node = node.node, .nested = node.nested});
+    }
     return std::unique_ptr<Command>{new LinkPrefab{std::move(nodes), prefab_id}};
 }
 
@@ -137,16 +142,20 @@ Result<std::unique_ptr<Command>> unpack_prefab(SceneDocument& document, EntityId
     for (const auto& [node, member] : world::instance_nodes(world, entity)) {
         nodes.push_back({.entity = document.id_of(member), .node = node});
     }
+    for (const auto& [node, member] : world::nested_instances(world, entity)) {
+        nodes.push_back({.entity = document.id_of(member), .node = node, .nested = true});
+    }
     const auto* stored = world.entity(entity).get<world::PrefabOverrides>();
     return std::unique_ptr<Command>{new UnpackPrefab{
         std::move(nodes), instance->prefab, stored != nullptr ? stored->json : std::string{}}};
 }
 
 Result<EntitySnapshot> prefab_snapshot(SceneDocument& document, const world::Prefab& prefab,
-                                       u64 prefab_id, math::DVec3 position, EntityId parent) {
+                                       u64 prefab_id, math::DVec3 position, EntityId parent,
+                                       const world::PrefabLookup& prefabs) {
     // In einer leeren Welt mit denselben Typen anlegen und von dort festhalten.
     world::World scratch{document.types()};
-    auto root = world::instantiate(scratch, prefab, prefab_id);
+    auto root = world::instantiate(scratch, prefab, prefab_id, nullptr, 0, prefabs);
     if (!root) {
         return std::unexpected(std::move(root.error()));
     }

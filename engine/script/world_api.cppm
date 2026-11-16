@@ -1,7 +1,3 @@
-module;
-
-#include <cstdint>
-
 // Funktionen der Welt für C# (R4.4): Entities, Komponenten, Abfragen. Interne Partition; die
 // Tabelle WorldApi steht in NativeApi (runtime.cpp) und hat dieselbe Anordnung wie
 // NGine.WorldApi in managed/Native.cs.
@@ -23,26 +19,26 @@ struct NativeChunk {
 // Komponenten werden über den Index ihres Typs in der Registry angesprochen (TypeInfo::index);
 // -1 heißt unbekannt.
 struct WorldApi {
-    std::int32_t (*type_index)(const u8* name, std::int32_t length);
+    i32 (*type_index)(const u8* name, i32 length);
     // Zeiger auf die Komponente oder nullptr. write markiert sie als geändert.
-    void* (*get)(u64 entity, std::int32_t type, std::int32_t write);
-    std::int32_t (*has)(u64 entity, std::int32_t type);
+    void* (*get)(u64 entity, i32 type, i32 write);
+    i32 (*has)(u64 entity, i32 type);
     // Setzt die Komponente: vorhanden sofort, sonst über den Befehlspuffer. 0: gut.
-    std::int32_t (*set)(u64 entity, std::int32_t type, const void* value);
-    std::int32_t (*remove)(u64 entity, std::int32_t type);
-    u64 (*create)(const u8* name, std::int32_t length);
-    std::int32_t (*destroy)(u64 entity);
-    std::int32_t (*alive)(u64 entity);
+    i32 (*set)(u64 entity, i32 type, const void* value);
+    i32 (*remove)(u64 entity, i32 type);
+    u64 (*create)(const u8* name, i32 length);
+    i32 (*destroy)(u64 entity);
+    i32 (*alive)(u64 entity);
     u64 (*parent)(u64 entity);
-    std::int32_t (*set_parent)(u64 child, u64 parent);
-    std::int32_t (*children)(u64 entity, u64* out, std::int32_t capacity);
+    i32 (*set_parent)(u64 child, u64 parent);
+    i32 (*children)(u64 entity, u64* out, i32 capacity);
     // Länge des Namens, Text in *out (gilt bis zur nächsten Strukturänderung); -1 ohne Namen.
-    std::int32_t (*name)(u64 entity, const u8** out);
-    std::int32_t (*set_name)(u64 entity, const u8* name, std::int32_t length);
-    u64 (*find)(const u8* name, std::int32_t length);
+    i32 (*name)(u64 entity, const u8** out);
+    i32 (*set_name)(u64 entity, const u8* name, i32 length);
+    u64 (*find)(const u8* name, i32 length);
     // Anzahl der Chunks; *out gilt bis zur nächsten Abfrage mit denselben Typen oder
     // Strukturänderung.
-    std::int32_t (*query)(const std::int32_t* types, std::int32_t count, const NativeChunk** out);
+    i32 (*query)(const i32* types, i32 count, const NativeChunk** out);
 };
 
 [[nodiscard]] WorldApi make_world_api();

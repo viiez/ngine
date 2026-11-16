@@ -1,6 +1,6 @@
 # 0037: Prefabs als Dateien, Instanzen voll ausgebaut mit Überschreibungen auf Feldebene
 
-- **Status:** angenommen
+- **Status:** angenommen, ergänzt durch [ADR 0048](0048-prefab-removals-nested-instances.md) (entfernte Knoten und Komponenten, verschachtelte Instanzen)
 - **Datum:** 2026-11-08
 
 ## Kontext

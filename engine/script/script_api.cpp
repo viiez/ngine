@@ -1,7 +1,6 @@
 module;
 
 #include <algorithm>
-#include <cstdint>
 #include <format>
 #include <memory>
 #include <span>
@@ -37,11 +36,11 @@ Context& context() {
     return instance;
 }
 
-std::string_view text(const u8* data, std::int32_t length) {
+std::string_view text(const u8* data, i32 length) {
     return {reinterpret_cast<const char*>(data), static_cast<usize>(length < 0 ? 0 : length)};
 }
 
-const reflect::TypeInfo* type_at(std::int32_t index) {
+const reflect::TypeInfo* type_at(i32 index) {
     const reflect::TypeRegistry* types = context().types;
     if (types == nullptr || index < 0) {
         return nullptr;
@@ -70,15 +69,14 @@ bool same_layout(const reflect::TypeInfo& type,
     return true;
 }
 
-std::int32_t api_register_script(const u8* name, std::int32_t length, const ScriptFieldDesc* fields,
-                                 std::int32_t count) {
+i32 api_register_script(const u8* name, i32 length, const ScriptFieldDesc* fields, i32 count) {
     Context& c = context();
     if (c.types == nullptr) {
         return -1;
     }
     const std::string type_name{text(name, length)};
     std::vector<reflect::TypeRegistry::CompositeField> composite;
-    for (std::int32_t i = 0; i < count; ++i) {
+    for (i32 i = 0; i < count; ++i) {
         const ScriptFieldDesc& desc = fields[i];
         const std::string field_type{text(desc.type, desc.type_length)};
         const reflect::TypeInfo* type = c.types->find(field_type);
@@ -91,7 +89,7 @@ std::int32_t api_register_script(const u8* name, std::int32_t length, const Scri
         if (desc.has_range != 0) {
             field.range = reflect::Range{.min = desc.min, .max = desc.max, .step = desc.step};
         }
-        if (desc.hint >= 0 && desc.hint <= static_cast<std::int32_t>(reflect::Hint::Asset)) {
+        if (desc.hint >= 0 && desc.hint <= static_cast<i32>(reflect::Hint::Asset)) {
             field.hint = static_cast<reflect::Hint>(desc.hint);
         }
         composite.push_back(std::move(field));
@@ -104,7 +102,7 @@ std::int32_t api_register_script(const u8* name, std::int32_t length, const Scri
     }
     if (existing != nullptr && same_layout(*existing, composite)) {
         c.registered.push_back(existing);
-        return static_cast<std::int32_t>(existing->index);
+        return static_cast<i32>(existing->index);
     }
     if (existing != nullptr) {
         c.types->retire(*existing);
@@ -115,36 +113,36 @@ std::int32_t api_register_script(const u8* name, std::int32_t length, const Scri
         log::info("Skript {}: Felder geändert, Komponenten ziehen um", type_name);
     }
     c.registered.push_back(&added);
-    return static_cast<std::int32_t>(added.index);
+    return static_cast<i32>(added.index);
 }
 
-std::int64_t api_field_offset(std::int32_t type, std::int32_t field) {
+i64 api_field_offset(i32 type, i32 field) {
     const reflect::TypeInfo* info = type_at(type);
     if (info == nullptr) {
         return -1;
     }
     if (field < 0) {
-        return static_cast<std::int64_t>(info->size);
+        return static_cast<i64>(info->size);
     }
     return static_cast<usize>(field) < info->fields.size()
-               ? static_cast<std::int64_t>(info->fields[static_cast<usize>(field)].offset)
+               ? static_cast<i64>(info->fields[static_cast<usize>(field)].offset)
                : -1;
 }
 
-void* api_prototype(std::int32_t type) {
+void* api_prototype(i32 type) {
     const reflect::TypeInfo* info = type_at(type);
     return info != nullptr && info->composite != nullptr
                ? reflect::TypeRegistry::composite_prototype(*info)
                : nullptr;
 }
 
-std::int32_t api_string_get(const void* string, const u8** out) {
+i32 api_string_get(const void* string, const u8** out) {
     const auto& value = *static_cast<const std::string*>(string);
     *out = reinterpret_cast<const u8*>(value.data());
-    return static_cast<std::int32_t>(value.size());
+    return static_cast<i32>(value.size());
 }
 
-void api_string_set(void* string, const u8* data, std::int32_t length) {
+void api_string_set(void* string, const u8* data, i32 length) {
     static_cast<std::string*>(string)->assign(text(data, length));
 }
 

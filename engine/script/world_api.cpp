@@ -2,7 +2,6 @@ module;
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -34,7 +33,7 @@ struct Context {
     std::optional<world::Commands> commands;
     // Komponente pro Index in der Registry; 0 heißt noch nicht nachgeschlagen.
     std::vector<world::ComponentId> components;
-    std::map<std::vector<std::int32_t>, std::unique_ptr<CachedQuery>> queries;
+    std::map<std::vector<i32>, std::unique_ptr<CachedQuery>> queries;
 };
 
 Context& context() {
@@ -42,11 +41,11 @@ Context& context() {
     return instance;
 }
 
-std::string_view text(const u8* data, std::int32_t length) {
+std::string_view text(const u8* data, i32 length) {
     return {reinterpret_cast<const char*>(data), static_cast<usize>(length < 0 ? 0 : length)};
 }
 
-const reflect::TypeInfo* type_at(std::int32_t index) {
+const reflect::TypeInfo* type_at(i32 index) {
     const Context& c = context();
     if (c.world == nullptr || index < 0) {
         return nullptr;
@@ -55,7 +54,7 @@ const reflect::TypeInfo* type_at(std::int32_t index) {
     return static_cast<usize>(index) < types.size() ? types[static_cast<usize>(index)] : nullptr;
 }
 
-world::ComponentId component_at(std::int32_t index) {
+world::ComponentId component_at(i32 index) {
     Context& c = context();
     const reflect::TypeInfo* type = type_at(index);
     if (type == nullptr || type->kind != reflect::Kind::Struct) {
@@ -101,16 +100,16 @@ void copy_visible(const reflect::TypeInfo& type, std::byte* target, const std::b
 
 // --- Funktionen für C# ---------------------------------------------------------------------
 
-std::int32_t api_type_index(const u8* name, std::int32_t length) {
+i32 api_type_index(const u8* name, i32 length) {
     const Context& c = context();
     if (c.world == nullptr) {
         return -1;
     }
     const reflect::TypeInfo* type = c.world->types().find(text(name, length));
-    return type != nullptr ? static_cast<std::int32_t>(type->index) : -1;
+    return type != nullptr ? static_cast<i32>(type->index) : -1;
 }
 
-void* api_get(u64 entity, std::int32_t type, std::int32_t write) {
+void* api_get(u64 entity, i32 type, i32 write) {
     if (!live(entity)) {
         return nullptr;
     }
@@ -127,7 +126,7 @@ void* api_get(u64 entity, std::int32_t type, std::int32_t write) {
     return data;
 }
 
-std::int32_t api_has(u64 entity, std::int32_t type) {
+i32 api_has(u64 entity, i32 type) {
     if (!live(entity)) {
         return 0;
     }
@@ -135,7 +134,7 @@ std::int32_t api_has(u64 entity, std::int32_t type) {
     return component != 0 && context().world->has(entity, component) ? 1 : 0;
 }
 
-std::int32_t api_set(u64 entity, std::int32_t type, const void* value) {
+i32 api_set(u64 entity, i32 type, const void* value) {
     Context& c = context();
     const reflect::TypeInfo* info = type_at(type);
     const world::ComponentId component = component_at(type);
@@ -165,7 +164,7 @@ std::int32_t api_set(u64 entity, std::int32_t type, const void* value) {
     return 0;
 }
 
-std::int32_t api_remove(u64 entity, std::int32_t type) {
+i32 api_remove(u64 entity, i32 type) {
     Context& c = context();
     const reflect::TypeInfo* info = type_at(type);
     if (info == nullptr || component_at(type) == 0 || !addressable(entity)) {
@@ -175,7 +174,7 @@ std::int32_t api_remove(u64 entity, std::int32_t type) {
     return 0;
 }
 
-u64 api_create(const u8* name, std::int32_t length) {
+u64 api_create(const u8* name, i32 length) {
     Context& c = context();
     if (c.world == nullptr) {
         return 0;
@@ -183,7 +182,7 @@ u64 api_create(const u8* name, std::int32_t length) {
     return length > 0 ? c.commands->create(text(name, length)).id() : c.commands->create().id();
 }
 
-std::int32_t api_destroy(u64 entity) {
+i32 api_destroy(u64 entity) {
     Context& c = context();
     if (!addressable(entity)) {
         return -1;
@@ -192,7 +191,7 @@ std::int32_t api_destroy(u64 entity) {
     return 0;
 }
 
-std::int32_t api_alive(u64 entity) {
+i32 api_alive(u64 entity) {
     return live(entity) ? 1 : 0;
 }
 
@@ -200,7 +199,7 @@ u64 api_parent(u64 entity) {
     return live(entity) ? context().world->parent(entity) : 0;
 }
 
-std::int32_t api_set_parent(u64 child, u64 parent) {
+i32 api_set_parent(u64 child, u64 parent) {
     Context& c = context();
     if (!addressable(child) || (parent != 0 && !addressable(parent))) {
         return -1;
@@ -210,7 +209,7 @@ std::int32_t api_set_parent(u64 child, u64 parent) {
     return 0;
 }
 
-std::int32_t api_children(u64 entity, u64* out, std::int32_t capacity) {
+i32 api_children(u64 entity, u64* out, i32 capacity) {
     if (!live(entity)) {
         return 0;
     }
@@ -219,10 +218,10 @@ std::int32_t api_children(u64 entity, u64* out, std::int32_t capacity) {
     if (out != nullptr) {
         std::memcpy(out, children.data(), count * sizeof(u64));
     }
-    return static_cast<std::int32_t>(children.size());
+    return static_cast<i32>(children.size());
 }
 
-std::int32_t api_name(u64 entity, const u8** out) {
+i32 api_name(u64 entity, const u8** out) {
     if (!live(entity)) {
         return -1;
     }
@@ -231,10 +230,10 @@ std::int32_t api_name(u64 entity, const u8** out) {
         return -1;
     }
     *out = reinterpret_cast<const u8*>(name->value.data());
-    return static_cast<std::int32_t>(name->value.size());
+    return static_cast<i32>(name->value.size());
 }
 
-std::int32_t api_set_name(u64 entity, const u8* name, std::int32_t length) {
+i32 api_set_name(u64 entity, const u8* name, i32 length) {
     Context& c = context();
     if (!addressable(entity)) {
         return -1;
@@ -243,7 +242,7 @@ std::int32_t api_set_name(u64 entity, const u8* name, std::int32_t length) {
     return 0;
 }
 
-u64 api_find(const u8* name, std::int32_t length) {
+u64 api_find(const u8* name, i32 length) {
     Context& c = context();
     if (c.world == nullptr) {
         return 0;
@@ -258,16 +257,16 @@ u64 api_find(const u8* name, std::int32_t length) {
     return found;
 }
 
-std::int32_t api_query(const std::int32_t* types, std::int32_t count, const NativeChunk** out) {
+i32 api_query(const i32* types, i32 count, const NativeChunk** out) {
     Context& c = context();
     if (c.world == nullptr || count <= 0 || static_cast<usize>(count) > world::max_query_terms) {
         return -1;
     }
-    std::vector<std::int32_t> key(types, types + count);
+    std::vector<i32> key(types, types + count);
     auto& cached = c.queries[key];
     if (!cached) {
         std::vector<world::detail::Term> terms;
-        for (const std::int32_t type : key) {
+        for (const i32 type : key) {
             const world::ComponentId component = component_at(type);
             if (component == 0) {
                 c.queries.erase(key);
@@ -290,7 +289,7 @@ std::int32_t api_query(const std::int32_t* types, std::int32_t count, const Nati
         }
     }
     *out = cached->native.data();
-    return static_cast<std::int32_t>(cached->native.size());
+    return static_cast<i32>(cached->native.size());
 }
 
 } // namespace

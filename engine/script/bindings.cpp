@@ -5,7 +5,6 @@ module;
 #include <bit>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -101,33 +100,26 @@ T load(const std::byte* data) {
 
 // Wert eines Feldes als C#-Ausdruck; leer bei 0 (C# setzt Felder ohnehin auf 0).
 std::string literal(const reflect::TypeInfo& type, const std::byte* data) {
-    const auto integer = [&]() -> std::int64_t {
+    const auto integer = [&]() -> i64 {
         switch (type.size) {
-        case 1:
-            return type.kind == reflect::Kind::Int ? load<std::int8_t>(data)
-                                                   : load<std::uint8_t>(data);
-        case 2:
-            return type.kind == reflect::Kind::Int ? load<std::int16_t>(data)
-                                                   : load<std::uint16_t>(data);
-        case 4:
-            return type.kind == reflect::Kind::Int ? load<std::int32_t>(data)
-                                                   : load<std::uint32_t>(data);
-        default: return load<std::int64_t>(data);
+        case 1: return type.kind == reflect::Kind::Int ? load<i8>(data) : load<u8>(data);
+        case 2: return type.kind == reflect::Kind::Int ? load<i16>(data) : load<u16>(data);
+        case 4: return type.kind == reflect::Kind::Int ? load<i32>(data) : load<u32>(data);
+        default: return load<i64>(data);
         }
     };
     switch (type.kind) {
     case reflect::Kind::Bool: return load<bool>(data) ? "true" : "";
     case reflect::Kind::Int: {
-        const std::int64_t value = integer();
+        const i64 value = integer();
         return value != 0 ? std::format("({}){}", csharp_type(type), value) : "";
     }
     case reflect::Kind::UInt: {
-        const auto value =
-            type.size == 8 ? load<std::uint64_t>(data) : static_cast<std::uint64_t>(integer());
+        const auto value = type.size == 8 ? load<u64>(data) : static_cast<u64>(integer());
         return value != 0 ? std::format("({}){}UL", csharp_type(type), value) : "";
     }
     case reflect::Kind::Enum: {
-        const std::int64_t value = integer();
+        const i64 value = integer();
         return value != 0 ? std::format("({}){}", type.name, value) : "";
     }
     case reflect::Kind::Float: {
