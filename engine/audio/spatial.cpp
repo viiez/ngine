@@ -15,17 +15,29 @@ f32 attenuation(f32 distance, f32 min_distance, f32 max_distance, Rolloff rollof
                 f32 factor) noexcept {
     const f32 lo = std::max(min_distance, 0.001f);
     const f32 hi = std::max(max_distance, lo);
+    if (distance >= hi) {
+        // Ab max_distance still, bei jeder Kurve (Abnahme R4.5: sonst blieb ein Rest hörbar).
+        return 0.0f;
+    }
     const f32 d = std::clamp(distance, lo, hi);
+    f32 gain = 1.0f;
     switch (rolloff) {
-    case Rolloff::Inverse: return lo / (lo + std::max(factor, 0.0f) * (d - lo));
+    case Rolloff::Inverse: gain = lo / (lo + std::max(factor, 0.0f) * (d - lo)); break;
     case Rolloff::Linear:
         if (hi <= lo) {
             return 1.0f;
         }
         return std::clamp(1.0f - std::max(factor, 0.0f) * (d - lo) / (hi - lo), 0.0f, 1.0f);
-    case Rolloff::Exponential: return std::pow(d / lo, -std::max(factor, 0.0f));
+    case Rolloff::Exponential: gain = std::pow(d / lo, -std::max(factor, 0.0f)); break;
     }
-    return 1.0f;
+    // Inverse und Exponential laufen im letzten Fünftel bis max_distance weich auf null aus,
+    // statt am Rand abzubrechen.
+    const f32 fade_start = hi - (hi - lo) * max_distance_fade;
+    if (d > fade_start) {
+        const f32 t = (hi - d) / (hi - fade_start);
+        gain *= t * t * (3.0f - 2.0f * t);
+    }
+    return gain;
 }
 
 PanGains equal_power_pan(f32 pan) noexcept {

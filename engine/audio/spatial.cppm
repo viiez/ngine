@@ -49,8 +49,12 @@ struct SpatialResult {
     f32 distance = 0.0f;
 };
 
-// Abschwächung im Abstand distance (siehe Rolloff). Unter min_distance 1, über max_distance der
-// Wert bei max_distance.
+// Abschwächung im Abstand distance (siehe Rolloff). Unter min_distance 1, ab max_distance 0;
+// Inverse und Exponential blenden im letzten Teil der Strecke (max_distance_fade) weich aus.
+// Anteil der Strecke von min_distance bis max_distance, über den Inverse und Exponential auf null
+// ausblenden.
+constexpr f32 max_distance_fade = 0.2f;
+
 [[nodiscard]] f32 attenuation(f32 distance, f32 min_distance, f32 max_distance, Rolloff rolloff,
                               f32 factor) noexcept;
 

@@ -137,9 +137,16 @@ TEST_CASE("Attenuation curves", "[audio]") {
     CHECK_THAT(audio::attenuation(2.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f), WithinAbs(0.5, 1e-6));
     CHECK_THAT(audio::attenuation(10.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f),
                WithinAbs(0.1, 1e-6));
-    // Über max_distance nicht mehr leiser.
-    CHECK(audio::attenuation(500.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f) ==
-          audio::attenuation(50.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f));
+    // Bis max_distance weich auf null, darüber still, bei jeder Kurve.
+    CHECK(audio::attenuation(45.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f) < 1.0f / 45.0f);
+    CHECK(audio::attenuation(45.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f) > 0.0f);
+    CHECK(audio::attenuation(50.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f) == 0.0f);
+    CHECK(audio::attenuation(500.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f) == 0.0f);
+    CHECK(audio::attenuation(500.0f, 1.0f, 50.0f, Rolloff::Exponential, 1.0f) == 0.0f);
+    CHECK(audio::attenuation(500.0f, 1.0f, 50.0f, Rolloff::Linear, 1.0f) == 0.0f);
+    // Unter dem Ausblenden unverändert.
+    CHECK_THAT(audio::attenuation(30.0f, 1.0f, 50.0f, Rolloff::Inverse, 1.0f),
+               WithinAbs(1.0 / 30.0, 1e-6));
     CHECK_THAT(audio::attenuation(25.5f, 1.0f, 50.0f, Rolloff::Linear, 1.0f), WithinAbs(0.5, 1e-6));
     CHECK(audio::attenuation(50.0f, 1.0f, 50.0f, Rolloff::Linear, 1.0f) == 0.0f);
     CHECK_THAT(audio::attenuation(4.0f, 1.0f, 50.0f, Rolloff::Exponential, 1.0f),

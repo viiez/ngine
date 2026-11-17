@@ -29,7 +29,8 @@ arbeitet, soll im eigenen Code sichtbar sein.
   Stimme (`SampleRing`), der Mixer liest nur daraus; läuft er leer, ist die Stimme still und ein
   Zähler meldet es.
 - **Räumlichkeit im Hauptthread.** Das `AudioSystem` rechnet pro Bild Abschwächung (`Inverse`,
-  `Linear`, `Exponential` zwischen `min_distance` und `max_distance`), Panning mit gleicher
+  `Linear`, `Exponential` zwischen `min_distance` und `max_distance`, ab `max_distance` still;
+  Inverse und Exponential blenden im letzten Fünftel weich aus), Panning mit gleicher
   Leistung und Doppler aus den Bewegungen von Quelle und Hörer relativ zum Hörer in `f64` und
   schickt dem Mixer nur Gains links und rechts und die Tonhöhe. Es liest die Welt nur und ändert
   die Prüfsumme der Simulation nicht.
