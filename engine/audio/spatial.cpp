@@ -85,4 +85,32 @@ ListenerPose listener_from(const math::Affine& transform, math::Vec3 velocity) n
                         .velocity = velocity};
 }
 
+math::Vec3 MotionTracker::update(math::DVec3 position, f64 dt) noexcept {
+    if (!have_) {
+        last_ = position;
+        have_ = true;
+        return smoothed_;
+    }
+    if (dt <= 0.0) {
+        return smoothed_;
+    }
+    since_ += dt;
+    if (position != last_) {
+        // Weg seit der letzten Änderung durch die Zeit seitdem: gleich, ob die Lage in jedem Bild
+        // oder nur in jedem zweiten Bild weiterrückt.
+        raw_ = math::to_f32((position - last_) / since_);
+        last_ = position;
+        since_ = 0.0;
+    } else if (since_ > hold_seconds) {
+        raw_ = {0.0f, 0.0f, 0.0f};
+    }
+    // Sprünge (z. B. Teleport) nicht als Überschallflug werten.
+    if (math::length(raw_) > speed_of_sound) {
+        raw_ = {0.0f, 0.0f, 0.0f};
+    }
+    const auto alpha = static_cast<f32>(1.0 - std::exp(-dt / smoothing_seconds));
+    smoothed_ = smoothed_ + (raw_ - smoothed_) * alpha;
+    return smoothed_;
+}
+
 } // namespace ngine::audio

@@ -71,6 +71,34 @@ struct PanGains {
                                        const EmitterPose& emitter) noexcept;
 
 // Hörer aus einer Weltlage (z. B. WorldTransform der Kamera); Skalierung zählt nicht.
+// Geschwindigkeit aus den Lagen der Bilder für Doppler. Lagen ändern sich oft nur in den festen
+// Schritten der Simulation (60 Hz), Bilder kommen aber mit 144 Hz oder ungleichmäßig; einfache
+// Differenzen pro Bild springen dann zwischen null und dem Doppelten, und die Tonhöhe zittert.
+// Der Tracker teilt den Weg durch die Zeit seit der letzten Änderung und glättet das Ergebnis.
+class MotionTracker {
+public:
+    // Nach so langer Zeit ohne Änderung gilt die Lage als still.
+    static constexpr f64 hold_seconds = 0.1;
+    // Zeitkonstante der Glättung.
+    static constexpr f64 smoothing_seconds = 0.08;
+
+    // Neue Lage nach dt Sekunden; liefert die geglättete Geschwindigkeit.
+    math::Vec3 update(math::DVec3 position, f64 dt) noexcept;
+    void reset() noexcept {
+        *this = {};
+    }
+    [[nodiscard]] math::Vec3 velocity() const noexcept {
+        return smoothed_;
+    }
+
+private:
+    math::DVec3 last_{0.0, 0.0, 0.0};
+    f64 since_ = 0.0;
+    math::Vec3 raw_{0.0f, 0.0f, 0.0f};
+    math::Vec3 smoothed_{0.0f, 0.0f, 0.0f};
+    bool have_ = false;
+};
+
 [[nodiscard]] ListenerPose listener_from(const math::Affine& transform,
                                          math::Vec3 velocity = {0.0f, 0.0f, 0.0f}) noexcept;
 

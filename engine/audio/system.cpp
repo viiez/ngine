@@ -22,13 +22,6 @@ namespace {
 // der eine Sekunde zu spät kommt, klingt falsch).
 constexpr u32 max_one_shot_wait = 30;
 
-[[nodiscard]] math::Vec3 velocity_of(math::DVec3 now, math::DVec3 before, f64 dt) noexcept {
-    if (dt <= 1e-6) {
-        return {0.0f, 0.0f, 0.0f};
-    }
-    return math::to_f32((now - before) / dt);
-}
-
 } // namespace
 
 AudioSystem::AudioSystem(AudioEngine& engine, asset::ResourceManager& resources,
@@ -87,6 +80,8 @@ AudioSystem::Choice AudioSystem::choose(u64 sound) {
         it->second = resources_->load<Sound>(id);
     }
     choice.sound = it->second.get();
+    choice.id = id;
+    choice.version = it->second.version();
     if (choice.sound == nullptr) {
         choice.pending = it->second.state() == asset::ResourceState::Loading;
     }
@@ -128,77 +123,81 @@ void AudioSystem::update(world::World& world, f64 dt) {
         listener_volume_ = 1.0f;
     }
     if (listener_transform) {
-        const math::Vec3 velocity =
-            have_listener_ ? velocity_of(listener_transform->translation, last_listener_, dt)
-                           : math::Vec3{0.0f, 0.0f, 0.0f};
+        const math::Vec3 velocity = listener_motion_.update(listener_transform->translation, dt);
         listener_ = listener_from(*listener_transform, velocity);
-        last_listener_ = listener_transform->translation;
-        have_listener_ = true;
     }
 
-    world.query<const AudioSource, const world::WorldTransform>().each(
-        [&](world::Entity entity, const AudioSource& source,
-            const world::WorldTransform& transform) {
-            Source& state = sources_[entity.id()];
-            state.seen = frame_;
-            const math::DVec3 position = transform.position();
-            const math::Vec3 velocity = state.have_last
-                                            ? velocity_of(position, state.last_position, dt)
-                                            : math::Vec3{0.0f, 0.0f, 0.0f};
-            state.last_position = position;
-            state.have_last = true;
+    // Quellen ohne Lage (z. B. Wind ohne Transform) spielen am Hörer; ohne Ortung ist die Lage
+    // ohnehin egal.
+    world.query<const AudioSource>().each([&](world::Entity entity, const AudioSource& source) {
+        Source& state = sources_[entity.id()];
+        state.seen = frame_;
+        const auto* transform = entity.get<world::WorldTransform>();
+        const math::DVec3 position =
+            transform != nullptr ? transform->position() : listener_.position;
+        const math::Vec3 velocity =
+            transform != nullptr ? state.motion.update(position, dt) : listener_.velocity;
 
-            if (state.sound != source.sound) {
-                // Anderer Klang: neu beginnen, wie beim ersten Erscheinen.
-                engine_->stop(state.voice);
-                state.voice = {};
-                state.sound = source.sound;
-                state.started = false;
+        if (state.sound != source.sound) {
+            // Anderer Klang: neu beginnen, wie beim ersten Erscheinen.
+            engine_->stop(state.voice);
+            state.voice = {};
+            state.sound = source.sound;
+            state.started = false;
+        }
+        if (state.voice.valid() && !engine_->playing(state.voice)) {
+            state.voice = {};
+        }
+        if (state.voice.valid() && state.playing_sound != 0) {
+            const auto loaded = sounds_.find(state.playing_sound);
+            if (loaded != sounds_.end() && loaded->second.get() != nullptr &&
+                loaded->second.version() != state.version) {
+                // Hot Reload: mit dem neuen Klang neu beginnen.
+                state.requested = true;
             }
-            if (state.voice.valid() && !engine_->playing(state.voice)) {
-                state.voice = {};
-            }
+        }
 
-            const EmitterPose pose{.position = position,
-                                   .velocity = velocity,
-                                   .min_distance = source.min_distance,
-                                   .max_distance = source.max_distance,
-                                   .rolloff = source.rolloff,
-                                   .rolloff_factor = source.rolloff_factor,
-                                   .doppler = source.doppler};
-            const bool start = state.requested || (!state.started && source.play_on_start);
-            if (start && source.sound != 0) {
-                const Choice choice = choose(source.sound);
-                if (choice.pending) {
-                    // Noch nicht geladen: im nächsten Bild wieder versuchen.
-                    state.requested = true;
-                    ++pending_;
-                    return;
-                }
-                state.requested = false;
-                state.started = true;
-                if (choice.sound == nullptr) {
-                    return;
-                }
-                engine_->stop(state.voice);
-                state.variation_volume = choice.volume;
-                state.variation_pitch = choice.pitch;
-                state.voice =
-                    engine_->play(*choice.sound,
-                                  PlayParams{.bus = source.bus,
-                                             .loop = source.loop,
-                                             .spatial = source.spatial,
-                                             .mix = mix_for(pose, source.spatial,
-                                                            source.volume * state.variation_volume,
-                                                            source.pitch * state.variation_pitch)});
+        const EmitterPose pose{.position = position,
+                               .velocity = velocity,
+                               .min_distance = source.min_distance,
+                               .max_distance = source.max_distance,
+                               .rolloff = source.rolloff,
+                               .rolloff_factor = source.rolloff_factor,
+                               .doppler = source.doppler};
+        const bool start = state.requested || (!state.started && source.play_on_start);
+        if (start && source.sound != 0) {
+            const Choice choice = choose(source.sound);
+            if (choice.pending) {
+                // Noch nicht geladen: im nächsten Bild wieder versuchen.
+                state.requested = true;
+                ++pending_;
                 return;
             }
-            if (state.voice.valid()) {
-                engine_->set(state.voice,
-                             mix_for(pose, source.spatial, source.volume * state.variation_volume,
-                                     source.pitch * state.variation_pitch));
+            state.requested = false;
+            state.started = true;
+            if (choice.sound == nullptr) {
+                return;
             }
-        });
+            engine_->stop(state.voice);
+            state.playing_sound = choice.id;
+            state.version = choice.version;
+            state.variation_volume = choice.volume;
+            state.variation_pitch = choice.pitch;
+            state.voice = engine_->play(
+                *choice.sound, PlayParams{.bus = source.bus,
+                                          .loop = source.loop,
+                                          .spatial = source.spatial,
+                                          .mix = mix_for(pose, source.spatial,
+                                                         source.volume * state.variation_volume,
+                                                         source.pitch * state.variation_pitch)});
+            return;
+        }
+        if (state.voice.valid()) {
+            engine_->set(state.voice,
+                         mix_for(pose, source.spatial, source.volume * state.variation_volume,
+                                 source.pitch * state.variation_pitch));
+        }
+    });
 
     // Quellen, die verschwunden sind (Entity zerstört oder Komponente entfernt).
     std::erase_if(sources_, [&](auto& entry) {

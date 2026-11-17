@@ -441,7 +441,7 @@ Gerät läuft alles mit dem Null-Gerät und einer Warnung im Log.
    „AudioSource“ mit Klang, Bus, Lautstärke, Reichweiten und Kurve. Im Fenster
    „Terrain-Materialien“ hat jedes Material das Feld „Schritte“ für einen Klang oder Klangsatz.
 6. **Hot Reload:** Im Editor bei laufendem Spiel `assets/klaenge/welt/summen.wav` durch eine andere WAV-Datei
-   ersetzen (Name und `.meta` bleiben): Neue Stimmen spielen den neuen Klang.
+   ersetzen (Name und `.meta` bleiben): Das Summen beginnt sofort mit dem neuen Klang neu.
 7. **Ohne Gerät und stumm:** `ngine_sandbox --playground --no-audio` läuft mit dem Null-Gerät,
    `--mute` mit Gerät, aber stumm. `ngine_sandbox --headless --playground` meldet dieselbe
    „Prüfsumme der Lagen“ wie vor R4.5.

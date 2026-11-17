@@ -509,6 +509,87 @@ TEST_CASE("Audio system places sources relative to the listener", "[audio]") {
     CHECK(system.stats().sources == 0);
 }
 
+TEST_CASE("Sources without a transform play unspatialized", "[audio]") {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    audio::register_types(types);
+    world::World world{types};
+    asset::ResourceManager resources;
+    const u64 id = asset::generated_id("wind");
+    resources.add<audio::Sound>(id, memory_sound(sine(48000, 1.0)));
+    audio::AudioEngine engine{manual()};
+    audio::AudioSystem system{engine, resources};
+    system.set_fallback_listener(math::Affine{});
+
+    // Wie der Wind auf dem Spielplatz: nur AudioSource, kein Transform.
+    world::Entity wind = world.create("Wind");
+    wind.set(audio::AudioSource{
+        .sound = id, .bus = audio::AudioBus::Ambient, .loop = true, .spatial = false});
+    system.update(world, 1.0 / 60.0);
+    CHECK(system.playing(wind.id()));
+    auto* device = engine.manual_device();
+    device->render(1024);
+    const Levels level = rms(device->render(4096));
+    CHECK(level.left > 0.1f);
+    CHECK_THAT(level.left, WithinAbs(level.right, 1e-5));
+}
+
+TEST_CASE("Looping sources restart with a reloaded sound", "[audio]") {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    audio::register_types(types);
+    world::World world{types};
+    asset::ResourceManager resources;
+    const u64 id = asset::generated_id("summen");
+    resources.add<audio::Sound>(id, memory_sound(sine(48000, 1.0, 440.0f, 1, 0.5f)));
+    audio::AudioEngine engine{manual()};
+    audio::AudioSystem system{engine, resources};
+    system.set_fallback_listener(math::Affine{});
+    world::Entity hum = world.create("Summer");
+    hum.set(audio::AudioSource{.sound = id, .loop = true, .spatial = false});
+    system.update(world, 1.0 / 60.0);
+    auto* device = engine.manual_device();
+    device->render(2048);
+    const Levels before = rms(device->render(4096));
+
+    // Hot Reload: derselbe Klang, jetzt halb so laut. Die Schleife beginnt neu mit ihm.
+    resources.add<audio::Sound>(id, memory_sound(sine(48000, 1.0, 440.0f, 1, 0.25f)));
+    system.update(world, 1.0 / 60.0);
+    system.update(world, 1.0 / 60.0);
+    device->render(4096);
+    const Levels after = rms(device->render(4096));
+    CHECK_THAT(after.left / before.left, WithinAbs(0.5, 0.05));
+}
+
+TEST_CASE("Motion tracker gives a steady velocity at uneven frame rates", "[audio]") {
+    // Die Lage rückt in festen Schritten zu 1/60 s um 0,2 m vor (12 m/s), gelesen wird mit
+    // 144 Hz: Viele Bilder sehen keine Änderung, manche zwei Schritte.
+    audio::MotionTracker tracker;
+    constexpr f64 frame = 1.0 / 144.0;
+    constexpr f64 step = 1.0 / 60.0;
+    f32 lowest = 1e9f;
+    f32 highest = 0.0f;
+    for (i32 i = 0; i < 600; ++i) {
+        const f64 t = static_cast<f64>(i) * frame;
+        const f64 x = std::floor(t / step) * 0.2;
+        const f32 speed = tracker.update({x, 0.0, 0.0}, frame).x;
+        if (t > 0.5) {
+            lowest = std::min(lowest, speed);
+            highest = std::max(highest, speed);
+        }
+    }
+    CHECK(lowest > 10.0f);
+    CHECK(highest < 14.0f);
+    // Steht die Lage still, fällt die Geschwindigkeit auf null.
+    for (i32 i = 0; i < 144; ++i) {
+        (void)tracker.update({1000.0, 0.0, 0.0}, frame);
+    }
+    for (i32 i = 0; i < 144; ++i) {
+        (void)tracker.update({1000.0, 0.0, 0.0}, frame);
+    }
+    CHECK(std::abs(tracker.velocity().x) < 0.01f);
+}
+
 TEST_CASE("Audio system plays one-shots and sound sets", "[audio]") {
     reflect::TypeRegistry types;
     world::register_types(types);

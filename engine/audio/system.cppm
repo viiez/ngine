@@ -87,12 +87,17 @@ private:
         f32 volume = 1.0f;
         f32 pitch = 1.0f;
         bool pending = false;
+        u64 id = 0;
+        u32 version = 0;
     };
     struct Source {
         Voice voice;
         u64 sound = 0;
-        math::DVec3 last_position{0.0, 0.0, 0.0};
-        bool have_last = false;
+        MotionTracker motion;
+        // Gespielter Klang und seine Version im Ressourcen-Manager: Lädt er neu (Hot Reload),
+        // beginnt die Quelle mit dem neuen Klang.
+        u64 playing_sound = 0;
+        u32 version = 0;
         bool started = false;
         bool requested = false;
         u64 seen = 0;
@@ -125,8 +130,7 @@ private:
     std::vector<OneShot> one_shots_;
     std::optional<math::Affine> fallback_;
     ListenerPose listener_;
-    math::DVec3 last_listener_{0.0, 0.0, 0.0};
-    bool have_listener_ = false;
+    MotionTracker listener_motion_;
     f32 listener_volume_ = 1.0f;
     f64 dt_ = 0.0;
     u64 frame_ = 0;
