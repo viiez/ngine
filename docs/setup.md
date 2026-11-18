@@ -412,6 +412,40 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R4.6 testen: Animation
+
+1. **Tests:** `ctest` meldet die `[animation]`-Fälle (Import, gekochtes Format, Hüllen der
+   Meshlets, Abtasten, Mischen, Automat, `AnimationSystem` mit Hot Reload und in Jobs), den
+   `[script]`-Fall „Scripts drive an animator and get its clip events“ und den GPU-Fall „GPU
+   skinning bends a mesh the same on both drawing paths“ als bestanden. Unter ThreadSanitizer
+   laufen die `[animation]`-Fälle ohne Meldung.
+2. **Spielplatz:** `ngine_sandbox --playground`, mit V in die Schulterperspektive. Die Figur ist
+   eine Gliederpuppe: Im Stand atmet sie leicht, mit W geht sie, mit Shift rennt sie; die Beine
+   gleiten zwischen Gehen und Laufen ohne Sprung. Leertaste springt (Abdruck, Fallen, Landen),
+   Strg duckt (Ducken, im Gehen Schleichen). Auf der Ebene gehen bzw. rennen zwei Puppen im Kreis,
+   eine dritte steht.
+3. **Schritte:** Jeder Schritt klingt, wenn ein Fuß aufsetzt (beim Rennen öfter und lauter); im
+   Stand und beim Auslaufen unter 0,5 m/s klingt nichts. Die Spaziergänger klingen ebenso.
+4. **Ohne Mesh Shader:** `ngine_sandbox --playground --baseline` zeigt dieselben Bewegungen.
+5. **Editor:** `szenen/spielplatz.json` öffnen, Menü „Ansicht“, „Animation“. Die Spielfigur oder
+   eine Puppe wählen: Das Fenster zeigt den Zustand „Boden“ und die Parameter. Ohne zu spielen
+   `Tempo` auf 4 ziehen: Die Puppe geht auf der Stelle; `Springen` auslösen: Sie springt und landet.
+   „Skelette zeigen“ zeichnet die Knochen in Orange. Spielen (F5): Die Werte kommen aus den
+   Skripten; Stoppen setzt die Automaten zurück. Das Statistikfenster zeigt die GPU-Zeiten je Pass
+   mit „Skinning“.
+6. **Hot Reload:** Bei laufendem Spiel in `assets/figuren/spielfigur.animgraph` z. B. die Dauer
+   eines Übergangs oder `speed` eines Zustands ändern und speichern: Die Figuren übernehmen es
+   sofort und behalten ihre Parameter. Ein Tippfehler meldet sich im Log, der alte Stand läuft
+   weiter.
+7. **Ohne Fenster:** `ngine_sandbox --headless --playground` meldet „Animation: 1 Animatoren, 1 mit
+   Automat, 0 mit Pose, … Ereignisse“ und dieselbe „Prüfsumme der Lagen“ wie vor R4.6.
+8. **Messung:** Im Release-Build `ngine_sandbox --headless --animators 200` (Zeit des
+   `AnimationSystem` im Hauptthread und in Jobs, Speicher der Paletten) und
+   `ngine_sandbox --playground --animators 200` (GPU-Zeiten im Log, Pass „Skinning“). Die Zahlen
+   gehören ins Iterationsdokument.
+9. **Eigene Figur:** `python3 tools/figur/erzeugen.py` erzeugt Puppe und Automat neu (die
+   `.meta`-Dateien bleiben).
+
 ## R4.5 testen: Audio
 
 Unter Linux braucht der Build `libasound2-dev` und `libpulse-dev` nicht (miniaudio lädt die
