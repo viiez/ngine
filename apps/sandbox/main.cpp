@@ -41,6 +41,9 @@
 //   --bodies <n>    auf dem Spielplatz n weitere Körper herabregnen lassen und die Zeiten von
 //                   Physik und update_transforms() messen
 //   --characters <n> auf dem Spielplatz ohne Fenster n Figuren im Kreis laufen lassen und messen
+//   --animators <n> n animierte Puppen (R4.6): mit --headless Zeit des AnimationSystem im
+//                   Hauptthread und in Jobs messen, sonst auf dem Spielplatz aufstellen (Zeit des
+//                   Skinning-Passes in den GPU-Zeiten im Log)
 //   --save-playground <pfad>  Spielplatz aus Code als Szene speichern (für
 //                   assets/szenen/spielplatz.json), ohne Fenster
 //   --far           Szene 10 000 km vom Ursprung: zeigt, dass kamerarelatives Zeichnen mit
@@ -93,6 +96,7 @@ import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import sandbox.playground;
+import sandbox.animation_bench;
 import sandbox.audio_bench;
 import ngine.audio;
 import app.scripting;
@@ -140,6 +144,7 @@ struct Options {
     ngine::u32 bodies = 0;
     // Viele Figuren messen und Spielplatz als Szene speichern (R4.3).
     ngine::u32 characters = 0;
+    std::optional<ngine::u32> animators;
     std::optional<std::string> save_playground;
     std::optional<ngine::u64> frames;
 };
@@ -235,6 +240,14 @@ Options parse_options(std::span<char*> args) {
             if (std::from_chars(value.data(), value.data() + value.size(), characters).ec ==
                 std::errc{}) {
                 options.characters = characters;
+                options.playground = true;
+            }
+        } else if (arg == "--animators" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 animators = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), animators).ec ==
+                std::errc{}) {
+                options.animators = animators;
                 options.playground = true;
             }
         } else if (arg == "--save-playground" && i + 1 < args.size()) {
@@ -358,6 +371,9 @@ int run_windowed(const Options& options) {
             scene = *std::move(created);
             scene->set_debug_draw(options.debug_draw);
             scene->enable_audio(audio_engine);
+            if (options.animators) {
+                scene->add_animated_crowd(*options.animators);
+            }
             sandbox::report_load(scene->load_all(**device));
         }
 
@@ -418,6 +434,8 @@ int run_windowed(const Options& options) {
                     ngine::log::info("{}", scene->physics_stats());
                     ngine::log::info("{}", scene->character_stats());
                 }
+                // Zeiten je Pass auf der GPU (R4.6, TD-45).
+                ngine::log::info("{}", ngine::render::pass_report(gpu_profiler));
                 last_report = now;
             }
 
@@ -549,6 +567,7 @@ int run_windowed(const Options& options) {
         } else {
             ngine::log::info("Szene: {}", scene->stats());
         }
+        ngine::log::info("{}", ngine::render::pass_report(gpu_profiler));
         ngine::log::info("{} Frames gezeichnet", frame_count);
     }
 
@@ -612,6 +631,8 @@ int main(int argc, char** argv) {
     } else if (options.audio_voices) {
         exit_code = sandbox::run_audio_bench(*options.audio_voices, options.frames.value_or(600),
                                              !options.headless && !options.no_audio);
+    } else if (options.headless && options.animators) {
+        exit_code = sandbox::run_animation_bench(*options.animators, options.frames.value_or(600));
     } else if (options.headless && options.playground) {
         exit_code = sandbox::run_playground_headless(
             options.frames.value_or(600), sandbox::voxel_origin(options.far), options.bodies,

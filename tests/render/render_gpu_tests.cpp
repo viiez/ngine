@@ -156,8 +156,8 @@ TEST_CASE("Render graph writes GPU zones around passes", "[render][gpu]") {
     const auto device = make_device(rhi::vulkan::headless_surface({32, 32}));
     render::TexturePool pool{*device};
     render::GpuProfiler profiler{*device};
-    CHECK(profiler.active() ==
-          (profile::enabled && device->capabilities().timestamp_period > 0.0f));
+    CHECK(profiler.active() == (device->capabilities().timestamp_period > 0.0f));
+    CHECK(profiler.tracy() == (profile::enabled && profiler.active()));
 
     usize timestamps = 0;
     for (u32 i = 0; i < device->frames_in_flight() + 1; ++i) {
@@ -188,6 +188,11 @@ TEST_CASE("Render graph writes GPU zones around passes", "[render][gpu]") {
     // niemand die Zwischentextur liest: Also nur eine Zone.
     if (profiler.active()) {
         CHECK(timestamps == 2);
+        // Zeiten je Pass (TD-45): eine Zone mit dem Namen des Passes, nicht negativ.
+        REQUIRE(profiler.pass_times().size() == 1);
+        CHECK(profiler.pass_times()[0].name == "Löschen");
+        CHECK(profiler.pass_times()[0].milliseconds >= 0.0);
+        CHECK(profiler.total_ms() == profiler.pass_times()[0].milliseconds);
     }
     device->wait_idle();
     CHECK(device->validation_errors() == 0);

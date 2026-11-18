@@ -527,6 +527,40 @@ public:
         update_audio(dt);
     }
 
+    // Viele animierte Puppen zum Messen (--animators, R4.6): count Figuren in einem Raster vor der
+    // Spielfigur (bzw. der Kamera), mit verschiedenem Tempo und verschiedener Geschwindigkeit.
+    // Ohne Asset-Ordner oder ohne Puppe entsteht nichts.
+    void add_animated_crowd(u32 count) {
+        const asset::AssetInfo* model =
+            database_ != nullptr ? database_->find_path("figuren/puppe.gltf") : nullptr;
+        const asset::AssetInfo* graph =
+            database_ != nullptr ? database_->find_path("figuren/spielfigur.animgraph") : nullptr;
+        if (model == nullptr || graph == nullptr) {
+            log::warn("Animation: Puppe oder Automat fehlen im Asset-Ordner");
+            return;
+        }
+        DVec3 base = view_position_;
+        if (const world::Entity player = app::find_player(world_)) {
+            base = player.get<world::Transform>()->position;
+        }
+        constexpr u32 columns = 20;
+        for (u32 i = 0; i < count; ++i) {
+            const f32 phase = static_cast<f32>(i % 17) / 17.0f;
+            const DVec3 position =
+                base + DVec3{(static_cast<f64>(i % columns) - columns * 0.5) * 1.2, 0.0,
+                             -4.0 - static_cast<f64>(i / columns) * 1.2};
+            const u64 id =
+                world_.create(std::format("Puppe {}", i + 1))
+                    .set(world::Transform{.position = position})
+                    .set(render::MeshRenderer{.mesh = {.asset = model->id, .index = 0}})
+                    .set(animation::Animator{.graph = graph->id, .speed = 0.8f + 0.4f * phase})
+                    .id();
+            animation_->set_float(id, "Tempo", 7.0f * phase);
+            animation_->set_bool(id, "AmBoden", true);
+        }
+        log::info("Animation: {} Puppen aufgestellt", count);
+    }
+
     // Animation der Szene (R4.6), z. B. für das Fenster „Animation“ des Editors.
     [[nodiscard]] animation::AnimationSystem& animation() noexcept {
         return *animation_;
