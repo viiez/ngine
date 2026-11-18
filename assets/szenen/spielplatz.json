@@ -2659,6 +2659,181 @@
     },
     {
       "id": 38,
+      "components": {
+        "Name": {
+          "value": "Radio"
+        },
+        "Transform": {
+          "position": {
+            "x": 13.0,
+            "y": 1.5774139404296874,
+            "z": -5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.6,
+            "y": 0.4,
+            "z": 0.4
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 1
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "RigidBody": {
+          "motion": "Static",
+          "layer": "Moving",
+          "mass": 0.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linear_damping": 0.05,
+          "angular_damping": 0.05,
+          "gravity_factor": 1.0,
+          "allow_sleep": true,
+          "linear_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "angular_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Collider": {
+          "shape": "Box",
+          "radius": 0.5,
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "half_height": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "model": 0,
+          "mesh": 0,
+          "sensor": false
+        },
+        "AudioSource": {
+          "sound": 6359183839236297875,
+          "bus": "Effects",
+          "volume": 0.8,
+          "pitch": 1.0,
+          "loop": true,
+          "play_on_start": true,
+          "spatial": true,
+          "min_distance": 1.5,
+          "max_distance": 40.0,
+          "rolloff": "Inverse",
+          "rolloff_factor": 1.0,
+          "doppler": 1.0
+        }
+      }
+    },
+    {
+      "id": 39,
+      "components": {
+        "Name": {
+          "value": "Wind"
+        },
+        "AudioSource": {
+          "sound": 4980213597323300317,
+          "bus": "Ambient",
+          "volume": 0.35,
+          "pitch": 1.0,
+          "loop": true,
+          "play_on_start": true,
+          "spatial": false,
+          "min_distance": 1.0,
+          "max_distance": 40.0,
+          "rolloff": "Inverse",
+          "rolloff_factor": 1.0,
+          "doppler": 1.0
+        }
+      }
+    },
+    {
+      "id": 40,
+      "components": {
+        "Name": {
+          "value": "Summer"
+        },
+        "Transform": {
+          "position": {
+            "x": 25.0,
+            "y": 4.377413940429688,
+            "z": -8.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.3,
+            "y": 0.3,
+            "z": 0.3
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 9730113247301520891,
+            "index": 2
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "Orbit": {
+          "center": {
+            "x": 16.0,
+            "y": 3.8774139404296877,
+            "z": -8.0
+          },
+          "radius_x": 9.0,
+          "radius_z": 9.0,
+          "bob": 1.0,
+          "speed": 1.4,
+          "bob_speed": 0.7,
+          "phase": 0.0,
+          "time": 0.0
+        },
+        "AudioSource": {
+          "sound": 4950483464327028756,
+          "bus": "Effects",
+          "volume": 0.5,
+          "pitch": 1.0,
+          "loop": true,
+          "play_on_start": true,
+          "spatial": true,
+          "min_distance": 2.0,
+          "max_distance": 35.0,
+          "rolloff": "Inverse",
+          "rolloff_factor": 1.0,
+          "doppler": 1.0
+        }
+      }
+    },
+    {
+      "id": 41,
       "prefab": 7331856350725219438,
       "overrides": [
         {
@@ -2676,7 +2851,7 @@
       ]
     },
     {
-      "id": 39,
+      "id": 42,
       "prefab": 1715020559191065870,
       "overrides": [
         {
@@ -2694,7 +2869,7 @@
       ]
     },
     {
-      "id": 40,
+      "id": 43,
       "components": {
         "Name": {
           "value": "Plattform"

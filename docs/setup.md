@@ -412,6 +412,47 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R4.5 testen: Audio
+
+Unter Linux braucht der Build `libasound2-dev` und `libpulse-dev` nicht (miniaudio lädt die
+Bibliotheken zur Laufzeit), aber zum Hören einen Audio-Server (PipeWire oder PulseAudio). Ohne
+Gerät läuft alles mit dem Null-Gerät und einer Warnung im Log.
+
+1. **Tests:** `ctest` meldet die `[audio]`-Fälle (Abschwächung, Panning, Doppler, Warteschlangen,
+   Mixer mit Bussen, Schleifen und virtuellen Stimmen, Ströme, Klangsätze, `AudioSystem`) als
+   bestanden, dazu die neuen `[script]`-Fälle für Klänge aus C# und Schritte. Unter
+   ThreadSanitizer (`linux-clang-tsan`) laufen die `[audio]`-Fälle ohne Meldung.
+2. **Spielplatz:** `ngine_sandbox --playground`. Das Log meldet „Audio: … mit 48000 Hz“ und den
+   Namen des Geräts. Auf der Ebene steht ein Radio (kleine Kiste), das in Schleife spielt: Beim
+   Weggehen wird es leiser, beim Drehen wandert es zwischen links und rechts. Leiser Wind liegt
+   überall gleich laut. Ein Summen kreist um die Ebene; wenn es vorbeizieht, sinkt die Tonhöhe
+   hörbar (Doppler).
+3. **Schritte:** Mit der Figur über Gras, Fels, Erde und Sand laufen, rennen (Shift) und springen:
+   Jeder Schritt klingt nach dem Boden, zehn Schritte klingen nicht gleich, Rennen ist lauter.
+   Auf der Ebene und auf Kisten klingen sie nach Holz. Im Flugmodus (F4) bleibt die Figur still.
+4. **Kein Knacken:** Im Flugmodus schnell über das Terrain fliegen, während das Radio streamt.
+   Es darf nicht knacken oder aussetzen.
+5. **Editor:** `szenen/spielplatz.json` öffnen, Menü „Ansicht“, „Audio“. Ohne Spielen ist es still.
+   Spielen (F5): Radio, Wind und Summen setzen ein. Im Fenster „Audio“ die Busse ändern, z. B.
+   „Atmosphäre“ auf 0 (Wind weg) oder „Effekte“ stumm (Radio, Summen und Schritte weg); „Leerläufe
+   der Ströme“ und „verworfene Befehle“ bleiben bei 0, die Last bleibt klein. „Reichweiten im
+   Viewport“ zeigt um jede Quelle innen `min_distance` (gelb) und außen `max_distance` (blau).
+   Stoppen beendet alle Klänge mit kurzer Blende. Das Radio auswählen: Der Inspector zeigt
+   „AudioSource“ mit Klang, Bus, Lautstärke, Reichweiten und Kurve. Im Fenster
+   „Terrain-Materialien“ hat jedes Material das Feld „Schritte“ für einen Klang oder Klangsatz.
+6. **Hot Reload:** Im Editor bei laufendem Spiel `assets/klaenge/welt/summen.wav` durch eine andere WAV-Datei
+   ersetzen (Name und `.meta` bleiben): Das Summen beginnt sofort mit dem neuen Klang neu.
+7. **Ohne Gerät und stumm:** `ngine_sandbox --playground --no-audio` läuft mit dem Null-Gerät,
+   `--mute` mit Gerät, aber stumm. `ngine_sandbox --headless --playground` meldet dieselbe
+   „Prüfsumme der Lagen“ wie vor R4.5.
+8. **Messung:** Im Release-Build `ngine_sandbox --audio-voices 500` (mit Gerät) bzw. mit
+   `--headless` (Null-Gerät). 500 geortete Quellen kreisen zehn Sekunden um den Hörer; das Log
+   meldet Median und 99. Perzentil des `AudioSystem` pro Bild, die Last des Mixers und die
+   Leerläufe. Die Zahlen gehören ins Iterationsdokument.
+9. **Eigene Klänge:** `python3 tools/klaenge/erzeugen.py` erzeugt die Klänge unter
+   `assets/klaenge` neu (gleiches Ergebnis, die `.meta`-Dateien bleiben). Eine Datei durch eine
+   echte Aufnahme ersetzen (Name und `.meta` behalten), dann gilt sie überall.
+
 ## R4.4 testen: C#-Scripting
 
 Voraussetzung ist das .NET-SDK 10 (`dotnet --version`). Ohne SDK läuft die Engine mit der zuletzt

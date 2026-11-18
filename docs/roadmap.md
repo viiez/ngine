@@ -22,9 +22,14 @@ Meshing in Jobs), [R3.2](iterations/R3.2-prozedurale-welt-und-materialien.md) (P
 und Materialien), [R3.3](iterations/R3.3-streaming-und-lod.md) (Streaming und LOD),
 [R3.4](iterations/R3.4-deltas-und-voxel-werkzeuge.md) (Deltas und Voxel-Werkzeuge) und
 [R3.5](iterations/R3.5-gpu-getriebenes-zeichnen.md) (GPU-getriebenes Zeichnen) sind
-abgeschlossen, das Review des Reifegrads ebenfalls. Als Nächstes kommt
-[R4](iterations/R4-gameplay-systeme.md) (Gameplay-Systeme) mit sechs Iterationen; die erste,
-[R4.1](iterations/R4.1-spielschleife-und-eingabe.md) (Spielschleife und Eingabe), ist geplant.
+abgeschlossen, das Review des Reifegrads ebenfalls. Jetzt läuft
+[R4](iterations/R4-gameplay-systeme.md) (Gameplay-Systeme) mit sechs Iterationen. Abgeschlossen sind
+[R4.1](iterations/R4.1-spielschleife-und-eingabe.md) (Spielschleife und Eingabe),
+[R4.2](iterations/R4.2-physik-mit-jolt.md) (Physik mit Jolt),
+[R4.3](iterations/R4.3-terrain-kollision-und-spielfigur.md) (Terrain-Kollision und Spielfigur) und
+[R4.4](iterations/R4.4-csharp-scripting.md) (C#-Scripting); in Arbeit ist
+[R4.5](iterations/R4.5-audio.md) (Audio), danach fehlt noch R4.6 (Animation) und das Review des
+Reifegrads. R4 ist damit noch nicht abgeschlossen.
 Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach kommt der
 Rendering-Ausbau als eigener Reifegrad R6.
 

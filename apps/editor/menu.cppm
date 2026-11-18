@@ -44,6 +44,8 @@ export struct Panels {
     bool terrain_materials = false;
     // Bau und Klassen der Skripte (R4.4), anfangs zu.
     bool scripts = false;
+    // Busse und Mixer (R4.5), anfangs zu.
+    bool audio = false;
 };
 
 export ui::DockLayout default_layout() {
@@ -251,6 +253,7 @@ public:
             ui::menu_item(assets_window, {}, &panels.assets);
             ui::menu_item("Terrain-Materialien", {}, &panels.terrain_materials);
             ui::menu_item("Skripte", {}, &panels.scripts);
+            ui::menu_item("Audio", {}, &panels.audio);
             ui::separator();
             if (ui::menu_item("Layout zurücksetzen")) {
                 panels = {};

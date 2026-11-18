@@ -34,7 +34,7 @@ endif()
 
 # Zur Laufzeit wird hostfxr dynamisch geladen; zum Bauen braucht der C++-Teil kein .NET.
 target_link_libraries(ngine_script PUBLIC ngine::core ngine::reflect ngine::world ngine::input
-    ngine::physics ngine::math
+    ngine::physics ngine::math ngine::audio
     PRIVATE ngine::profile ngine::serialize ngine::filesystem ngine::platform)
 ngine_set_compiler_options(ngine_script)
 
@@ -45,7 +45,7 @@ if(NGINE_WITH_DOTNET)
     add_executable(ngine_bindgen bindgen/main.cpp)
     target_link_libraries(ngine_bindgen PRIVATE
         ngine::core ngine::filesystem ngine::reflect ngine::world ngine::physics ngine::render
-        ngine::script)
+        ngine::audio ngine::script)
     ngine_set_compiler_options(ngine_bindgen)
 
     set(generated "${CMAKE_BINARY_DIR}/generated/csharp")

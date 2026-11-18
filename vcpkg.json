@@ -14,6 +14,7 @@
     },
     "ktx",
     "meshoptimizer",
+    "miniaudio",
     "mikktspace",
     {
       "name": "imgui",

@@ -12,6 +12,7 @@ import ngine.filesystem;
 import ngine.reflect;
 import ngine.world;
 import ngine.physics;
+import ngine.audio;
 import ngine.render;
 import ngine.script;
 
@@ -26,6 +27,7 @@ int main(int argc, char** argv) {
     reflect::TypeRegistry types;
     world::register_types(types);
     physics::register_types(types);
+    audio::register_types(types);
     render::register_types(types);
     const std::string source = script::generate_bindings(types);
 

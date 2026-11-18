@@ -13,6 +13,12 @@ public unsafe struct GameApi
     public delegate* unmanaged<NativeShape*, double*, float*, float*, float, NativeFilter*, NativeHit*, int> ShapeCast;
     public delegate* unmanaged<NativeShape*, double*, float*, NativeFilter*, ulong*, int, int> Overlap;
     public delegate* unmanaged<ulong, double*, float, int, int, int> TerrainEdit;
+    public delegate* unmanaged<ulong, double*, int, float, float, int> SoundPlay;
+    public delegate* unmanaged<ulong, int, int> SourcePlay;
+    public delegate* unmanaged<ulong, int> SourcePlaying;
+    public delegate* unmanaged<int, float, void> SetBusVolume;
+    public delegate* unmanaged<int, float> BusVolume;
+    public delegate* unmanaged<uint, ulong> FootstepSound;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -234,6 +240,77 @@ public static unsafe class Terrains
             return false;
         }
         return api->Game.TerrainEdit(terrain.Id, (double*)&point, radius, add ? 1 : 0, material) == 1;
+    }
+
+    // Klang oder Klangsatz der Schritte auf einem Material (TerrainMaterial.footstep_sounds in
+    // terrain/standard.terrain-materials), 0 ohne.
+    public static ulong FootstepSound(uint material)
+    {
+        var api = Host.Api;
+        return api == null ? 0 : api->Game.FootstepSound(material);
+    }
+}
+
+// Audio (R4.5): Einmal-Klänge, Quellen an Entities und Lautstärken der Busse. Klänge sind
+// Asset-Kennungen von .wav, .ogg, .flac, .mp3 oder .soundset; ohne Audio (Server) tut nichts davon
+// etwas.
+public static unsafe class Audio
+{
+    // Spielt einen Klang einmal an position (geortet, leiser mit dem Abstand).
+    public static bool Play(ulong sound, DVec3 position, AudioBus bus = AudioBus.Effects,
+                            float volume = 1.0f, float pitch = 1.0f)
+    {
+        var api = Host.Api;
+        return api != null && api->Game.SoundPlay(sound, (double*)&position, (int)bus, volume, pitch) == 1;
+    }
+
+    // Spielt einen Klang einmal ohne Ortung (Oberfläche, Musik).
+    public static bool Play(ulong sound, AudioBus bus = AudioBus.Interface, float volume = 1.0f,
+                            float pitch = 1.0f)
+    {
+        var api = Host.Api;
+        return api != null && api->Game.SoundPlay(sound, null, (int)bus, volume, pitch) == 1;
+    }
+
+    // Startet die AudioSource der Entity (erneut) bzw. stoppt sie.
+    public static void PlaySource(Entity entity)
+    {
+        var api = Host.Api;
+        if (api != null)
+        {
+            api->Game.SourcePlay(entity.Id, 1);
+        }
+    }
+
+    public static void StopSource(Entity entity)
+    {
+        var api = Host.Api;
+        if (api != null)
+        {
+            api->Game.SourcePlay(entity.Id, 0);
+        }
+    }
+
+    public static bool IsPlaying(Entity entity)
+    {
+        var api = Host.Api;
+        return api != null && api->Game.SourcePlaying(entity.Id) == 1;
+    }
+
+    // Lautstärke eines Busses (0 bis 1); Master gilt für alle.
+    public static void SetBusVolume(AudioBus bus, float volume)
+    {
+        var api = Host.Api;
+        if (api != null)
+        {
+            api->Game.SetBusVolume((int)bus, volume);
+        }
+    }
+
+    public static float GetBusVolume(AudioBus bus)
+    {
+        var api = Host.Api;
+        return api == null ? 0.0f : api->Game.BusVolume((int)bus);
     }
 }
 

@@ -15,6 +15,7 @@ export module ngine.script:runtime;
 import ngine.core;
 import ngine.input;
 import ngine.physics;
+import ngine.audio;
 import ngine.reflect;
 import ngine.world;
 
@@ -77,6 +78,9 @@ public:
     // Kontakte, Auslöser, Landungen und Schritte die Skripte (vor dem nächsten FixedUpdate).
     void bind_input(const input::ActionState* actions);
     void bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus = nullptr);
+    // Audio für NGine.Audio und die Materialtabelle für Schritte (R4.5); nullptr löst sie.
+    void bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
+                    const world::TerrainMaterials* materials = nullptr);
     // Felder der laufenden Skripte in ihre Komponenten schreiben (vor Speichern, Snapshot,
     // Inspector) bzw. aus ihnen lesen (nach Änderungen im Inspector, Undo).
     void store_fields();

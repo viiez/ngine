@@ -34,6 +34,8 @@ option(NGINE_WITH_WINDOW "Fenster-Unterstützung (SDL3) bauen" ON)
 option(NGINE_WITH_TRACY "Profiling mit Tracy" ON)
 # C#-Scripting (ADR 0006): Der C++-Teil baut immer, die Assemblies nur mit dem .NET-SDK.
 option(NGINE_WITH_DOTNET "C#-Scripting mit dem .NET-SDK bauen" ON)
+# Audio über miniaudio (ADR 0049). Ohne baut ngine.audio nur das Null-Gerät, z. B. für Server.
+option(NGINE_WITH_AUDIO "Audio-Gerät und Dekodieren (miniaudio) bauen" ON)
 # Sanitizer für alle Ziele (Clang und GCC), z. B. "thread" oder "address,undefined".
 set(NGINE_SANITIZER "" CACHE STRING "Sanitizer für alle Ziele (leer: keiner)")
 

@@ -50,10 +50,15 @@ module;
 // Spielfigur. Hat die Welt eine Figur mit PlayerInput und ist sie aktiv (im Spiel immer, im Editor
 // beim Spielen), steuern die Aktionen sie und das Bild zeigt ihre Kamera; F4 schaltet in den
 // Flugmodus.
+//
+// Seit R4.5 klingt die Szene (ngine.audio): Mit enable_audio() spielt ein AudioSystem die
+// AudioSource der Welt relativ zur Kamera; der Spielplatz hat ein Radio, Wind und ein kreisendes
+// Summen (Doppler). Im Editor nur beim Spielen (set_audio_active()).
 export module app.model_scene;
 
 import ngine.core;
 import ngine.asset;
+import ngine.audio;
 import ngine.filesystem;
 import ngine.input;
 import ngine.jobs;
@@ -159,6 +164,33 @@ export void register_types(reflect::TypeRegistry& types) {
             .hint(reflect::Hint::Angle)
             .field("time", &Orbit::time);
     }
+}
+
+// Summen, das um die Ebene des Spielplatzes kreist (R4.5): zeigt Doppler und Panning. Gut 12 m/s
+// auf der Bahn verschieben die Tonhöhe um etwa einen halben Halbton. Ohne Datenbank oder Klang
+// entsteht nichts.
+export void add_playground_hum(world::World& world, const PlaygroundLayout& layout,
+                               const asset::AssetDatabase* database) {
+    const asset::AssetInfo* hum =
+        database != nullptr ? database->find_path("klaenge/welt/summen.wav") : nullptr;
+    if (hum == nullptr) {
+        return;
+    }
+    const Orbit orbit{.center = layout.platform + DVec3{0.0, 2.5, 0.0},
+                      .radius_x = 9.0f,
+                      .radius_z = 9.0f,
+                      .bob = 1.0f,
+                      .speed = 1.4f,
+                      .bob_speed = 0.7f};
+    world.create("Summer")
+        .set(world::Transform{.position = orbit_position(orbit), .scale = {0.3f, 0.3f, 0.3f}})
+        .set(render::MeshRenderer{.mesh = playground_ref(playground_ball)})
+        .set(orbit)
+        .set(audio::AudioSource{.sound = hum->id,
+                                .volume = 0.5f,
+                                .loop = true,
+                                .min_distance = 2.0f,
+                                .max_distance = 35.0f});
 }
 
 namespace {
@@ -353,6 +385,9 @@ public:
                                      .build = options.build,
                                      .watch = options.watch});
         scripts_->bind(&world_, actions, &physics_, &events_);
+        if (audio_) {
+            scripts_->bind_audio(audio_.get(), audio_engine_, &terrain_materials_.table());
+        }
         script_actions_ = actions;
         // Flanken für FixedUpdate gelten bis nach dem festen Schritt, der sie gesehen hat.
         if (actions != nullptr) {
@@ -372,6 +407,33 @@ public:
         const reflect::TypeInfo* type = types_.find("Spielersteuerung");
         return type != nullptr && !type->retired &&
                world_.has(player.id(), world_.component(*type));
+    }
+
+    // Klänge der Welt (R4.5) über engine; engine muss die Szene überleben. Im Spiel gleich aktiv,
+    // im Editor erst beim Spielen (set_audio_active()).
+    void enable_audio(audio::AudioEngine& engine) {
+        audio_engine_ = &engine;
+        audio_ = std::make_unique<audio::AudioSystem>(engine, *resources_, database_);
+        audio_active_ = mode_ == SceneMode::Game;
+        if (scripts_) {
+            scripts_->bind_audio(audio_.get(), audio_engine_, &terrain_materials_.table());
+        }
+    }
+    [[nodiscard]] audio::AudioSystem* audio() noexcept {
+        return audio_.get();
+    }
+    [[nodiscard]] audio::AudioEngine* audio_engine() noexcept {
+        return audio_engine_;
+    }
+    // Editor: Klänge beim Spielen an, beim Stoppen aus (alle Stimmen enden mit kurzer Blende).
+    void set_audio_active(bool active) {
+        if (audio_active_ == active) {
+            return;
+        }
+        audio_active_ = active;
+        if (!active && audio_) {
+            audio_->stop_all();
+        }
     }
 
     void set_player_enabled(bool enabled) {
@@ -454,6 +516,7 @@ public:
                                    .rotation = math::to_mat3(view_rotation_),
                                    .camera = camera_settings_};
         }
+        update_audio(dt);
     }
 
     // Materialtabelle des Terrains (R4.3), z. B. für das Fenster des Editors.
@@ -673,6 +736,7 @@ private:
         physics::register_types(types);
         app::register_types(types);
         app::register_player_types(types);
+        audio::register_types(types);
         return types;
     }
 
@@ -686,6 +750,7 @@ private:
           mode_{mode}, database_{assets.database}, terrain_materials_{assets.database} {
         renderer_->set_resources(resources_.get());
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
+        audio::register_loaders(*resources_);
         apply_terrain_materials();
         // Feste Simulation mit Interpolation: Die Lichter laufen bei jeder Bildrate gleich schnell
         // und ruckeln trotzdem nicht (R4.1).
@@ -935,6 +1000,8 @@ private:
                     placed->set(transform);
                 }
             }
+            app::add_playground_audio(world_, layout, database_);
+            app::add_playground_hum(world_, layout, database_);
             spawn = layout.spawn;
         }
         (void)world::update_transforms(world_);
@@ -951,6 +1018,22 @@ private:
         speed_ = 6.0f;
         update(0.0f, {});
         return {};
+    }
+
+    // Hörer an der Kamera, dann die Quellen der Welt (R4.5). Die Transforms stehen nach
+    // simulate(); im Editor ohne Spiel bleibt alles still.
+    void update_audio(f32 dt) {
+        if (!audio_) {
+            return;
+        }
+        audio_->set_fallback_listener(
+            math::Affine::from(view_position_, view_rotation_, {1.0f, 1.0f, 1.0f}));
+        if (audio_active_) {
+            audio_->update(world_, static_cast<f64>(dt));
+        }
+        if (audio_engine_ != nullptr) {
+            audio_engine_->update();
+        }
     }
 
     // Graben mit dem Pinsel (R3.4) dort, wo der Blick das Terrain trifft; mit Shift (fast)
@@ -1127,6 +1210,11 @@ private:
     // Physik gehen.
     events::EventBus events_;
     input::ActionState* script_actions_ = nullptr;
+    // Audio (R4.5): vor den Skripten zerstört nur deren Verweis darauf, nach ihnen das System, das
+    // Klänge aus resources_ hält.
+    audio::AudioEngine* audio_engine_ = nullptr;
+    std::unique_ptr<audio::AudioSystem> audio_;
+    bool audio_active_ = false;
     std::unique_ptr<script::ScriptSystem> scripts_;
 };
 

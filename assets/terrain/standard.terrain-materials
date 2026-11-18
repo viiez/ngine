@@ -1,6 +1,6 @@
 {
   "format": "ngine.terrain-materials",
-  "version": 1,
+  "version": 2,
   "materials": [
     {
       "name": "Luft",
@@ -16,7 +16,7 @@
       "normal": 0,
       "friction": 0.0,
       "restitution": 0.0,
-      "footsteps": ""
+      "footstep_sounds": 0
     },
     {
       "name": "Gras",
@@ -32,7 +32,7 @@
       "normal": 1194127947459894234,
       "friction": 0.7,
       "restitution": 0.0,
-      "footsteps": "gras"
+      "footstep_sounds": 6402240606933989364
     },
     {
       "name": "Fels",
@@ -48,7 +48,7 @@
       "normal": 2793948346166694084,
       "friction": 0.8,
       "restitution": 0.1,
-      "footsteps": "fels"
+      "footstep_sounds": 1101617701905922319
     },
     {
       "name": "Erde",
@@ -64,7 +64,7 @@
       "normal": 763921998969432775,
       "friction": 0.75,
       "restitution": 0.0,
-      "footsteps": "erde"
+      "footstep_sounds": 677963030207223476
     },
     {
       "name": "Sand",
@@ -80,7 +80,7 @@
       "normal": 3190710764739131337,
       "friction": 0.55,
       "restitution": 0.0,
-      "footsteps": "sand"
+      "footstep_sounds": 3023891689667960964
     }
   ]
 }

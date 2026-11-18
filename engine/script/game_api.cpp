@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -15,6 +16,7 @@ import ngine.math;
 import ngine.physics;
 import ngine.voxel;
 import ngine.world;
+import ngine.audio;
 import :game_api;
 import :world_api;
 
@@ -26,6 +28,9 @@ struct Context {
     const input::ActionState* actions = nullptr;
     bool fixed = false;
     const physics::PhysicsWorld* physics = nullptr;
+    audio::AudioSystem* audio = nullptr;
+    audio::AudioEngine* audio_engine = nullptr;
+    const world::TerrainMaterials* materials = nullptr;
     std::vector<events::Subscription> subscriptions;
     std::vector<NativeEvent> events;
 };
@@ -155,6 +160,64 @@ i32 api_terrain_edit(u64 terrain, const f64* point, f32 radius, i32 add, i32 mat
     return edit.empty() ? 0 : 1;
 }
 
+audio::AudioBus bus_of(i32 bus) {
+    return static_cast<audio::AudioBus>(std::clamp(bus, 0, static_cast<i32>(audio::bus_count) - 1));
+}
+
+i32 api_sound_play(u64 sound, const f64* position, i32 bus, f32 volume, f32 pitch) {
+    audio::AudioSystem* system = context().audio;
+    if (system == nullptr) {
+        return 0;
+    }
+    std::optional<math::DVec3> at;
+    if (position != nullptr) {
+        at = dvec3(position);
+    }
+    return system->play_at(sound, at,
+                           audio::OneShotParams{.bus = bus_of(bus), .volume = volume, .pitch = pitch})
+               ? 1
+               : 0;
+}
+
+i32 api_source_play(u64 entity, i32 play) {
+    audio::AudioSystem* system = context().audio;
+    world::World* world = script_world();
+    if (system == nullptr || world == nullptr || !world->alive(entity)) {
+        return 0;
+    }
+    if (play != 0) {
+        system->play(world->entity(entity));
+    } else {
+        system->stop(world->entity(entity));
+    }
+    return 1;
+}
+
+i32 api_source_playing(u64 entity) {
+    const audio::AudioSystem* system = context().audio;
+    return system != nullptr && system->playing(entity) ? 1 : 0;
+}
+
+void api_set_bus_volume(i32 bus, f32 volume) {
+    if (audio::AudioEngine* engine = context().audio_engine) {
+        engine->set_bus_volume(bus_of(bus), volume);
+    }
+}
+
+f32 api_bus_volume(i32 bus) {
+    const audio::AudioEngine* engine = context().audio_engine;
+    return engine != nullptr ? engine->bus_volume(bus_of(bus)) : 0.0f;
+}
+
+u64 api_footstep_sound(u32 material) {
+    const world::TerrainMaterials* materials = context().materials;
+    if (materials == nullptr) {
+        return 0;
+    }
+    const world::TerrainMaterial* entry = materials->find(material);
+    return entry != nullptr ? entry->footstep_sounds : 0;
+}
+
 } // namespace
 
 GameApi make_game_api() {
@@ -164,6 +227,12 @@ GameApi make_game_api() {
         .shape_cast = api_shape_cast,
         .overlap = api_overlap,
         .terrain_edit = api_terrain_edit,
+        .sound_play = api_sound_play,
+        .source_play = api_source_play,
+        .source_playing = api_source_playing,
+        .set_bus_volume = api_set_bus_volume,
+        .bus_volume = api_bus_volume,
+        .footstep_sound = api_footstep_sound,
     };
 }
 
@@ -177,6 +246,14 @@ void bind_script_input(const input::ActionState* actions) {
 
 void bind_script_physics(const physics::PhysicsWorld* physics) {
     context().physics = physics;
+}
+
+void bind_script_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
+                       const world::TerrainMaterials* materials) {
+    Context& c = context();
+    c.audio = audio;
+    c.audio_engine = engine;
+    c.materials = materials;
 }
 
 void bind_script_events(events::EventBus* bus) {

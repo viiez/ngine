@@ -33,6 +33,10 @@
 // zeigt die Kamera der Figur, F4 schaltet in den Flugmodus. Ohne Figur fliegt die Kamera wie
 // bisher. Das Fenster „Terrain-Materialien“ (Menü Ansicht) bearbeitet die Materialtabelle.
 //
+// Seit R4.5: Beim Spielen klingt die Welt (AudioSource, Schritte der Figur). Das Fenster „Audio“
+// (Menü Ansicht) stellt die Busse ein, zeigt Stimmen, Last und Leerläufe des Mixers und auf Wunsch
+// die Reichweiten der Klangquellen im Viewport.
+//
 // Optionen:
 //   --scene <pfad>  Szene öffnen statt der Standardszene
 //   --save <pfad>   Szene beim Beenden dorthin speichern (für automatische Tests)
@@ -49,6 +53,7 @@
 //                   (für automatische Tests)
 //   --terrain       beim Start ein neues Terrain einfügen wie über „Bearbeiten → Neues Terrain“
 //   --no-cache      Modelle nicht kochen und nicht aus dem Cache laden, sondern aus den Quellen
+//   --no-audio      ohne Audio-Gerät (Null-Gerät), z. B. für automatische Tests
 
 #include <algorithm>
 #include <charconv>
@@ -95,6 +100,8 @@ import editor.menu;
 import editor.overlay;
 import editor.scene_tree;
 import editor.scripts;
+import editor.audio;
+import ngine.audio;
 import editor.terrain_materials;
 import editor.terrain_tools;
 import editor.viewport_tools;
@@ -122,6 +129,7 @@ struct Options {
     bool baseline = false;
     bool ini = true;
     bool cache = true;
+    bool audio = true;
 };
 
 Options parse_options(std::span<char*> args) {
@@ -132,6 +140,8 @@ Options parse_options(std::span<char*> args) {
             options.scene_path = std::string{args[++i]};
         } else if (arg == "--save" && i + 1 < args.size()) {
             options.save_path = std::string{args[++i]};
+        } else if (arg == "--no-audio") {
+            options.audio = false;
         } else if (arg == "--model" && i + 1 < args.size()) {
             options.model_path = std::string{args[++i]};
         } else if (arg == "--assets" && i + 1 < args.size()) {
@@ -291,6 +301,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         }
         // .NET für die Skripte (R4.4); lebt länger als die Szene.
         const std::unique_ptr<script::ScriptRuntime> script_runtime = app::start_script_runtime();
+        // Audio (R4.5), ebenso langlebiger als die Szene; klingt nur beim Spielen.
+        audio::AudioEngine audio_engine{{.mode = options.audio ? audio::DeviceMode::Automatic
+                                                               : audio::DeviceMode::Null}};
         auto scene =
             app::ModelScene::create(**device, viewport_format, options.model_path, math::DVec3{},
                                     app::SceneMode::Editor, std::move(scene_assets));
@@ -348,6 +361,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         if (script_runtime) {
             (*scene)->enable_scripts(*script_runtime, &actions);
         }
+        (*scene)->enable_audio(audio_engine);
         if (options.scene_path) {
             if (auto opened = document.open(*options.scene_path); opened) {
                 log::info("Szene geöffnet: {} ({} Entities)", *options.scene_path, *opened);
@@ -374,6 +388,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         render::TexturePool pool{**device};
         render::GpuProfiler gpu_profiler{**device};
         editor::ScriptsPanel scripts_panel;
+        editor::AudioPanel audio_panel;
         Panels panels;
         FrameTimes times;
         bool running = true;
@@ -556,6 +571,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             terrain_materials_panel.draw(**scene, database ? &*database : nullptr,
                                          panels.terrain_materials);
             scripts_panel.draw((*scene)->scripts(), panels.scripts);
+            audio_panel.draw((*scene)->audio_engine(), (*scene)->audio(), panels.audio);
             if (panels.stats) {
                 if (ui::begin_window(stats_window, &panels.stats)) {
                     const render::RenderStats& stats = (*scene)->renderer().stats();
@@ -675,6 +691,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             render::DebugDraw& debug = (*scene)->renderer().debug();
             debug.clear();
             editor::draw_overlay(debug, (*scene)->renderer(), document, selection);
+            audio_panel.draw_ranges(debug, document.world());
 
             const auto framebuffer = window->framebuffer_size();
             context.begin_frame(static_cast<f32>(framebuffer.width),
@@ -700,6 +717,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
             actions.end_frame(dt);
             (*scene)->set_player_enabled(document.playing());
+            (*scene)->set_audio_active(document.playing());
             if (player_capture && actions.pressed("throw")) {
                 (*scene)->throw_ball();
             }
