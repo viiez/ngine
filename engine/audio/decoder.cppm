@@ -13,8 +13,8 @@ import ngine.core;
 import :types;
 
 // Dekodieren von Klangdateien (WAV, Ogg Vorbis, FLAC, MP3). Das Format erkennt der Decoder am
-// Inhalt. Hinter dieser Schnittstelle steckt miniaudio mit stb_vorbis (decoder_miniaudio.cpp);
-// ohne NGINE_WITH_AUDIO meldet sie einen Fehler (decoder_null.cpp). Ausgabe immer f32, Mono oder
+// Inhalt. Hinter dieser Schnittstelle steckt miniaudio mit stb_vorbis (miniaudio.cpp); ohne
+// NGINE_WITH_AUDIO meldet sie einen Fehler (miniaudio_null.cpp). Ausgabe immer f32, Mono oder
 // Stereo, in der Abtastrate der Datei.
 export namespace ngine::audio {
 
