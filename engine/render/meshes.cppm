@@ -1,5 +1,7 @@
 module;
 
+#include <optional>
+
 #include <memory>
 #include <span>
 #include <vector>
@@ -23,6 +25,9 @@ struct SubmeshData {
     std::span<const u32> indices;
     u32 material = 0;
     std::span<const meshlet::Meshlet> meshlets;
+    // Gelenke und Gewichte je Eckpunkt (R4.6); leer bei starren Netzen. Alle Teilnetze eines
+    // verformten Netzes haben sie.
+    std::span<const asset::SkinVertex> skin;
 };
 
 struct Submesh {
@@ -48,8 +53,16 @@ struct GpuMesh {
     u64 vertex_address = 0;
     const rhi::Buffer* index_buffer = nullptr;
     u64 meshlet_address = 0;
+    // Verformte Netze (R4.6): Strom der Gewichte parallel zu den Eckpunkten, Skin im Modell und
+    // Zahl seiner Gelenke. skin_address ist 0 bei starren Netzen.
+    GeometryRange skin;
+    u64 skin_address = 0;
+    std::optional<u32> skin_index;
+    u32 joint_count = 0;
+    u32 vertex_count = 0;
     std::vector<Submesh> submeshes;
-    // Achsenparallele Hülle in Objektkoordinaten.
+    // Achsenparallele Hülle in Objektkoordinaten; bei verformten Netzen über alle Hüllkugeln der
+    // Meshlets, die beim Kochen jede Pose der Clips umschließen.
     math::Vec3 bounds_min{0.0f, 0.0f, 0.0f};
     math::Vec3 bounds_max{0.0f, 0.0f, 0.0f};
 };
@@ -63,8 +76,12 @@ public:
     // Index. Ein Mesh ohne Dreiecke ist erlaubt und wird nie gezeichnet. Mit ticket laufen die
     // Kopien im Hintergrund (Device::upload_async(), TD-17); gezeichnet werden darf das Mesh erst,
     // wenn das Ticket erledigt ist.
+    // skin: Skin des Netzes im Modell (R4.6), mit joint_count Gelenken; nur wenn alle Teilnetze
+    // Gewichte haben, wird das Netz verformbar.
     [[nodiscard]] rhi::Result<u32> add(std::span<const SubmeshData> submeshes,
-                                       rhi::UploadTicket* ticket = nullptr);
+                                       rhi::UploadTicket* ticket = nullptr,
+                                       std::optional<u32> skin = std::nullopt,
+                                       u32 joint_count = 0);
     // Gibt ein Mesh frei (seine Bereiche, sobald die Frames im Flug fertig sind); add() vergibt
     // den Index neu.
     void remove(u32 index);

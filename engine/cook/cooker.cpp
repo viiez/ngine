@@ -72,6 +72,8 @@ Result<asset::CookedModel> cook_model(std::string_view source, const CookSetting
             build_meshlets(primitive);
         }
     }
+    // Hüllen verformter Meshlets über alle Clips (R4.6).
+    asset::fit_skinned_meshlets(*model);
 
     // Jedes benutzte Bild einmal je Farbraum als KTX2.
     std::map<std::pair<u32, bool>, bool> wanted;

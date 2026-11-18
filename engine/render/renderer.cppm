@@ -16,6 +16,7 @@ import ngine.math;
 import ngine.rhi;
 import ngine.asset;
 import ngine.world;
+import ngine.animation;
 import :components;
 import :debug_draw;
 import :geometry;
@@ -108,6 +109,9 @@ struct RenderStats {
     u32 culled_frustum = 0;
     u32 culled_backface = 0;
     u32 culled_occluded = 0;
+    // Skinning (R4.6): verformte Netze und ihre Eckpunkte in diesem Frame.
+    u32 skinned = 0;
+    u32 skinned_vertices = 0;
 };
 
 // Liefert SPIR-V für einen Einstiegspunkt einer Shader-Datei (z. B. „pbr.slang“), für Hot Reload
@@ -144,6 +148,9 @@ public:
     // zeichnet er keine Meshes. Muss den Renderer überleben oder vorher zurückgesetzt werden.
     void set_resources(asset::ResourceManager* resources) noexcept;
     [[nodiscard]] asset::ResourceManager* resources() noexcept;
+    // Posen für Netze mit Skin (R4.6). Ohne AnimationSystem bleiben sie in der Bindepose. Muss
+    // den Renderer überleben oder vorher zurückgesetzt werden.
+    void set_animation(const animation::AnimationSystem* animation) noexcept;
     // Mesh, auf das ref zeigt, wenn sein Modell geladen ist; beginnt sonst das Laden.
     [[nodiscard]] const GpuMesh* find_mesh(const asset::AssetRef& ref);
     // Modell zu einer Kennung, wenn geladen; beginnt sonst das Laden.

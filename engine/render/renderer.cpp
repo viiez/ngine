@@ -26,6 +26,7 @@ import ngine.profile;
 import ngine.rhi;
 import ngine.asset;
 import ngine.world;
+import ngine.animation;
 import :renderer_detail;
 
 namespace ngine::render {
@@ -118,7 +119,7 @@ rhi::Result<rhi::Buffer*> RendererCore::line_buffer(usize slot, usize count) {
     return buffer.get();
 }
 
-void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
+void RendererCore::collect_meshes(world::World& world, math::DVec3 origin, usize slot) {
     world.each<const world::WorldTransform, const MeshRenderer>(
         [&](world::Entity entity, const world::WorldTransform& transform,
             const MeshRenderer& renderer) {
@@ -134,6 +135,8 @@ void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
             const auto id = static_cast<u32>(entity.id());
             const Mat4 rows = math::transpose(transform.value.relative_to(origin));
             const auto [center, radius] = bounding_sphere(*found, transform.value, origin);
+            const u64 vertices =
+                skinned_vertices(world, entity.id(), *found, renderer.mesh.asset, slot);
             for (const Submesh& submesh : found->submeshes) {
                 if (submesh.meshlet_count == 0) {
                     continue;
@@ -154,7 +157,7 @@ void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
                 instances.push_back(
                     {.model = {rows[0], rows[1], rows[2]},
                      .sphere = math::extend(center, radius),
-                     .vertices = found->vertex_address,
+                     .vertices = vertices,
                      .meshlets = found->meshlet_address,
                      .words = found->meshlet_address,
                      .first_meshlet = submesh.first_meshlet,
@@ -243,6 +246,7 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
         impl->pick_buffers.push_back(*std::move(pick));
         impl->pick_pending.emplace_back();
         impl->driven.emplace_back();
+        impl->palette_buffers.emplace_back();
     }
     return std::unique_ptr<Renderer>{new Renderer{std::move(impl)}};
 }
@@ -267,6 +271,10 @@ MaterialStore& Renderer::materials() noexcept {
 }
 rhi::Device& Renderer::device() noexcept {
     return *impl_->device;
+}
+
+void Renderer::set_animation(const animation::AnimationSystem* animation) noexcept {
+    impl_->animation = animation;
 }
 
 void Renderer::set_resources(asset::ResourceManager* resources) noexcept {
@@ -429,10 +437,13 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     r.instances.clear();
     r.instance_keys.clear();
     r.blend_draws.clear();
+    r.skin_jobs.clear();
+    r.palette_data.clear();
     if (camera) {
         r.collect_terrain(world, origin);
-        r.collect_meshes(world, origin);
+        r.collect_meshes(world, origin, slot);
     }
+    r.finish_skinning(slot);
     r.build_groups();
     r.stats.instances = static_cast<u32>(r.instances.size());
     const u64 terrain_materials = r.write_terrain_materials(slot, r.stats.terrain_chunks > 0);
@@ -553,6 +564,8 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
 
     std::array<TextureHandle, cascade_count> shadow_maps{};
     TextureHandle hdr;
+    // Verformte Eckpunkte vor allem, was sie liest (R4.6).
+    r.add_skinning_pass(graph);
     if (have_buffers && driven_ok) {
         r.add_clear_pass(graph, frame, handles.counters);
         if (!mesh_shaders) {

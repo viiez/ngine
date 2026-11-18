@@ -65,6 +65,9 @@ AssetType type_of(std::string_view path) {
     if (extension == ".soundset") {
         return AssetType::SoundSet;
     }
+    if (extension == ".animgraph") {
+        return AssetType::AnimGraph;
+    }
     return AssetType::Unknown;
 }
 
@@ -80,6 +83,7 @@ std::string_view to_string(AssetType type) {
     case AssetType::Script: return "Skript";
     case AssetType::Sound: return "Klang";
     case AssetType::SoundSet: return "Klangsatz";
+    case AssetType::AnimGraph: return "Animationsautomat";
     case AssetType::Unknown: break;
     }
     return "Unbekannt";

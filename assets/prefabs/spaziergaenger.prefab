@@ -1,0 +1,105 @@
+{
+  "format": "ngine.prefab",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "value": "Spaziergänger"
+        },
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "Interpolated": {},
+        "CharacterController": {
+          "radius": 0.35,
+          "height": 1.8,
+          "crouch_height": 1.1,
+          "max_slope": 0.8727,
+          "step_height": 0.4,
+          "jump_height": 1.2,
+          "walk_speed": 4.0,
+          "run_speed": 7.0,
+          "crouch_speed": 2.0,
+          "ground_acceleration": 40.0,
+          "air_acceleration": 6.0,
+          "gravity_factor": 1.0,
+          "mass": 70.0,
+          "push_strength": 200.0,
+          "step_length": 0.7
+        },
+        "Spaziergang": {
+          "Radius": 2.0,
+          "Tempo": 1.6,
+          "Richtung": 1.0,
+          "Glaettung": 10.0
+        },
+        "Schritte": {
+          "Gehen": 0.5,
+          "Rennen": 0.9,
+          "AufKoerpern": 4953476202135479694,
+          "Landehoehe": 0.6
+        }
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "components": {
+        "Name": {
+          "value": "Puppe"
+        },
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": {
+            "asset": 8199018642793815721,
+            "index": 0
+          },
+          "material": {
+            "asset": 0,
+            "index": 0
+          }
+        },
+        "Animator": {
+          "graph": 1235906585323228665,
+          "speed": 1.0,
+          "active": true,
+          "pose_mode": "Visible"
+        }
+      }
+    }
+  ]
+}

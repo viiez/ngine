@@ -138,6 +138,10 @@ constexpr u32 hiz_compute[] = {
 #include "hiz_compute.spv.inc"
 };
 
+constexpr u32 skinning_compute[] = {
+#include "skinning_compute.spv.inc"
+};
+
 } // namespace ngine::shaders::detail
 
 export namespace ngine::shaders {
@@ -297,6 +301,12 @@ rhi::ShaderDesc cull_compute() {
 // Gruppen zu 8×8. Push Constants wie render::detail::HizPush.
 rhi::ShaderDesc hiz_compute() {
     return {rhi::ShaderStage::Compute, detail::hiz_compute, "compute_main"};
+}
+
+// Skinning (skinning.slang, R4.6): verformt die Eckpunkte eines Netzes mit einer Palette in einen
+// eigenen Bereich, Gruppen zu 64 Eckpunkten. Push Constants wie render::detail::SkinningPush.
+rhi::ShaderDesc skinning_compute() {
+    return {rhi::ShaderStage::Compute, detail::skinning_compute, "compute_main"};
 }
 
 } // namespace ngine::shaders

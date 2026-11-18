@@ -15,6 +15,7 @@ import ngine.core;
 import ngine.input;
 import ngine.physics;
 import ngine.audio;
+import ngine.animation;
 import ngine.reflect;
 import ngine.world;
 import :runtime;
@@ -132,6 +133,8 @@ public:
     // Audio und Materialtabelle für die Skripte (R4.5); nullptr löst sie.
     void bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                     const world::TerrainMaterials* materials = nullptr);
+    // Animation für die Skripte (R4.6); nullptr löst sie.
+    void bind_animation(animation::AnimationSystem* animation);
     // FixedUpdate bzw. Update aller Skripte, wenn aktiv, gebunden und geladen.
     void run(ScriptPhase phase, f32 delta);
     // Hängt FixedUpdate als feste Stufe (vor der Physik, wenn vor physics::add_to() gerufen) und

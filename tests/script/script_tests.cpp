@@ -23,6 +23,7 @@ import ngine.reflect;
 import ngine.world;
 import ngine.physics;
 import ngine.audio;
+import ngine.animation;
 import ngine.platform;
 import ngine.render;
 import ngine.script;
@@ -138,9 +139,9 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
     auto& rt = runtime();
     const auto count = rt.load_scripts(test_scripts());
     REQUIRE(count);
-    // Greeter und Mover (D2), Bumper, Spawner und Spinner (Skript-Komponenten), nicht die
+    // Greeter und Mover (D2), Bumper, Spawner, Spinner und Taenzer (Skript-Komponenten), nicht die
     // abstrakte Klasse.
-    CHECK(*count == 5);
+    CHECK(*count == 6);
 
     REQUIRE(rt.start());
     CHECK(capture()->contains("Hallo aus C#"));
@@ -160,7 +161,7 @@ TEST_CASE("Skripte laden, loggen, Daten aendern und wieder entladen", "[script]"
     // Neu laden wie beim Hot Reload.
     const auto again = rt.load_scripts(test_scripts());
     REQUIRE(again);
-    CHECK(*again == 5);
+    CHECK(*again == 6);
     REQUIRE(rt.unload_scripts());
 }
 
@@ -202,6 +203,7 @@ void register_engine_types(reflect::TypeRegistry& types) {
     physics::register_types(types);
     render::register_types(types);
     audio::register_types(types);
+    animation::register_types(types);
 }
 
 // Kurzer Ton im Speicher als Klang für die Tests mit Audio (R4.5).
@@ -344,10 +346,11 @@ TEST_CASE("Script classes become components with fields and a life cycle", "[scr
     REQUIRE(rt.load_scripts(test_scripts()));
 
     // Jede Skript-Klasse ist ein Typ der Registry, sortiert nach Namen.
-    REQUIRE(rt.script_types().size() == 3);
+    REQUIRE(rt.script_types().size() == 4);
     CHECK(rt.script_types()[0]->name == "Bumper");
     CHECK(rt.script_types()[1]->name == "Spawner");
     CHECK(rt.script_types()[2]->name == "Spinner");
+    CHECK(rt.script_types()[3]->name == "Taenzer");
     const reflect::TypeInfo* spinner = types.find("Spinner");
     REQUIRE(spinner != nullptr);
     CHECK(spinner->fields.size() == 5); // ohne privates Feld
@@ -509,6 +512,79 @@ TEST_CASE("Scripts play sounds and change bus volumes", "[script]") {
     CHECK(engine.stats().mixer.active == 2);
 
     rt.bind_audio(nullptr, nullptr);
+    REQUIRE(rt.unload_scripts());
+    rt.use_types(nullptr);
+}
+
+TEST_CASE("Scripts drive an animator and get its clip events", "[script][animation]") {
+    auto& rt = runtime();
+    reflect::TypeRegistry types;
+    register_engine_types(types);
+    rt.use_types(&types);
+    REQUIRE(rt.load_scripts(test_scripts()));
+
+    // Ein Knoten, ein Clip von einer Sekunde; der Automat geht ab Tempo 0,5 von Stehen zu Gehen,
+    // und Gehen meldet zur Hälfte „Fuss“.
+    asset::Model model;
+    model.nodes.push_back({.name = "Wurzel"});
+    model.roots = {0};
+    asset::Animation clip;
+    clip.name = "Wippen";
+    clip.duration = 1.0f;
+    clip.channels.push_back({.node = 0,
+                             .path = asset::AnimationPath::Translation,
+                             .interpolation = asset::Interpolation::Linear,
+                             .times = {0.0f, 1.0f},
+                             .values = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f}});
+    model.animations.push_back(clip);
+    auto rig = animation::make_rig(model);
+    REQUIRE(rig);
+    auto graph = animation::parse_anim_graph(R"({
+      "format": "ngine.animgraph", "version": 1, "model": 31, "initial": "Stehen",
+      "parameters": [ { "name": "Tempo", "type": "float", "value": 0 } ],
+      "states": [ { "name": "Stehen", "clip": "Wippen" },
+                  { "name": "Gehen", "clip": "Wippen",
+                    "events": [ { "time": 0.5, "name": "Fuss" } ] } ],
+      "transitions": [ { "from": "Stehen", "to": "Gehen", "duration": 0.1,
+                         "conditions": [ { "parameter": "Tempo", "op": "gt", "value": 0.5 } ] } ] })");
+    REQUIRE(graph);
+    asset::ResourceManager resources;
+    resources.add<animation::Rig>(31, *rig);
+    resources.add<animation::AnimGraph>(32, *graph);
+
+    world::World w{types};
+    world::Entity dancer = w.create("Figur");
+    dancer.set(world::Transform{});
+    const reflect::TypeInfo* type = types.find("Taenzer");
+    REQUIRE(type != nullptr);
+    (void)w.ensure(dancer.id(), w.component(*type));
+    world::Entity body = w.create("Puppe");
+    body.set(world::Transform{}).set(animation::Animator{.graph = 32}).set_parent(dancer);
+
+    events::EventBus bus;
+    animation::AnimationSystem system{resources};
+    system.set_events(&bus);
+    system.set_rendering(false);
+    rt.bind_world(&w);
+    rt.bind_physics(nullptr, &bus);
+    rt.bind_animation(&system);
+    // Zwei Sekunden: Update setzt Tempo, das System spielt danach (Phase::Late), Ereignisse kommen
+    // vor dem nächsten Update an.
+    for (int frame = 0; frame < 120; ++frame) {
+        REQUIRE(rt.run(script::ScriptPhase::Frame, 1.0f / 60.0f));
+        system.update(w, 1.0 / 60.0);
+    }
+    CHECK(system.state(body.id()) == "Gehen");
+    rt.store_fields();
+    void* data = w.get_mut(dancer.id(), w.component(*type));
+    CHECK(field<i32>(data, *type, "Gehen") == 1);
+    CHECK(field<i32>(data, *type, "Unbekannt") == 0);
+    CHECK(field<i32>(data, *type, "Ereignisse") >= 1);
+    CHECK(field<i32>(data, *type, "Ereignisse") <= 2);
+
+    rt.bind_animation(nullptr);
+    rt.bind_physics(nullptr);
+    rt.bind_world(nullptr);
     REQUIRE(rt.unload_scripts());
     rt.use_types(nullptr);
 }
@@ -808,7 +884,7 @@ TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
     }
     INFO(status.last_build->output);
     REQUIRE(status.last_build->ok);
-    CHECK(status.classes == std::vector<std::string>{"Laterne", "Schritte", "Spielersteuerung"});
+    CHECK(status.classes == std::vector<std::string>{"Laterne", "Schritte", "Spaziergang", "Spielersteuerung"});
     system->add_to(simulation);
     simulation.set_after_fixed_step([&] { actions.end_fixed_step(); });
 

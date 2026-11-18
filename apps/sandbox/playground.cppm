@@ -34,6 +34,7 @@ import ngine.reflect;
 import ngine.render;
 import ngine.world;
 import ngine.audio;
+import ngine.animation;
 import app.model_scene;
 import app.paths;
 import app.physics;
@@ -112,10 +113,34 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
     physics::register_types(types);
     app::register_player_types(types);
     audio::register_types(types);
+    animation::register_types(types);
     world::World world{types};
     jobs::JobSystem jobs;
     const app::PlaygroundLayout layout = app::build_playground(world, origin, jobs);
     world::Entity player = app::add_player(world, layout.spawn);
+    // Animation (R4.6) wie auf dem Server: Die Figur trägt die Puppe mit dem Automaten der
+    // Spielfigur aus dem Asset-Ordner. Ohne Renderer laufen nur die Automaten; Posen rechnet das
+    // System nur für pose_mode Always. Es schreibt nichts in die Welt, die Prüfsumme bleibt.
+    std::optional<asset::AssetDatabase> animation_assets;
+    std::optional<asset::ResourceManager> animation_resources;
+    std::optional<animation::AnimationSystem> animation_system;
+    u64 animation_graph = 0;
+    if (const auto root = app::find_upwards("assets", "figuren/spielfigur.animgraph")) {
+        if (auto opened = asset::AssetDatabase::open(*root)) {
+            animation_assets.emplace(std::move(*opened));
+            if (const asset::AssetInfo* graph =
+                    animation_assets->find_path("figuren/spielfigur.animgraph")) {
+                animation_graph = graph->id;
+                animation_resources.emplace(&*animation_assets, &jobs);
+                animation::register_loaders(*animation_resources);
+                animation::register_graph_loader(*animation_resources);
+                animation_system.emplace(*animation_resources, &jobs);
+                animation_system->set_rendering(false);
+            }
+        } else {
+            log::warn("Animation: Asset-Ordner {}: {}", *root, opened.error());
+        }
+    }
     // Audio (R4.5) über das Null-Gerät: ein Summen über der Ebene und die Schritte der Figur mit
     // erzeugten Klängen. Es liest die Welt nur; mit --no-audio bleibt die Prüfsumme gleich.
     constexpr u64 hum_id = asset::generated_id("sandbox.playground.hum");
@@ -180,6 +205,9 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
                                      .cache_dir = filesystem::join(*assets, ".cache/skripte"),
                                      .watch = false});
         scripts->bind(&world, &actions, &physics, &bus);
+        if (animation_system) {
+            scripts->bind_animation(&*animation_system);
+        }
         if (audio_system) {
             scripts->bind_audio(&*audio_system, &*audio_engine, &footsteps);
         }
@@ -202,6 +230,20 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
         bus.subscribe<physics::CharacterLanded>([&](const physics::CharacterLanded&) { ++landed; });
     const auto on_step =
         bus.subscribe<physics::CharacterStep>([&](const physics::CharacterStep&) { ++steps; });
+    u64 animation_events = 0;
+    const auto on_animation_event = bus.subscribe<animation::AnimationEvent>(
+        [&](const animation::AnimationEvent&) { ++animation_events; });
+    // Die Puppe als Kind der Figur zuletzt anlegen, damit die Kennungen der Körper (und damit die
+    // Prüfsumme) dieselben bleiben wie ohne Animation.
+    u64 puppet = 0;
+    if (animation_system) {
+        animation_system->set_events(&bus);
+        puppet = world.create("Puppe")
+                     .set(world::Transform{})
+                     .set(animation::Animator{.graph = animation_graph})
+                     .set_parent(player)
+                     .id();
+    }
 
     // Ein Bild ist 1/60 s, also ein fester Schritt pro Bild, so schnell es geht.
     Timing step;
@@ -247,6 +289,11 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
         write_back.add(stats.write_back_ms);
         figures.add(stats.characters_ms);
         transforms.add(simulation.stats().transforms_ms);
+        if (animation_system) {
+            // Rig und Automat laden im Hintergrund; update() übernimmt fertige Ladevorgänge.
+            animation_resources->update();
+            animation_system->update(world, 1.0 / 60.0);
+        }
         if (audio_system) {
             audio_system->set_fallback_listener(player.get<world::WorldTransform>()->value);
             audio_system->update(world, 1.0 / 60.0);
@@ -289,9 +336,17 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
                   audio_stats.mixer.underruns);
         audio_system->stop_all();
     }
+    if (animation_system) {
+        const animation::AnimationStats& animation_stats = animation_system->stats();
+        log::info("Animation: {} Animatoren, {} mit Automat, {} mit Pose, {} Ereignisse, Zustand "
+                  "der Figur am Ende \"{}\", zuletzt {:.3f} ms pro Bild",
+                  animation_stats.animators, animation_stats.running, animation_stats.posed,
+                  animation_events, animation_system->state(puppet), animation_stats.update_ms);
+    }
     log::info("Prüfsumme der Lagen: {:016x}", physics::checksum(world));
     if (scripts) {
         scripts->bind_audio(nullptr, nullptr);
+        scripts->bind_animation(nullptr);
         scripts->bind(nullptr);
     }
     return 0;
@@ -300,6 +355,16 @@ export int run_playground_headless(u64 frames, math::DVec3 origin, u32 extra_bod
 // Spielplatz aus Code als Szene (R4.3): mit der Figur aus prefabs/spielfigur.prefab, wenn es den
 // Asset-Ordner gibt. So entsteht assets/szenen/spielplatz.json. Seit R4.5 mit Radio, Wind und
 // kreisendem Summen; die Typen stehen in derselben Reihenfolge wie in der Szene der App.
+// Felder von Spaziergang.cs für save_playground(), das ohne C# läuft: Mit diesem Stellvertreter
+// stehen die Werte jeder Figur als Abweichung vom Prefab in der Szene. Namen und Typen wie im
+// Skript.
+struct WalkFields {
+    f32 radius = 2.0f;
+    f32 tempo = 1.6f;
+    f32 richtung = 1.0f;
+    f32 glaettung = 10.0f;
+};
+
 export int save_playground(const std::string& path, const asset::AssetDatabase* database) {
     reflect::TypeRegistry types;
     world::register_types(types);
@@ -308,6 +373,13 @@ export int save_playground(const std::string& path, const asset::AssetDatabase* 
     app::register_types(types);
     app::register_player_types(types);
     audio::register_types(types);
+    animation::register_types(types);
+    // Wie die Skripte in der App nach den Typen der Engine.
+    types.add<WalkFields>("Spaziergang")
+        .field("Radius", &WalkFields::radius)
+        .field("Tempo", &WalkFields::tempo)
+        .field("Richtung", &WalkFields::richtung)
+        .field("Glaettung", &WalkFields::glaettung);
     world::World world{types};
     jobs::JobSystem jobs;
     const app::PlaygroundLayout layout = app::build_playground(world, {0.0, 0.0, 0.0}, jobs);
@@ -343,9 +415,48 @@ export int save_playground(const std::string& path, const asset::AssetDatabase* 
             log::warn("Laterne: {}", loaded.error());
         }
     }
+    // Drei Figuren auf der Ebene (R4.6, prefabs/spaziergaenger.prefab mit Spaziergang.cs): eine
+    // geht, eine rennt im Kreis, eine steht. Position ist der Startpunkt auf dem Kreis.
+    const asset::AssetInfo* walker_info =
+        database != nullptr ? database->find_path("prefabs/spaziergaenger.prefab") : nullptr;
+    std::optional<world::Prefab> walker;
+    if (walker_info != nullptr) {
+        if (auto loaded = world::load_prefab_file(walker_info->file)) {
+            walker = *std::move(loaded);
+            struct Walk {
+                math::DVec3 start;
+                f32 tempo;
+                f32 radius;
+            };
+            const Walk walks[] = {{{7.8, 0.0, 2.3}, 1.6f, 1.8f},
+                                  {{2.7, 0.0, 2.3}, 5.5f, 2.2f},
+                                  {{-6.0, 0.0, 1.5}, 0.0f, 0.0f}};
+            for (const Walk& walk : walks) {
+                auto placed = world::instantiate(world, *walker, walker_info->id);
+                if (!placed) {
+                    log::warn("Spaziergänger: {}", placed.error());
+                    break;
+                }
+                world::Transform transform = *placed->get<world::Transform>();
+                transform.position = layout.platform + walk.start;
+                placed->set(transform);
+                auto* fields = placed->get_mut<WalkFields>();
+                if (fields != nullptr) {
+                    fields->tempo = walk.tempo;
+                    fields->radius = walk.radius;
+                    placed->modified<WalkFields>();
+                }
+            }
+        } else {
+            log::warn("Spaziergänger: {}", loaded.error());
+        }
+    }
     const world::PrefabLookup lookup = [&](u64 id) -> const world::Prefab* {
         if (prefab && id == prefab_id) {
             return &*prefab;
+        }
+        if (walker && walker_info != nullptr && id == walker_info->id) {
+            return &*walker;
         }
         return lantern && lantern_info != nullptr && id == lantern_info->id ? &*lantern : nullptr;
     };

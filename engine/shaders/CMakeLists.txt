@@ -35,6 +35,8 @@ ngine_compile_shader(ngine_shaders SOURCE terrain.slang ENTRY id_fragment_main S
 # GPU-getriebenes Zeichnen (R3.5): Prüfen der Meshlets als Task- und als Compute-Shader, Hi-Z.
 ngine_compile_shader(ngine_shaders SOURCE cull.slang ENTRY cull_task STAGE amplification NAME cull_task DEPENDS bindless.slang scene.slang driven.slang)
 ngine_compile_shader(ngine_shaders SOURCE cull.slang ENTRY cull_compute STAGE compute NAME cull_compute DEPENDS bindless.slang scene.slang driven.slang)
+# Skinning auf der GPU (R4.6).
+ngine_compile_shader(ngine_shaders SOURCE skinning.slang ENTRY compute_main STAGE compute NAME skinning_compute DEPENDS bindless.slang scene.slang)
 ngine_compile_shader(ngine_shaders SOURCE hiz.slang ENTRY compute_main STAGE compute NAME hiz_compute DEPENDS bindless.slang)
 ngine_compile_shader(ngine_shaders SOURCE tonemap.slang ENTRY fragment_main STAGE fragment NAME tonemap_fragment DEPENDS bindless.slang)
 ngine_compile_shader(ngine_shaders SOURCE ui.slang ENTRY vertex_main STAGE vertex NAME ui_vertex DEPENDS bindless.slang)

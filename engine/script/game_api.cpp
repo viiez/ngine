@@ -4,6 +4,7 @@ module;
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -17,6 +18,7 @@ import ngine.physics;
 import ngine.voxel;
 import ngine.world;
 import ngine.audio;
+import ngine.animation;
 import :game_api;
 import :world_api;
 
@@ -31,8 +33,12 @@ struct Context {
     audio::AudioSystem* audio = nullptr;
     audio::AudioEngine* audio_engine = nullptr;
     const world::TerrainMaterials* materials = nullptr;
+    animation::AnimationSystem* animation = nullptr;
     std::vector<events::Subscription> subscriptions;
     std::vector<NativeEvent> events;
+    // Ereignisse der Animation: Entity des Animators und Name, bis zur Zustellung.
+    std::vector<animation::AnimationEvent> animation_events;
+    std::vector<std::string> delivered_names;
 };
 
 Context& context() {
@@ -173,8 +179,9 @@ i32 api_sound_play(u64 sound, const f64* position, i32 bus, f32 volume, f32 pitc
     if (position != nullptr) {
         at = dvec3(position);
     }
-    return system->play_at(sound, at,
-                           audio::OneShotParams{.bus = bus_of(bus), .volume = volume, .pitch = pitch})
+    return system->play_at(
+               sound, at,
+               audio::OneShotParams{.bus = bus_of(bus), .volume = volume, .pitch = pitch})
                ? 1
                : 0;
 }
@@ -218,6 +225,66 @@ u64 api_footstep_sound(u32 material) {
     return entry != nullptr ? entry->footstep_sounds : 0;
 }
 
+// Entity mit Animator: entity selbst oder der erste Nachkomme (Breitensuche, wenige Ebenen), z. B.
+// das Netz unter der Spielfigur mit dem Skript.
+u64 animator_of(world::World& world, u64 entity) {
+    if (entity == 0 || world::Commands::is_pending(entity) || !world.alive(entity)) {
+        return 0;
+    }
+    const world::ComponentId animator = world.component<animation::Animator>();
+    std::vector<u64> level{entity};
+    for (u32 depth = 0; depth < 4 && !level.empty(); ++depth) {
+        std::vector<u64> next;
+        for (const u64 id : level) {
+            if (world.has(id, animator)) {
+                return id;
+            }
+            const std::vector<u64> children = world.children(id);
+            next.insert(next.end(), children.begin(), children.end());
+        }
+        level = std::move(next);
+    }
+    return 0;
+}
+
+i32 api_anim_set(u64 entity, const u8* name, i32 length, i32 kind, f32 value) {
+    animation::AnimationSystem* system = context().animation;
+    world::World* world = script_world();
+    if (system == nullptr || world == nullptr) {
+        return 0;
+    }
+    const u64 target = animator_of(*world, entity);
+    if (target == 0) {
+        return 0;
+    }
+    const std::string_view key = text(name, length);
+    bool accepted = false;
+    switch (kind) {
+    case 0: accepted = system->set_float(target, key, value); break;
+    case 1: accepted = system->set_bool(target, key, value != 0.0f); break;
+    default: accepted = system->set_trigger(target, key); break;
+    }
+    return accepted ? 1 : 0;
+}
+
+i32 api_anim_state(u64 entity, u8* out, i32 capacity) {
+    const animation::AnimationSystem* system = context().animation;
+    world::World* world = script_world();
+    if (system == nullptr || world == nullptr) {
+        return -1;
+    }
+    const u64 target = animator_of(*world, entity);
+    if (target == 0) {
+        return -1;
+    }
+    const std::string_view state = system->state(target);
+    const usize count = std::min(state.size(), static_cast<usize>(std::max(capacity, 0)));
+    if (out != nullptr && count > 0) {
+        std::memcpy(out, state.data(), count);
+    }
+    return static_cast<i32>(state.size());
+}
+
 } // namespace
 
 GameApi make_game_api() {
@@ -233,6 +300,8 @@ GameApi make_game_api() {
         .set_bus_volume = api_set_bus_volume,
         .bus_volume = api_bus_volume,
         .footstep_sound = api_footstep_sound,
+        .anim_set = api_anim_set,
+        .anim_state = api_anim_state,
     };
 }
 
@@ -256,14 +325,24 @@ void bind_script_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
     c.materials = materials;
 }
 
+void bind_script_animation(animation::AnimationSystem* animation) {
+    context().animation = animation;
+}
+
 void bind_script_events(events::EventBus* bus) {
     Context& c = context();
     c.subscriptions.clear();
     c.events.clear();
+    c.animation_events.clear();
     if (bus == nullptr) {
         return;
     }
     auto& events = c.events;
+    auto& animation_events = c.animation_events;
+    c.subscriptions.push_back(bus->subscribe<animation::AnimationEvent>(
+        [&animation_events](const animation::AnimationEvent& e) {
+            animation_events.push_back(e);
+        }));
     c.subscriptions.push_back(
         bus->subscribe<physics::ContactBegan>([&events](const physics::ContactBegan& e) {
             events.push_back({.kind = EventKind::ContactBegan,
@@ -303,6 +382,35 @@ void bind_script_events(events::EventBus* bus) {
 
 std::vector<NativeEvent> take_script_events() {
     return std::exchange(context().events, {});
+}
+
+std::vector<NativeEvent> take_script_animation_events() {
+    Context& c = context();
+    std::vector<animation::AnimationEvent> taken = std::exchange(c.animation_events, {});
+    c.delivered_names.clear();
+    c.delivered_names.reserve(taken.size());
+    std::vector<NativeEvent> result;
+    const world::World* world = script_world();
+    if (world == nullptr) {
+        return result;
+    }
+    for (animation::AnimationEvent& e : taken) {
+        if (!world->alive(e.entity)) {
+            continue;
+        }
+        const std::string& name = c.delivered_names.emplace_back(std::move(e.name));
+        // Skripte sitzen oft am Vorfahren (Spielfigur), der Animator am Netz darunter.
+        u64 entity = e.entity;
+        for (u32 depth = 0; entity != 0 && depth < 16; ++depth) {
+            result.push_back({.kind = EventKind::Animation,
+                              .a = entity,
+                              .b = e.entity,
+                              .text = reinterpret_cast<const u8*>(name.data()),
+                              .text_length = static_cast<i32>(name.size())});
+            entity = world->parent(entity);
+        }
+    }
+    return result;
 }
 
 } // namespace ngine::script

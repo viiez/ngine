@@ -74,7 +74,7 @@
       "parent": 1,
       "components": {
         "Name": {
-          "value": "Körper"
+          "value": "Puppe"
         },
         "Transform": {
           "position": {
@@ -96,13 +96,19 @@
         },
         "MeshRenderer": {
           "mesh": {
-            "asset": 9730113247301520891,
-            "index": 5
+            "asset": 8199018642793815721,
+            "index": 0
           },
           "material": {
             "asset": 0,
             "index": 0
           }
+        },
+        "Animator": {
+          "graph": 1235906585323228665,
+          "speed": 1.0,
+          "active": true,
+          "pose_mode": "Visible"
         }
       }
     }

@@ -159,14 +159,21 @@ Primitive make_box(Vec3 half_extents) {
 }
 
 void ensure_meshlets(Model& model) {
+    bool fit = false;
     for (Mesh& mesh : model.meshes) {
         for (Primitive& primitive : mesh.primitives) {
             if (primitive.meshlets.empty() && !primitive.indices.empty()) {
                 primitive.meshlets = meshlet::build(
                     meshlet::positions_of(std::span<const Vertex>{primitive.vertices}),
                     primitive.indices);
+                if (!primitive.skin.empty()) {
+                    fit = true;
+                }
             }
         }
+    }
+    if (fit) {
+        fit_skinned_meshlets(model);
     }
 }
 

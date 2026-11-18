@@ -25,6 +25,7 @@ add_executable(ngine_tests
     render/render_graph_tests.cpp
     render/render_gpu_tests.cpp
     render/renderer_tests.cpp
+    render/skinning_tests.cpp
     render/lighting_tests.cpp
     render/geometry_tests.cpp
     render/culling_tests.cpp
@@ -45,6 +46,7 @@ add_executable(ngine_tests
     world/terrain_tests.cpp
     physics/physics_tests.cpp
     audio/audio_tests.cpp
+    animation/animation_tests.cpp
     platform/process_tests.cpp
     edit/edit_tests.cpp
     edit/gizmo_play_tests.cpp
@@ -61,7 +63,7 @@ add_executable(ngine_tests
     shader_compiler/shader_compiler_tests.cpp)
 target_link_libraries(ngine_tests PRIVATE
     ngine::core ngine::filesystem ngine::math ngine::memory ngine::jobs ngine::profile ngine::reflect
-    ngine::serialize ngine::world ngine::asset ngine::meshlet ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::render ngine::shaders ngine::editor_ui ngine::edit ngine::shader_compiler ngine::cook ngine::input ngine::platform ngine::physics ngine::audio
+    ngine::serialize ngine::world ngine::asset ngine::meshlet ngine::voxel ngine::script ngine::net ngine::replication ngine::rhi ngine::rhi_vulkan ngine::render ngine::shaders ngine::editor_ui ngine::edit ngine::shader_compiler ngine::cook ngine::input ngine::platform ngine::physics ngine::audio ngine::animation
     Catch2::Catch2WithMain glm::glm-header-only)
 ngine_set_compiler_options(ngine_tests)
 # Quellen der Renderer-Shader für den Test des Hot Reload (R2.4).

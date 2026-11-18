@@ -16,6 +16,7 @@ import ngine.core;
 import ngine.input;
 import ngine.physics;
 import ngine.audio;
+import ngine.animation;
 import ngine.reflect;
 import ngine.world;
 
@@ -81,6 +82,8 @@ public:
     // Audio für NGine.Audio und die Materialtabelle für Schritte (R4.5); nullptr löst sie.
     void bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                     const world::TerrainMaterials* materials = nullptr);
+    // Animation für NGine.Animator (R4.6); nullptr löst sie.
+    void bind_animation(animation::AnimationSystem* animation);
     // Felder der laufenden Skripte in ihre Komponenten schreiben (vor Speichern, Snapshot,
     // Inspector) bzw. aus ihnen lesen (nach Änderungen im Inspector, Undo).
     void store_fields();

@@ -51,6 +51,7 @@ std::span<const RendererCore::ShaderSpec> RendererCore::shader_specs() {
                    &RendererCore::terrain_id_fragment},
         ShaderSpec{"cull.slang", shaders::cull_compute, &RendererCore::cull_compute},
         ShaderSpec{"hiz.slang", shaders::hiz_compute, &RendererCore::hiz_compute},
+        ShaderSpec{"skinning.slang", shaders::skinning_compute, &RendererCore::skinning_compute},
         ShaderSpec{"cull.slang", shaders::cull_task, &RendererCore::cull_task, true},
         ShaderSpec{"pbr.slang", shaders::pbr_mesh, &RendererCore::pbr_mesh, true},
         ShaderSpec{"shadow.slang", shaders::shadow_mesh, &RendererCore::shadow_mesh, true},
@@ -256,6 +257,11 @@ rhi::Result<void> RendererCore::create_pipelines() {
         return std::unexpected("Renderer, Hi-Z: " + hiz_pipeline.error());
     }
     hiz = *std::move(hiz_pipeline);
+    auto skinning_pipeline = device->create_compute_pipeline({.compute = skinning_compute.get()});
+    if (!skinning_pipeline) {
+        return std::unexpected("Renderer, Skinning: " + skinning_pipeline.error());
+    }
+    skinning = *std::move(skinning_pipeline);
     return {};
 }
 

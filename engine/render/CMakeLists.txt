@@ -33,6 +33,7 @@ target_sources(ngine_render
         shadows.cpp
         debug_draw.cpp
         renderer.cpp
+        skinning.cpp
         pipelines.cpp
         passes.cpp
         terrain_pass.cpp
@@ -44,6 +45,6 @@ target_sources(ngine_render
 # Ressourcen-Schicht für Modelle.
 target_link_libraries(ngine_render
     PUBLIC ngine::core ngine::math ngine::rhi ngine::reflect ngine::world ngine::asset
-           ngine::meshlet
+           ngine::meshlet ngine::animation
     PRIVATE ngine::profile ngine::shaders)
 ngine_set_compiler_options(ngine_render)

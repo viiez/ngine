@@ -54,9 +54,15 @@ module;
 // Seit R4.5 klingt die Szene (ngine.audio): Mit enable_audio() spielt ein AudioSystem die
 // AudioSource der Welt relativ zur Kamera; der Spielplatz hat ein Radio, Wind und ein kreisendes
 // Summen (Doppler). Im Editor nur beim Spielen (set_audio_active()).
+//
+// Seit R4.6 bewegen sich Figuren (ngine.animation): Ein AnimationSystem spielt nach der
+// Simulation jedes Bildes die Automaten der Animator-Komponenten, der Renderer verformt Netze mit
+// Skin danach auf der GPU. Im Editor läuft es auch außerhalb des Spiels, damit man Parameter im
+// Fenster „Animation“ ausprobieren kann; die Welt ändert es nicht.
 export module app.model_scene;
 
 import ngine.core;
+import ngine.animation;
 import ngine.asset;
 import ngine.audio;
 import ngine.filesystem;
@@ -385,6 +391,7 @@ public:
                                      .build = options.build,
                                      .watch = options.watch});
         scripts_->bind(&world_, actions, &physics_, &events_);
+        scripts_->bind_animation(animation_.get());
         if (audio_) {
             scripts_->bind_audio(audio_.get(), audio_engine_, &terrain_materials_.table());
         }
@@ -516,7 +523,13 @@ public:
                                    .rotation = math::to_mat3(view_rotation_),
                                    .camera = camera_settings_};
         }
+        update_animation(dt);
         update_audio(dt);
+    }
+
+    // Animation der Szene (R4.6), z. B. für das Fenster „Animation“ des Editors.
+    [[nodiscard]] animation::AnimationSystem& animation() noexcept {
+        return *animation_;
     }
 
     // Materialtabelle des Terrains (R4.3), z. B. für das Fenster des Editors.
@@ -737,6 +750,7 @@ private:
         app::register_types(types);
         app::register_player_types(types);
         audio::register_types(types);
+        animation::register_types(types);
         return types;
     }
 
@@ -749,8 +763,13 @@ private:
           shapes_{assets.database, assets.loading.cache}, physics_{world_, jobs_}, origin_{origin},
           mode_{mode}, database_{assets.database}, terrain_materials_{assets.database} {
         renderer_->set_resources(resources_.get());
+        animation::register_loaders(*resources_, assets.loading.cache);
+        animation::register_graph_loader(*resources_);
         render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
         audio::register_loaders(*resources_);
+        animation_ = std::make_unique<animation::AnimationSystem>(*resources_, &jobs_);
+        animation_->set_events(&events_);
+        renderer_->set_animation(animation_.get());
         apply_terrain_materials();
         // Feste Simulation mit Interpolation: Die Lichter laufen bei jeder Bildrate gleich schnell
         // und ruckeln trotzdem nicht (R4.1).
@@ -1022,6 +1041,13 @@ private:
 
     // Hörer an der Kamera, dann die Quellen der Welt (R4.5). Die Transforms stehen nach
     // simulate(); im Editor ohne Spiel bleibt alles still.
+    // Nach der Simulation des Bildes: Automaten, Posen und Paletten für den Renderer. Pause und
+    // Zeitlupe der Spielschleife gelten auch hier.
+    void update_animation(f32 dt) {
+        const f64 scaled = simulation_.paused() ? 0.0 : static_cast<f64>(dt) * simulation_.time_scale();
+        animation_->update(world_, scaled);
+    }
+
     void update_audio(f32 dt) {
         if (!audio_) {
             return;
@@ -1215,6 +1241,8 @@ private:
     audio::AudioEngine* audio_engine_ = nullptr;
     std::unique_ptr<audio::AudioSystem> audio_;
     bool audio_active_ = false;
+    // Animation (R4.6): hält Rigs und Automaten aus resources_; die Skripte verweisen darauf.
+    std::unique_ptr<animation::AnimationSystem> animation_;
     std::unique_ptr<script::ScriptSystem> scripts_;
 };
 

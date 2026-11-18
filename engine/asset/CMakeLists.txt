@@ -30,6 +30,7 @@ target_sources(ngine_asset
             database.cppm
             resources.cppm
             cooked.cppm
+            skin.cppm
     PRIVATE
         database.cpp
         resources.cpp
@@ -38,6 +39,7 @@ target_sources(ngine_asset
         image_stb.cpp
         mips.cpp
         cooked.cpp
+        skin.cpp
         ktx_libktx.cpp)
 
 # fastgltf steckt nur in gltf_fastgltf.cpp, stb_image nur in image_stb.cpp (ADR 0027). Alle

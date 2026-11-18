@@ -1,0 +1,175 @@
+{
+  "format": "ngine.animgraph",
+  "version": 1,
+  "model": 8199018642793815721,
+  "initial": "Boden",
+  "parameters": [
+    {
+      "name": "Tempo",
+      "type": "float",
+      "value": 0.0
+    },
+    {
+      "name": "AmBoden",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "name": "Geduckt",
+      "type": "bool",
+      "value": false
+    },
+    {
+      "name": "Springen",
+      "type": "trigger"
+    }
+  ],
+  "states": [
+    {
+      "name": "Boden",
+      "parameter": "Tempo",
+      "blend": [
+        {
+          "clip": "Stehen",
+          "value": 0.0
+        },
+        {
+          "clip": "Gehen",
+          "value": 4.0
+        },
+        {
+          "clip": "Laufen",
+          "value": 7.0
+        }
+      ],
+      "events": [
+        {
+          "time": 0.25,
+          "name": "Fuss_links"
+        },
+        {
+          "time": 0.75,
+          "name": "Fuss_rechts"
+        }
+      ]
+    },
+    {
+      "name": "Geduckt",
+      "parameter": "Tempo",
+      "blend": [
+        {
+          "clip": "Ducken",
+          "value": 0.0
+        },
+        {
+          "clip": "Schleichen",
+          "value": 2.0
+        }
+      ],
+      "events": [
+        {
+          "time": 0.25,
+          "name": "Fuss_links"
+        },
+        {
+          "time": 0.75,
+          "name": "Fuss_rechts"
+        }
+      ]
+    },
+    {
+      "name": "Springen",
+      "clip": "Springen",
+      "loop": false
+    },
+    {
+      "name": "Fallen",
+      "clip": "Fallen"
+    },
+    {
+      "name": "Landen",
+      "clip": "Landen",
+      "loop": false
+    }
+  ],
+  "transitions": [
+    {
+      "from": "*",
+      "to": "Springen",
+      "duration": 0.08,
+      "conditions": [
+        {
+          "parameter": "Springen",
+          "op": "trigger"
+        }
+      ]
+    },
+    {
+      "from": "Springen",
+      "to": "Fallen",
+      "duration": 0.2,
+      "after_end": true
+    },
+    {
+      "from": "Boden",
+      "to": "Fallen",
+      "duration": 0.25,
+      "conditions": [
+        {
+          "parameter": "AmBoden",
+          "op": "false"
+        }
+      ]
+    },
+    {
+      "from": "Geduckt",
+      "to": "Fallen",
+      "duration": 0.25,
+      "conditions": [
+        {
+          "parameter": "AmBoden",
+          "op": "false"
+        }
+      ]
+    },
+    {
+      "from": "Fallen",
+      "to": "Landen",
+      "duration": 0.08,
+      "conditions": [
+        {
+          "parameter": "AmBoden",
+          "op": "true"
+        }
+      ]
+    },
+    {
+      "from": "Landen",
+      "to": "Boden",
+      "duration": 0.2,
+      "after_end": true
+    },
+    {
+      "from": "Boden",
+      "to": "Geduckt",
+      "duration": 0.2,
+      "conditions": [
+        {
+          "parameter": "Geduckt",
+          "op": "true"
+        }
+      ]
+    },
+    {
+      "from": "Geduckt",
+      "to": "Boden",
+      "duration": 0.2,
+      "conditions": [
+        {
+          "parameter": "Geduckt",
+          "op": "false"
+        }
+      ]
+    }
+  ]
+}

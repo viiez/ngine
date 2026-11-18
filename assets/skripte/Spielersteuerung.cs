@@ -6,12 +6,16 @@ namespace Spiel;
 // Steuerung der Spielfigur (R4.4; bis R4.3 apply_controls() in apps/common/player.cppm). Blick,
 // Kamera und Graben pro Bild in Update, die Bewegung im festen Schritt. Die Bewegung rechnet die
 // Physik (CharacterController), die Kamera bleibt in C++ (player_view()) und liest PlayerInput.
+// Seit R4.6 setzt das Skript auch die Parameter der Animation.
 public class Spielersteuerung : Script
 {
     // Pause zwischen zwei Pinselstrichen beim gehaltenen Graben, in Sekunden.
     [Range(0, 2)] public float Grabpause = 0.15f;
+    // Wie schnell Tempo der Geschwindigkeit folgt (1/s); höher heißt härter (R4.6).
+    [Range(0, 30)] public float Glaettung = 10.0f;
 
     private float pause;
+    private float tempo;
 
     public override void Update()
     {
@@ -33,6 +37,28 @@ public class Spielersteuerung : Script
         if (Input.Down("dig") && pause <= 0.0f && Dig(input, add: Input.Down("fast")))
         {
             pause = Grabpause;
+        }
+        Animate();
+    }
+
+    // Parameter des Automaten (figuren/spielfigur.animgraph) aus dem Zustand der Physik. Ohne
+    // Animator an der Figur oder darunter tut das nichts.
+    private void Animate()
+    {
+        if (!Entity.TryRead(out CharacterMotion motion))
+        {
+            return;
+        }
+        Vec3 velocity = motion.Velocity;
+        float speed = MathF.Sqrt(velocity.X * velocity.X + velocity.Z * velocity.Z);
+        tempo += (speed - tempo) * MathF.Min(Glaettung * Time.Delta, 1.0f);
+        bool grounded = motion.Ground != GroundState.Air;
+        Entity.SetAnimFloat("Tempo", tempo);
+        Entity.SetAnimBool("AmBoden", grounded);
+        Entity.SetAnimBool("Geduckt", motion.Crouched);
+        if (grounded && Input.Pressed("jump"))
+        {
+            Entity.SetAnimTrigger("Springen");
         }
     }
 
