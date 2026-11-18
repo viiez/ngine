@@ -28,7 +28,7 @@ abgeschlossen, das Review des Reifegrads ebenfalls. Jetzt läuft
 [R4.2](iterations/R4.2-physik-mit-jolt.md) (Physik mit Jolt),
 [R4.3](iterations/R4.3-terrain-kollision-und-spielfigur.md) (Terrain-Kollision und Spielfigur),
 [R4.4](iterations/R4.4-csharp-scripting.md) (C#-Scripting) und
-[R4.5](iterations/R4.5-audio.md) (Audio); geplant ist
+[R4.5](iterations/R4.5-audio.md) (Audio); in Arbeit ist
 [R4.6](iterations/R4.6-animation.md) (Animation), danach fehlt noch das Review des
 Reifegrads. R4 ist damit noch nicht abgeschlossen.
 Nach R5 folgt ein Review und eine Evaluation der ganzen Engine; erst danach kommt der
