@@ -516,7 +516,7 @@ TEST_CASE("Scripts play sounds and change bus volumes", "[script]") {
     rt.use_types(nullptr);
 }
 
-TEST_CASE("Scripts drive an animator and get its clip events", "[script][animation]") {
+TEST_CASE("Scripts drive an animator and get its clip events", "[script]") {
     auto& rt = runtime();
     reflect::TypeRegistry types;
     register_engine_types(types);

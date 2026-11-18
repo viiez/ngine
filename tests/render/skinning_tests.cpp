@@ -206,7 +206,7 @@ int brightness(const Picture& picture, f32 x, f32 y) {
 
 } // namespace
 
-TEST_CASE("GPU skinning bends a mesh the same on both drawing paths", "[render][animation][gpu]") {
+TEST_CASE("GPU skinning bends a mesh the same on both drawing paths", "[render][gpu]") {
     const auto rest = draw_column(false, false);
     if (!rest) {
         SKIP("Kein nutzbares Vulkan-Gerät");
