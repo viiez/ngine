@@ -322,7 +322,10 @@ TEST_CASE("Cooked models keep skins, weights and clips", "[animation]") {
     const asset::Model& model = read->model;
     REQUIRE(model.skins.size() == 1);
     CHECK(model.skins[0].joints == cooked.model.skins[0].joints);
-    CHECK(model.skins[0].inverse_bind == cooked.model.skins[0].inverse_bind);
+    // Mat4 vergleicht MSVC nicht mit ==, deshalb Byte für Byte.
+    REQUIRE(model.skins[0].inverse_bind.size() == cooked.model.skins[0].inverse_bind.size());
+    CHECK(std::memcmp(model.skins[0].inverse_bind.data(), cooked.model.skins[0].inverse_bind.data(),
+                      model.skins[0].inverse_bind.size() * sizeof(math::Mat4)) == 0);
     CHECK(model.meshes[0].skin == 0u);
     REQUIRE(model.meshes[0].primitives[0].skin.size() == 6);
     CHECK(std::memcmp(model.meshes[0].primitives[0].skin.data(),
