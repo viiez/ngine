@@ -1,7 +1,7 @@
 # R4: Gameplay-Systeme
 
 - **Phase:** Konstruktion
-- **Status:** im Review (R4.1 bis R4.6 abgeschlossen, Szenario auf dem PC offen)
+- **Status:** abgeschlossen (Szenario auf dem PC bestanden am 19.11.2026)
 - **Pull Requests:** #47 (Plan), weitere siehe Review
 
 R4 ist der vierte Reifegrad der Konstruktion. Wie R1 bis R3 ist er zu groß für eine Iteration; wir
@@ -233,9 +233,9 @@ Boden. Figuren bewegen sich mit Skelett-Animation, verformt auf der GPU vor alle
 | [R4.6](R4.6-animation.md) Animation | #58 | Skins und Clips gekocht, Automat mit Hot Reload in Jobs, Skinning im Compute-Pass, GPU-Zeiten je Pass |
 
 Abnahme: Alle sechs Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
-ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Offen ist das Szenario für den ganzen
-Reifegrad auf dem PC (Schritte in der [Einrichtung](../setup.md#r4-testen-szenario-des-reifegrads));
-mit ihm ist der Reifegrad abgeschlossen.
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Das Szenario für den ganzen Reifegrad
+(Schritte in der [Einrichtung](../setup.md#r4-testen-szenario-des-reifegrads)) hat viiez am
+19.11.2026 auf dem PC bestanden; damit ist R4 abgeschlossen.
 
 Abweichungen vom Plan:
 
@@ -342,3 +342,6 @@ neuen Systemen.
 2. **Plan für R5 im selben PR:** Das Review hier schließt R4, sobald das Szenario auf dem PC
    bestanden ist; der [Plan für R5](R5-multiplayer.md) (Multiplayer) liegt zur Abstimmung daneben
    und verteilt die Schulden mit Frist R5 auf seine Iterationen.
+
+**Ergebnis der Abstimmung** (viiez, 19.11.2026): Szenario bestanden, beide Punkte passen. TD-64
+kommt als erster Schritt in [R5.1](R5.1-server-mit-spielwelt.md).

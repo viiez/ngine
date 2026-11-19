@@ -6,6 +6,7 @@ module;
 #include <expected>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -202,6 +203,22 @@ Result<void> ActionMap::add(Action action) {
         sources_.push_back(std::move(sources));
     }
     return {};
+}
+
+u32 ActionMap::hash() const noexcept {
+    u32 h = 2166136261u;
+    const auto mix = [&](u8 byte) {
+        h ^= byte;
+        h *= 16777619u;
+    };
+    for (const Action& action : actions_) {
+        for (const char c : action.name) {
+            mix(static_cast<u8>(c));
+        }
+        mix(0);
+        mix(static_cast<u8>(action.kind));
+    }
+    return h;
 }
 
 std::optional<usize> ActionMap::find(std::string_view name) const noexcept {
@@ -490,6 +507,19 @@ void ActionState::end_frame(f32 dt) {
             value.released = was_down && !down;
         }
 
+        ActionValue& fixed = fixed_[i];
+        fixed.x = value.x;
+        fixed.y = value.y;
+        fixed.pressed = fixed.pressed || value.pressed;
+        fixed.released = fixed.released || value.released;
+        fixed.down = value.down || fixed.pressed;
+    }
+}
+
+void ActionState::apply(std::span<const ActionValue> values) {
+    for (usize i = 0; i < values_.size(); ++i) {
+        ActionValue& value = values_[i];
+        value = i < values.size() ? values[i] : ActionValue{};
         ActionValue& fixed = fixed_[i];
         fixed.x = value.x;
         fixed.y = value.y;

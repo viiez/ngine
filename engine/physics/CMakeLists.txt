@@ -16,10 +16,17 @@ target_sources(ngine_physics
             components.cppm
             physics_world.cppm
     PRIVATE
+        FILE_SET internal TYPE CXX_MODULES
+        FILES
+            jolt.cppm
+    PRIVATE
         components.cpp
-        jolt_world.cpp)
+        jolt_world.cpp
+        jolt_characters.cpp
+        jolt_terrain.cpp
+        jolt_queries.cpp)
 
-# Jolt steckt nur in jolt_*.cpp (ADR 0045). Der Port in cmake/vcpkg-ports baut mit doppelter
+# Jolt steckt nur in jolt.cppm und jolt_*.cpp (ADR 0045). Der Port in cmake/vcpkg-ports baut mit doppelter
 # Genauigkeit und ohne Befehlssatz-Schalter, die an Nutzer weitergingen.
 target_link_libraries(ngine_physics
     PUBLIC ngine::core ngine::math ngine::reflect ngine::jobs ngine::world

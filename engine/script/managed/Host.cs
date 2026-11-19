@@ -262,6 +262,7 @@ public static unsafe class Host
                 for (int i = 0; i < order.Count; ++i)
                 {
                     Script script = order[i];
+                    Current = script.Entity.Id;
                     try
                     {
                         if (!script.started)
@@ -485,10 +486,15 @@ public static unsafe class Host
     // Reihenfolge eines Laufs, wiederverwendet.
     private static readonly List<Script> runOrder = new();
 
+    // Entity des Skripts, das gerade läuft (R5.1): Input liest die Aktionen, die für sie gebunden
+    // sind (auf dem Server die des Spielers, dem die Figur gehört).
+    internal static ulong Current;
+
     private static int Call(Script script, Action<Script> action)
     {
         try
         {
+            Current = script.Entity.Id;
             action(script);
             return 0;
         }

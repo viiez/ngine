@@ -59,6 +59,10 @@ module;
 // Simulation jedes Bildes die Automaten der Animator-Komponenten, der Renderer verformt Netze mit
 // Skin danach auf der GPU. Im Editor läuft es auch außerhalb des Spiels, damit man Parameter im
 // Fenster „Animation“ ausprobieren kann; die Welt ändert es nicht.
+//
+// Seit R5.1 (TD-64) steckt alles ohne GPU in app::GameWorld (Welt, Spielschleife, Physik,
+// Skripte, Animation, Prefabs, Materialtabelle), das auch --headless und der Server nutzen. Die
+// Szene legt Renderer, Audio, Kamera, Steuerung und Debug-Zeichnen darüber.
 export module app.model_scene;
 
 import ngine.core;
@@ -80,6 +84,7 @@ import app.prefabs;
 import app.physics;
 import app.player;
 import app.terrain_materials;
+export import app.game_world;
 
 namespace app {
 
@@ -124,80 +129,6 @@ export FlyInput fly_input(const input::ActionState& actions) {
 // Szene, sondern geht als Renderer::camera_override an den Renderer, und nichts bewegt sich von
 // selbst, damit die Szene genau so gespeichert wird, wie sie im Inspector steht (R2.2).
 export enum class SceneMode : u8 { Game, Editor };
-
-// Kreisbahn um center mit Auf und Ab, z. B. für die Lichter der Standardszene. Das System
-// „Kreisbahnen“ zählt time weiter und setzt daraus Transform; time gehört zum Zustand, damit
-// Spielen im Editor und Stoppen ihn mit der Welt sichern und wiederherstellen.
-export struct Orbit {
-    // Mittelpunkt der Bahn auf der untersten Höhe.
-    DVec3 center{0.0, 0.0, 0.0};
-    f32 radius_x = 1.0f;
-    f32 radius_z = 1.0f;
-    // Hub des Auf und Ab in Metern.
-    f32 bob = 0.0f;
-    // Winkelgeschwindigkeit der Bahn und des Auf und Ab im Bogenmaß pro Sekunde.
-    f32 speed = 0.4f;
-    f32 bob_speed = 0.9f;
-    // Startwinkel.
-    f32 phase = 0.0f;
-    // Zeit auf der Bahn in Sekunden.
-    f32 time = 0.0f;
-};
-
-// Ort auf der Bahn zur Zeit orbit.time.
-export DVec3 orbit_position(const Orbit& orbit) {
-    const f32 angle = orbit.phase + orbit.time * orbit.speed;
-    const f32 height =
-        orbit.bob * (0.5f + 0.5f * std::sin(orbit.time * orbit.bob_speed + orbit.phase * 2.0f));
-    return orbit.center + DVec3{std::cos(angle) * static_cast<f64>(orbit.radius_x), height,
-                                std::sin(angle) * static_cast<f64>(orbit.radius_z)};
-}
-
-// Registriert die Komponenten der Standardszene (Orbit) in der Reflection.
-export void register_types(reflect::TypeRegistry& types) {
-    if (types.find<Orbit>() == nullptr) {
-        types.add<Orbit>("Orbit")
-            .field("center", &Orbit::center)
-            .field("radius_x", &Orbit::radius_x)
-            .range(0.0, 100.0)
-            .field("radius_z", &Orbit::radius_z)
-            .range(0.0, 100.0)
-            .field("bob", &Orbit::bob)
-            .range(0.0, 100.0)
-            .field("speed", &Orbit::speed)
-            .field("bob_speed", &Orbit::bob_speed)
-            .field("phase", &Orbit::phase)
-            .hint(reflect::Hint::Angle)
-            .field("time", &Orbit::time);
-    }
-}
-
-// Summen, das um die Ebene des Spielplatzes kreist (R4.5): zeigt Doppler und Panning. Gut 12 m/s
-// auf der Bahn verschieben die Tonhöhe um etwa einen halben Halbton. Ohne Datenbank oder Klang
-// entsteht nichts.
-export void add_playground_hum(world::World& world, const PlaygroundLayout& layout,
-                               const asset::AssetDatabase* database) {
-    const asset::AssetInfo* hum =
-        database != nullptr ? database->find_path("klaenge/welt/summen.wav") : nullptr;
-    if (hum == nullptr) {
-        return;
-    }
-    const Orbit orbit{.center = layout.platform + DVec3{0.0, 2.5, 0.0},
-                      .radius_x = 9.0f,
-                      .radius_z = 9.0f,
-                      .bob = 1.0f,
-                      .speed = 1.4f,
-                      .bob_speed = 0.7f};
-    world.create("Summer")
-        .set(world::Transform{.position = orbit_position(orbit), .scale = {0.3f, 0.3f, 0.3f}})
-        .set(render::MeshRenderer{.mesh = playground_ref(playground_ball)})
-        .set(orbit)
-        .set(audio::AudioSource{.sound = hum->id,
-                                .volume = 0.5f,
-                                .loop = true,
-                                .min_distance = 2.0f,
-                                .max_distance = 35.0f});
-}
 
 namespace {
 
@@ -282,16 +213,6 @@ export constexpr asset::AssetId default_scene_id = asset::generated_id("app.mode
 // Kennung des Bodens unter einem Modell aus --model.
 export constexpr asset::AssetId model_ground_id = asset::generated_id("app.model_scene.ground");
 
-// Wie die Szene ihre Skripte bekommt (R4.4).
-export struct ScriptOptions {
-    // Mit dem .NET-SDK bauen; sonst nur die Assembly aus dem Cache (Server).
-    bool build = true;
-    // Bei geänderten .cs-Dateien neu bauen und laden (Hot Reload).
-    bool watch = true;
-    // Auf den ersten Bau warten (ohne Fenster, damit die Skripte ab dem ersten Bild laufen).
-    bool wait = false;
-};
-
 export class ModelScene {
 public:
     // Ohne model_path das Kugelraster. origin verschiebt alles, auch die Kamera (--far).
@@ -336,6 +257,12 @@ public:
         return scene;
     }
 
+    ~ModelScene() {
+        game_.bind_audio(nullptr, nullptr);
+    }
+    ModelScene(const ModelScene&) = delete;
+    ModelScene& operator=(const ModelScene&) = delete;
+
     // F1: Hüllquader, Lichter und Achsenkreuz zeichnen.
     void set_debug_draw(bool enabled) {
         debug_draw_ = enabled;
@@ -367,64 +294,31 @@ public:
         ball.set(world::Name{"Wurf"});
     }
 
-    // Steuert die Figur mit PlayerInput (im Spiel immer, im Editor beim Spielen, siehe
-    // set_player_enabled()).
-    // Skripte aus assets/skripte (R4.4): bauen, laden, bei Änderungen neu laden. runtime muss die
-    // Szene überleben. Sie sehen die Welt, die Aktionen und die Physik der Szene; im Editor laufen
-    // sie nur beim Spielen (scripts()->set_active()).
+    // Skripte aus assets/skripte (R4.4, GameWorld::enable_scripts()): runtime muss die Szene
+    // überleben. Sie sehen die Welt, die Aktionen und die Physik der Szene; im Editor laufen sie
+    // nur beim Spielen (scripts()->set_active()).
     void enable_scripts(script::ScriptRuntime& runtime, input::ActionState* actions,
                         ScriptOptions options = {}) {
-        if (database_ == nullptr) {
-            log::warn("Skripte: kein Asset-Ordner");
-            return;
-        }
-        const std::string project = filesystem::join(database_->root(), "skripte/Skripte.csproj");
-        if (!filesystem::exists(project)) {
-            log::warn("Skripte: {} fehlt", project);
-            return;
-        }
-        scripts_ = std::make_unique<script::ScriptSystem>(
-            runtime, types_,
-            script::ScriptSystemDesc{.project = project,
-                                     .cache_dir =
-                                         filesystem::join(database_->root(), ".cache/skripte"),
-                                     .build = options.build,
-                                     .watch = options.watch});
-        scripts_->bind(&world_, actions, &physics_, &events_);
-        scripts_->bind_animation(animation_.get());
-        if (audio_) {
-            scripts_->bind_audio(audio_.get(), audio_engine_, &terrain_materials_.table());
-        }
+        options.active = mode_ == SceneMode::Game;
+        game_.enable_scripts(runtime, actions, options);
+        game_.bind_audio(audio_.get(), audio_engine_);
         script_actions_ = actions;
-        // Flanken für FixedUpdate gelten bis nach dem festen Schritt, der sie gesehen hat.
-        if (actions != nullptr) {
-            simulation_.set_after_fixed_step([actions] { actions->end_fixed_step(); });
-        }
-        scripts_->set_active(mode_ == SceneMode::Game);
-        scripts_->start(options.wait);
     }
     [[nodiscard]] script::ScriptSystem* scripts() noexcept {
-        return scripts_.get();
+        return game_.scripts();
     }
     // Ob ein laufendes Skript Spielersteuerung die Figur steuert.
     [[nodiscard]] bool scripted_player(world::Entity player) {
-        if (!scripts_ || !scripts_->active() || !scripts_->runtime().scripts_loaded()) {
-            return false;
-        }
-        const reflect::TypeInfo* type = types_.find("Spielersteuerung");
-        return type != nullptr && !type->retired &&
-               world_.has(player.id(), world_.component(*type));
+        return game_.scripted_player(player);
     }
 
     // Klänge der Welt (R4.5) über engine; engine muss die Szene überleben. Im Spiel gleich aktiv,
     // im Editor erst beim Spielen (set_audio_active()).
     void enable_audio(audio::AudioEngine& engine) {
         audio_engine_ = &engine;
-        audio_ = std::make_unique<audio::AudioSystem>(engine, *resources_, database_);
+        audio_ = std::make_unique<audio::AudioSystem>(engine, resources_, database_);
         audio_active_ = mode_ == SceneMode::Game;
-        if (scripts_) {
-            scripts_->bind_audio(audio_.get(), audio_engine_, &terrain_materials_.table());
-        }
+        game_.bind_audio(audio_.get(), audio_engine_);
     }
     [[nodiscard]] audio::AudioSystem* audio() noexcept {
         return audio_.get();
@@ -476,9 +370,9 @@ public:
         // Steuert ein Skript die Figur (Spielersteuerung.cs, R4.4), entfällt die Steuerung in C++;
         // im Flugmodus bekommen die Skripte keine Eingabe.
         const bool scripted = player && scripted_player(player);
-        if (scripts_) {
-            scripts_->update();
-            scripts_->runtime().bind_input(fly_ ? nullptr : script_actions_);
+        if (script::ScriptSystem* scripts = game_.scripts()) {
+            scripts->update();
+            game_.bind_script_actions(fly_ ? nullptr : script_actions_);
         }
         if (player && !scripted) {
             app::apply_controls(player, fly_ ? PlayerControls{} : controls);
@@ -555,15 +449,19 @@ public:
                     .set(render::MeshRenderer{.mesh = {.asset = model->id, .index = 0}})
                     .set(animation::Animator{.graph = graph->id, .speed = 0.8f + 0.4f * phase})
                     .id();
-            animation_->set_float(id, "Tempo", 7.0f * phase);
-            animation_->set_bool(id, "AmBoden", true);
+            animation_.set_float(id, "Tempo", 7.0f * phase);
+            animation_.set_bool(id, "AmBoden", true);
         }
         log::info("Animation: {} Puppen aufgestellt", count);
     }
 
     // Animation der Szene (R4.6), z. B. für das Fenster „Animation“ des Editors.
     [[nodiscard]] animation::AnimationSystem& animation() noexcept {
-        return *animation_;
+        return animation_;
+    }
+    // Simulation ohne GPU darunter (R5.1).
+    [[nodiscard]] GameWorld& game() noexcept {
+        return game_;
     }
 
     // Materialtabelle des Terrains (R4.3), z. B. für das Fenster des Editors.
@@ -574,7 +472,7 @@ public:
     void apply_terrain_materials() {
         renderer_->set_terrain_materials(
             render::terrain_materials_from(terrain_materials_.table()));
-        physics_.set_terrain_materials(terrain_materials_.table());
+        game_.apply_terrain_materials();
     }
 
     // Wartet, bis die Terrains um die Kamera geladen und gemesht sind (Bilder ohne Fenster).
@@ -658,7 +556,7 @@ public:
 
     void add_passes(render::RenderGraph& graph, render::TextureHandle target) {
         NGINE_PROFILE_ZONE("ModelScene::add_passes");
-        resources_->update();
+        resources_.update();
         // Geänderte Materialtabelle (Hot Reload, R4.3): Farbe, Texturen und Reibung gelten sofort.
         if (terrain_materials_.poll()) {
             apply_terrain_materials();
@@ -715,7 +613,7 @@ public:
                 if (renderer_->find_model(id) != nullptr) {
                     continue;
                 }
-                const auto handle = resources_->find<render::GpuModel>(id);
+                const auto handle = resources_.find<render::GpuModel>(id);
                 if (handle && handle.state() == asset::ResourceState::Failed) {
                     ++failed;
                 } else {
@@ -730,7 +628,7 @@ public:
                 report.milliseconds = elapsed * 1000.0;
                 break;
             }
-            resources_->wait();
+            resources_.wait();
             // Uploads auf der Transfer-Queue werden erst mit einer Abgabe als fertig erkannt.
             device.execute([](rhi::CommandList&) {});
         }
@@ -759,7 +657,7 @@ public:
         return jobs_;
     }
     [[nodiscard]] asset::ResourceManager& resources() noexcept {
-        return *resources_;
+        return resources_;
     }
 
     [[nodiscard]] std::string stats() const {
@@ -776,67 +674,26 @@ public:
     }
 
 private:
-    static reflect::TypeRegistry make_types() {
-        reflect::TypeRegistry types;
-        world::register_types(types);
-        render::register_types(types);
-        physics::register_types(types);
-        app::register_types(types);
-        app::register_player_types(types);
-        audio::register_types(types);
-        animation::register_types(types);
-        return types;
-    }
-
     ModelScene(std::unique_ptr<render::Renderer> renderer, DVec3 origin, SceneMode mode,
                SceneAssets assets)
-        : types_{make_types()}, world_{types_}, renderer_{std::move(renderer)},
-          jobs_{{.worker_count = 2}},
-          resources_{std::make_unique<asset::ResourceManager>(assets.database, &jobs_)},
-          prefabs_{*resources_}, simulation_{world_, jobs_},
-          shapes_{assets.database, assets.loading.cache}, physics_{world_, jobs_}, origin_{origin},
-          mode_{mode}, database_{assets.database}, terrain_materials_{assets.database} {
-        renderer_->set_resources(resources_.get());
-        animation::register_loaders(*resources_, assets.loading.cache);
-        animation::register_graph_loader(*resources_);
-        render::register_loaders(*resources_, *renderer_, std::move(assets.loading));
-        audio::register_loaders(*resources_);
-        animation_ = std::make_unique<animation::AnimationSystem>(*resources_, &jobs_);
-        animation_->set_events(&events_);
-        renderer_->set_animation(animation_.get());
+        : renderer_{std::move(renderer)},
+          // Wenige Worker reichen für die Systeme der Szene und das Laden im Hintergrund; die
+          // Hauptarbeit macht die GPU.
+          game_{{.database = assets.database, .cache = assets.loading.cache, .worker_count = 2}},
+          world_{game_.world()}, jobs_{game_.jobs()}, resources_{game_.resources()},
+          prefabs_{game_.prefabs()}, simulation_{game_.simulation()}, shapes_{game_.shapes()},
+          physics_{game_.physics()}, animation_{game_.animation()}, origin_{origin}, mode_{mode},
+          database_{assets.database}, terrain_materials_{game_.terrain_materials()} {
+        renderer_->set_resources(&resources_);
+        render::register_loaders(resources_, *renderer_, std::move(assets.loading));
+        audio::register_loaders(resources_);
+        renderer_->set_animation(&animation_);
         apply_terrain_materials();
-        // Feste Simulation mit Interpolation: Die Lichter laufen bei jeder Bildrate gleich schnell
-        // und ruckeln trotzdem nicht (R4.1).
-        simulation_.add<Orbit, world::Transform>("Kreisbahnen",
-                                                 [this](Orbit& orbit, world::Transform& transform) {
-                                                     orbit.time += world_.time().delta;
-                                                     transform.position = orbit_position(orbit);
-                                                 },
-                                                 {.phase = world::Phase::Fixed});
-        // Physik nach den Systemen jedes festen Schritts (R4.2). Im Editor nur beim Spielen, weil
-        // dann erst die Spielschleife läuft.
-        physics_.set_shape_source(shapes_.source());
-        // Skripte (R4.4): FixedUpdate vor der Physik, Update nach den Systemen eines Bildes.
-        // Kontakte und Auslöser erreichen sie über events_.
-        simulation_.add_fixed_stage([this] {
-            if (scripts_) {
-                scripts_->run(script::ScriptPhase::Fixed, world_.time().fixed_delta);
-            }
-        });
-        simulation_.add_frame_stage([this] {
-            if (scripts_) {
-                scripts_->run(script::ScriptPhase::Frame, world_.time().delta);
-            }
-        });
-        physics_.set_events(&events_);
-        physics::add_to(simulation_, physics_);
         // Modell des Spielplatzes (Kisten, Kugeln, Figur) gibt es immer, damit der Editor dessen
         // Szene und das Prefab der Spielfigur öffnen kann.
-        asset::Model model = playground_model();
-        if (auto added = add_generated(playground_id, model); !added) {
+        if (auto added = add_generated(playground_id, playground_model()); !added) {
             log::warn("Modell des Spielplatzes: {}", added.error());
         }
-        shapes_.add(playground_id, std::move(model));
         // Ebenso das Modell der Standardszene: Prefabs wie die Laterne nehmen ihre Netze daraus,
         // auch im Spielplatz ohne Standardszene.
         if (auto added = add_default_model(); !added) {
@@ -861,7 +718,7 @@ private:
             return std::unexpected(uploaded.error());
         }
         const asset::AssetId id = asset::generated_id("file:" + filesystem::normalize(path));
-        static_cast<void>(resources_->add(id, *std::move(uploaded)));
+        static_cast<void>(resources_.add(id, *std::move(uploaded)));
         world::Entity root = render::spawn_model(world_, *model, id, "Modell");
         root.set(world::Transform{.position = origin_});
         log::info("Modell geladen: {} ({} Meshes, {} Materialien, {} Bilder)", path,
@@ -896,7 +753,7 @@ private:
         if (!uploaded) {
             return std::unexpected(uploaded.error());
         }
-        static_cast<void>(resources_->add(id, *std::move(uploaded)));
+        static_cast<void>(resources_.add(id, *std::move(uploaded)));
         return {};
     }
 
@@ -1027,43 +884,8 @@ private:
     // Spielplatz (R4.2, R4.3), siehe create_playground().
     rhi::Result<void> build_playground(u32 extra_bodies) {
         renderer_->shadows.distance = 80.0f;
-        const asset::AssetInfo* scene =
-            database_ != nullptr ? database_->find_path("szenen/spielplatz.json") : nullptr;
-        DVec3 spawn = origin_;
-        bool loaded = false;
-        if (scene != nullptr && origin_ == DVec3{0.0, 0.0, 0.0}) {
-            if (auto result = world::load_scene_file(world_, scene->file, prefabs_.lookup())) {
-                log::info("Spielplatz aus {} ({} Einträge)", scene->path, *result);
-                loaded = true;
-            } else {
-                log::error("Spielplatz: {}", result.error());
-                loaded = true;
-            }
-        }
-        if (!loaded) {
-            const PlaygroundLayout layout = app::build_playground(world_, origin_, jobs_);
-            const asset::AssetId figure = asset_id("prefabs/spielfigur.prefab");
-            (void)app::spawn_player(world_, layout.spawn,
-                                    figure != 0 ? prefabs_.get(figure) : nullptr, figure);
-            const asset::AssetId lantern = asset_id("prefabs/laterne.prefab");
-            if (const world::Prefab* prefab = lantern != 0 ? prefabs_.get(lantern) : nullptr) {
-                if (auto placed = world::instantiate(world_, *prefab, lantern)) {
-                    world::Transform transform = *placed->get<world::Transform>();
-                    transform.position = layout.lantern;
-                    placed->set(transform);
-                }
-            }
-            app::add_playground_audio(world_, layout, database_);
-            app::add_playground_hum(world_, layout, database_);
-            spawn = layout.spawn;
-        }
-        (void)world::update_transforms(world_);
-        if (const world::Entity player = app::find_player(world_)) {
-            spawn = player.get<world::WorldTransform>()->position();
-        }
-        if (extra_bodies > 0) {
-            app::rain_bodies(world_, spawn + DVec3{0.0, 2.0, 14.0}, extra_bodies);
-        }
+        const PlaygroundInfo info = game_.load_playground(origin_, extra_bodies);
+        const DVec3 spawn = info.spawn;
         playground_ = true;
         position_ = spawn + DVec3{0.0, 4.0, 8.0};
         yaw_ = 0.0f;
@@ -1078,8 +900,7 @@ private:
     // Nach der Simulation des Bildes: Automaten, Posen und Paletten für den Renderer. Pause und
     // Zeitlupe der Spielschleife gelten auch hier.
     void update_animation(f32 dt) {
-        const f64 scaled = simulation_.paused() ? 0.0 : static_cast<f64>(dt) * simulation_.time_scale();
-        animation_->update(world_, scaled);
+        game_.update_animation(static_cast<f64>(dt));
     }
 
     void update_audio(f32 dt) {
@@ -1229,25 +1050,23 @@ private:
         update(0.0f, {});
     }
 
-    reflect::TypeRegistry types_;
-    world::World world_;
     std::unique_ptr<render::Renderer> renderer_;
-    // Wenige Worker reichen für die Systeme der Szene und das Laden im Hintergrund; die
-    // Hauptarbeit macht die GPU.
-    jobs::JobSystem jobs_;
-    // Nach Renderer und Jobs angelegt, deshalb vor ihnen zerstört: Ressourcen geben ihren
-    // Speicher im Renderer frei, laufende Jobs müssen fertig sein.
-    std::unique_ptr<asset::ResourceManager> resources_;
-    PrefabLibrary prefabs_;
-    world::Simulation simulation_;
-    // Nach der Simulation angelegt, also vor ihr zerstört; die Stufe der Physik läuft danach nicht
-    // mehr.
-    ModelShapes shapes_;
-    physics::PhysicsWorld physics_;
+    // Welt und Simulation ohne GPU (R5.1). Nach dem Renderer angelegt, deshalb vor ihm zerstört:
+    // Ressourcen geben ihren Speicher im Renderer frei.
+    GameWorld game_;
+    // Kurznamen für Teile von game_.
+    world::World& world_;
+    jobs::JobSystem& jobs_;
+    asset::ResourceManager& resources_;
+    PrefabLibrary& prefabs_;
+    world::Simulation& simulation_;
+    ModelShapes& shapes_;
+    physics::PhysicsWorld& physics_;
+    animation::AnimationSystem& animation_;
     DVec3 origin_;
     SceneMode mode_;
     const asset::AssetDatabase* database_ = nullptr;
-    TerrainMaterialLibrary terrain_materials_;
+    TerrainMaterialLibrary& terrain_materials_;
     world::Entity camera_;
     render::Camera camera_settings_;
     DVec3 position_{0.0, 0.0, 0.0};
@@ -1266,18 +1085,12 @@ private:
     DVec3 view_position_{0.0, 0.0, 0.0};
     math::Quat view_rotation_{0.0f, 0.0f, 0.0f, 1.0f};
     DVec3 throw_origin_{0.0, 0.0, 0.0};
-    // Ereignisse der Physik für die Skripte; zuletzt angelegt, damit die Skripte vor Welt und
-    // Physik gehen.
-    events::EventBus events_;
     input::ActionState* script_actions_ = nullptr;
-    // Audio (R4.5): vor den Skripten zerstört nur deren Verweis darauf, nach ihnen das System, das
-    // Klänge aus resources_ hält.
+    // Audio (R4.5): nach game_ angelegt, also vor ihm zerstört; das System hält Klänge aus
+    // resources_. Den Verweis der Skripte darauf löst der Destruktor.
     audio::AudioEngine* audio_engine_ = nullptr;
     std::unique_ptr<audio::AudioSystem> audio_;
     bool audio_active_ = false;
-    // Animation (R4.6): hält Rigs und Automaten aus resources_; die Skripte verweisen darauf.
-    std::unique_ptr<animation::AnimationSystem> animation_;
-    std::unique_ptr<script::ScriptSystem> scripts_;
 };
 
 } // namespace app

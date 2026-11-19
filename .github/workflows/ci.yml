@@ -142,7 +142,7 @@ jobs:
           # Ältere TSan-Laufzeiten scheitern an der hohen ASLR-Entropie aktueller Kernel.
           sudo sysctl -w vm.mmap_rnd_bits=28
           for run in 1 2 3 4 5; do
-            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world],[voxel],[physics],[audio],[animation]"
+            build/${{ matrix.preset }}/tests/ngine_tests "[jobs],[memory],[world],[voxel],[physics],[audio],[animation],[game]"
           done
 
       # Asset-Pipeline (R2.5): ngine_cook kocht die Modelle des Asset-Ordners in den Cache
@@ -177,17 +177,44 @@ jobs:
           "$exe" --scripts 1000 --frames 60
           "$exe" --net-demo --frames 120
 
-      # Netzwerk (D3) mit zwei Prozessen: dedizierter Server und Client über localhost.
+      # Netzwerk mit zwei Prozessen (D3, seit R5.1 mit Spielwelt): Der dedizierte Server rechnet
+      # den Spielplatz mit Skripten; der Client verbindet sich, sobald der Server bereit ist, und
+      # scheitert, wenn seine Figur auf dem Server nicht läuft. Danach rechnet der Server mit
+      # --track wie --headless --playground und muss dieselbe Prüfsumme melden.
       - name: Server und Client starten
         if: ${{ !matrix.tsan }}
         shell: bash
         run: |
           exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
           [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
-          "$exe" --server --port 27020 --frames 600 &
+          log="$RUNNER_TEMP/server.log"
+          "$exe" --server --scene szenen/spielplatz.json --port 27020 --frames 2400 > "$log" 2>&1 &
           server=$!
-          "$exe" --client 127.0.0.1:27020 --frames 240
+          for i in $(seq 1 240); do
+            grep -q "Server bereit" "$log" && break
+            kill -0 "$server" 2>/dev/null || break
+            sleep 0.5
+          done
+          cat "$log"
+          grep -q "Server bereit" "$log"
+          "$exe" --client 127.0.0.1:27020 --frames 600
           wait "$server"
+          cat "$log"
+          grep -q "steuert" "$log"
+
+      - name: Server und ohne Fenster rechnen gleich
+        if: ${{ !matrix.tsan }}
+        shell: bash
+        run: |
+          exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
+          [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
+          "$exe" --headless --playground --frames 420 | tee "$RUNNER_TEMP/headless.log"
+          "$exe" --server --scene szenen/spielplatz.json --track --port 0 --frames 420 \
+            | tee "$RUNNER_TEMP/track.log"
+          a=$(grep -o "Prüfsumme der Lagen: [0-9a-f]*" "$RUNNER_TEMP/headless.log")
+          b=$(grep -o "Prüfsumme der Lagen: [0-9a-f]*" "$RUNNER_TEMP/track.log")
+          echo "ohne Fenster: $a / Server: $b"
+          [ -n "$a" ] && [ "$a" = "$b" ]
 
       # Unter Linux zeichnet die Sandbox 60 Frames in ein virtuelles Fenster (Xvfb) mit
       # lavapipe. Das prüft Fenster, Swapchain und Validation Layers ohne echte GPU.

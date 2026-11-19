@@ -8,7 +8,7 @@ namespace NGine;
 [StructLayout(LayoutKind.Sequential)]
 public unsafe struct GameApi
 {
-    public delegate* unmanaged<byte*, int, NativeAction*, int> Action;
+    public delegate* unmanaged<ulong, byte*, int, NativeAction*, int> Action;
     public delegate* unmanaged<double*, float*, float, NativeFilter*, NativeHit*, int> Raycast;
     public delegate* unmanaged<NativeShape*, double*, float*, float*, float, NativeFilter*, NativeHit*, int> ShapeCast;
     public delegate* unmanaged<NativeShape*, double*, float*, NativeFilter*, ulong*, int, int> Overlap;
@@ -85,7 +85,7 @@ public static unsafe class Input
         int length = Encoding.UTF8.GetBytes(action, buffer);
         fixed (byte* text = buffer)
         {
-            api->Game.Action(text, length, &value);
+            api->Game.Action(Host.Current, text, length, &value);
         }
         return value;
     }

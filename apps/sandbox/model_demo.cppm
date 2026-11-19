@@ -80,6 +80,9 @@ public:
     [[nodiscard]] const asset::AssetDatabase* database() const {
         return database_ ? &*database_ : nullptr;
     }
+    [[nodiscard]] const asset::AssetCache* cache() const {
+        return cache_ ? &*cache_ : nullptr;
+    }
 
 private:
     std::optional<asset::AssetDatabase> database_;

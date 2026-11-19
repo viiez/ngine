@@ -227,9 +227,11 @@ public:
                     start_cook(*database, *cache, false);
                 }
                 if (ui::is_item_hovered()) {
-                    ui::set_tooltip("Modelle, deren Cache veraltet ist, im Hintergrund neu kochen "
-                                    "(glTF und Texturen zu gekochtem Format mit KTX2); aktuelle "
-                                    "kocht „Assets > Alles neu kochen“");
+                    ui::set_tooltip(
+                        "Modelle und Texturen des Terrains, deren Cache veraltet ist, im "
+                        "Hintergrund neu kochen (glTF und Texturen zu gekochtem "
+                        "Format mit KTX2); aktuelle "
+                        "kocht „Assets > Alles neu kochen“");
                 }
                 // Ergebnis des letzten Kochens, damit man sieht, dass es lief, auch wenn alles
                 // schon aktuell war und es nach einem Frame fertig ist.
@@ -296,7 +298,7 @@ public:
         }
         cooking_ = std::make_unique<cook::BackgroundCook>(*jobs, database, cache,
                                                           cook::CookSettings{}, force);
-        log::info("Kochen im Hintergrund: {} Modelle", cooking_->progress().total);
+        log::info("Kochen im Hintergrund: {} Modelle und Texturen", cooking_->progress().total);
     }
     [[nodiscard]] bool cooking() const noexcept {
         return cooking_ != nullptr;

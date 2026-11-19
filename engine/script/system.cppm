@@ -130,6 +130,9 @@ public:
     // Welt und Dienste für die Skripte; nullptr löst sie. Vor dem Ende der Welt lösen.
     void bind(world::World* world, const input::ActionState* actions = nullptr,
               const physics::PhysicsWorld* physics = nullptr, events::EventBus* bus = nullptr);
+    // Eigene Aktionen für die Skripte einer Entity (R5.1, Figuren der Spieler auf dem Server);
+    // nullptr löst sie. bind(nullptr) löst alle.
+    void bind_input(u64 entity, const input::ActionState* actions);
     // Audio und Materialtabelle für die Skripte (R4.5); nullptr löst sie.
     void bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                     const world::TerrainMaterials* materials = nullptr);

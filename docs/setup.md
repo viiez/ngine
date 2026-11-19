@@ -388,7 +388,8 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    Schnappschusses.
 3. **Zwei Prozesse:** In einem Terminal `ngine_sandbox --server`, in einem zweiten
    `ngine_sandbox --client 127.0.0.1`. Der Client meldet jede Sekunde, wie viele Entities er
-   spiegelt; der Server alle fünf Sekunden Ping und Datenrate. Server mit Strg+C beenden.
+   spiegelt; der Server alle fünf Sekunden Ping und Datenrate. Server mit Strg+C beenden. Seit R5.1
+   rechnet der Server den Spielplatz (siehe [R5.1 testen](#r51-testen-server-mit-spielwelt)).
 4. **Zwei Rechner (optional):** Auf dem einen `--server`, auf dem anderen
    `--client <IP des Servers>`. Die Firewall muss UDP-Port 27020 durchlassen (Linux z. B.
    `sudo ufw allow 27020/udp`; Windows fragt beim ersten Start).
@@ -411,6 +412,33 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
 7. **Kürzel der Pinsel:** Im Editor ein Terrain einfügen und auswählen, ins Bild klicken. B schaltet
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
+
+## R5.1 testen: Server mit Spielwelt
+
+Der Server rechnet seit R5.1 den Spielplatz statt der Kugeln aus D3. Alles läuft ohne Fenster;
+für Skripte braucht es das .NET-SDK wie in R4.4.
+
+1. **Tests:** `ctest` meldet auch `[game]` (zwei Figuren mit eigenen Aktionen, gleiche Prüfsumme
+   zweimal) und die neuen `[replication]`-Tests als bestanden; unter ThreadSanitizer
+   (`linux-clang-tsan`) ebenso, die Physik rechnet dort jetzt auf den Workern.
+2. **Server und `--headless` rechnen gleich:** Nacheinander
+   `ngine_sandbox --headless --playground --frames 600` und
+   `ngine_sandbox --server --scene szenen/spielplatz.json --track --frames 600` starten. Beide
+   melden am Ende dieselbe „Prüfsumme der Lagen“ (im Container `bcc711a5673b8211`). `--track` lässt die
+   Figur der Szene dieselbe Spur laufen wie `--headless` und rechnet ohne Warten.
+3. **Server mit Spielwelt:** In einem Terminal `ngine_sandbox --server --scene szenen/spielplatz.json`.
+   Das Log meldet die Szene und nach dem ersten Bild (es wartet auf Terrain und Kollision)
+   „Server bereit auf Port 27020 … Skripte laufen“, danach alle fünf Sekunden Entities, Körper,
+   Figuren und die Rechenzeit eines Bildes.
+4. **Client steuert eine Figur:** In einem zweiten Terminal `ngine_sandbox --client 127.0.0.1
+   --frames 600`. Der Server meldet „Client … steuert Spielfigur“, der Client „steuere Figur …“.
+   Der Client schickt dieselbe Spur wie `--headless` (laufen, springen, graben) und meldet am
+   Ende, wie weit seine Figur auf dem Server gelaufen ist (mehr als 1 m, sonst Fehler).
+5. **Zweiter Client:** Während der erste läuft, einen zweiten starten. Der Server legt eine neue
+   Figur aus `prefabs/spielfigur.prefab` an („Client … steuert Spieler …“); wenn der zweite Client
+   endet, meldet der Server „hat das Spiel verlassen“, und die Figur verschwindet.
+6. **Alles kochen:** Im Editor „Assets > Alles kochen“: Das Log nennt neben den Modellen auch die
+   Texturen des Terrains („Gekocht: terrain/… (sRGB)“), beim zweiten Mal sind alle aktuell.
 
 ## R4 testen: Szenario des Reifegrads
 
@@ -435,7 +463,8 @@ schließt den Reifegrad ab; Einzelheiten zu jedem Schritt stehen unter R4.1 bis 
 9. **Gamepad in der Sandbox:** `ngine_sandbox --playground` mit Gamepad: linker Stick laufen,
    rechter schauen, A springen, linker Trigger gräbt, Y schaltet die Laterne.
 10. **Ohne Fenster:** `ngine_sandbox --headless --playground` endet ohne Fehler und meldet die
-    „Prüfsumme der Lagen“ wie bisher (`cf2714dafd651cda` im Container; auf dem PC zwei Läufe gleich).
+    „Prüfsumme der Lagen“ (bis R4.6 `cf2714dafd651cda` im Container, seit R5.1 mit der Szene
+    `bcc711a5673b8211`; auf dem PC zwei Läufe gleich).
 
 ## R4.6 testen: Animation
 

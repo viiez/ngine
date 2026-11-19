@@ -21,7 +21,8 @@
 //                   Rückfallpfade auf starker Hardware zu prüfen
 //   --jobs-demo     Job-System und Speicher vorführen (ohne Fenster; mit --frames die Länge)
 //   --scene-demo    ECS, Systeme und Szenen vorführen: bewegen, speichern, laden, vergleichen
-//   --scene <pfad>  Szenendatei für --scene-demo (sonst im Benutzerordner)
+//   --scene <pfad>  Szenendatei für --scene-demo (sonst im Benutzerordner) bzw. für --server
+//                   (relativ zum Asset-Ordner, z. B. szenen/spielplatz.json)
 //   --voxel-demo    Voxel-Terrain vorführen: prozedurale Welt aus 12 × 4 × 12 Chunks (Hügel,
 //                   Felswände, Höhlen, Überhänge) mit Materialien, Licht und Schatten, mit der
 //                   Maus veränderbar, auch über Chunk-Grenzen (links abtragen, rechts auftragen,
@@ -52,9 +53,13 @@
 //   --scripts <n>   n Skript-Komponenten mit Update pro Bild messen (R4.4), ohne Fenster
 //   --no-scripts    ohne C#-Skripte aus assets/skripte (Steuerung der Figur dann in C++)
 //   --net-demo      Netzwerk vorführen: Server und Client im selben Prozess über localhost
-//   --server        dedizierter Server ohne Fenster (Port mit --port, Standard 27020); ohne
-//                   --frames läuft er, bis man ihn beendet
-//   --client <adr>  ohne Fenster zu einem Server verbinden, z. B. 127.0.0.1 oder host:27020
+//   --server        dedizierter Server ohne Fenster und GPU (R5.1, Port mit --port, Standard
+//                   27020): rechnet den Spielplatz (oder --scene) mit Physik, Skripten und
+//                   Figuren, pro Client eine Figur; ohne --frames läuft er, bis man ihn beendet
+//   --track         mit --server: Die Figur der Szene läuft die feste Spur von --headless
+//                   --playground, so schnell es geht (gleiche Prüfsumme)
+//   --client <adr>  ohne Fenster zu einem Server verbinden, z. B. 127.0.0.1 oder host:27020; die
+//                   eigene Figur läuft die feste Spur
 //   --no-cache      Modelle aus den Quellen laden statt gekocht aus dem Cache (Vergleich, R2.5)
 //   --no-audio      ohne Audio-Gerät (Null-Gerät; die Welt klingt, man hört nur nichts)
 //   --mute          Audio stumm schalten (Master-Bus), z. B. für Messungen
@@ -95,6 +100,7 @@ import ngine.input;
 import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
+import sandbox.game_server;
 import sandbox.playground;
 import sandbox.animation_bench;
 import sandbox.audio_bench;
@@ -125,6 +131,7 @@ struct Options {
     bool script_demo = false;
     bool net_demo = false;
     bool server = false;
+    bool track = false;
     std::optional<ngine::u16> port;
     std::optional<std::string> client_address;
     std::optional<std::string> image_path;
@@ -167,6 +174,8 @@ Options parse_options(std::span<char*> args) {
             options.net_demo = true;
         } else if (arg == "--server") {
             options.server = true;
+        } else if (arg == "--track") {
+            options.track = true;
         } else if (arg == "--client" && i + 1 < args.size()) {
             options.client_address = std::string{args[++i]};
         } else if (arg == "--port" && i + 1 < args.size()) {
@@ -333,9 +342,9 @@ int run_windowed(const Options& options) {
         std::optional<sandbox::VoxelScene> voxels;
         // Asset-Ordner und Cache leben länger als die Szene, ebenso das Audio (R4.5).
         sandbox::SandboxAssets sandbox_assets{options.no_cache};
-        ngine::audio::AudioEngine audio_engine{
-            {.mode = options.no_audio ? ngine::audio::DeviceMode::Null
-                                      : ngine::audio::DeviceMode::Automatic}};
+        ngine::audio::AudioEngine audio_engine{{.mode = options.no_audio
+                                                            ? ngine::audio::DeviceMode::Null
+                                                            : ngine::audio::DeviceMode::Automatic}};
         audio_engine.set_bus_muted(ngine::audio::AudioBus::Master, options.mute);
         std::unique_ptr<app::ModelScene> scene;
         if (options.voxel_demo) {
@@ -607,9 +616,16 @@ int main(int argc, char** argv) {
     } else if (options.net_demo) {
         exit_code = sandbox::run_net_demo(options.frames.value_or(180));
     } else if (options.server) {
-        exit_code = sandbox::run_server(options.frames, options.port);
+        const sandbox::SandboxAssets sandbox_assets{options.no_cache};
+        exit_code = sandbox::run_game_server({.frames = options.frames,
+                                              .port = options.port,
+                                              .scene = options.scene_path,
+                                              .track = options.track,
+                                              .scripts = !options.no_scripts,
+                                              .database = sandbox_assets.database(),
+                                              .cache = sandbox_assets.cache()});
     } else if (options.client_address) {
-        exit_code = sandbox::run_client(*options.client_address, options.frames.value_or(300));
+        exit_code = sandbox::run_game_client(*options.client_address, options.frames.value_or(300));
     } else if (options.voxel_demo && options.headless) {
         exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120), options.seed,
                                                      options.view);
@@ -634,9 +650,11 @@ int main(int argc, char** argv) {
     } else if (options.headless && options.animators) {
         exit_code = sandbox::run_animation_bench(*options.animators, options.frames.value_or(600));
     } else if (options.headless && options.playground) {
+        const sandbox::SandboxAssets sandbox_assets{options.no_cache};
         exit_code = sandbox::run_playground_headless(
             options.frames.value_or(600), sandbox::voxel_origin(options.far), options.bodies,
-            options.characters, !options.no_scripts, !options.no_audio);
+            options.characters, !options.no_scripts, !options.no_audio, sandbox_assets.database(),
+            sandbox_assets.cache());
     } else if (options.headless) {
         exit_code = sandbox::run_headless(options.frames.value_or(60));
     } else {

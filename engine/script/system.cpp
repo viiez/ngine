@@ -466,7 +466,14 @@ void ScriptSystem::bind(world::World* world, const input::ActionState* actions,
     impl_->world = world;
     impl_->runtime->bind_world(world);
     impl_->runtime->bind_input(actions);
+    if (world == nullptr) {
+        impl_->runtime->bind_input(0, nullptr);
+    }
     impl_->runtime->bind_physics(physics, bus);
+}
+
+void ScriptSystem::bind_input(u64 entity, const input::ActionState* actions) {
+    impl_->runtime->bind_input(entity, actions);
 }
 
 void ScriptSystem::bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,

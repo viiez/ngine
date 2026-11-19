@@ -78,8 +78,9 @@ struct NativeEvent {
 };
 
 struct GameApi {
-    // 1, wenn es die Aktion gibt; Wert in *out.
-    i32 (*action)(const u8* name, i32 length, NativeAction* out);
+    // 1, wenn es die Aktion gibt; Wert in *out. entity ist die Entity des laufenden Skripts: Sind
+    // für sie eigene Aktionen gebunden (R5.1), gelten diese, sonst die allgemeinen.
+    i32 (*action)(u64 entity, const u8* name, i32 length, NativeAction* out);
     i32 (*raycast)(const f64* origin, const f32* direction, f32 max_distance,
                    const NativeFilter* filter, NativeHit* out);
     i32 (*shape_cast)(const NativeShape* shape, const f64* origin, const f32* rotation,
@@ -114,6 +115,9 @@ struct GameApi {
 [[nodiscard]] GameApi make_game_api();
 
 void bind_script_input(const input::ActionState* actions);
+// Eigene Aktionen für die Skripte einer Entity (R5.1); nullptr löst sie.
+void bind_script_input(u64 entity, const input::ActionState* actions);
+void clear_script_entity_input();
 // Im festen Schritt liefern Aktionen ActionState::fixed(): Flanken bleiben, bis ein Schritt sie
 // gesehen hat.
 void set_script_input_fixed(bool fixed);
