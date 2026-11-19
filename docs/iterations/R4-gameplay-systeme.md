@@ -1,8 +1,8 @@
 # R4: Gameplay-Systeme
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (Plan abgestimmt, R4.1 bis R4.5 abgeschlossen, R4.6 in Arbeit)
-- **Pull Requests:** siehe Review
+- **Status:** im Review (R4.1 bis R4.6 abgeschlossen, Szenario auf dem PC offen)
+- **Pull Requests:** #47 (Plan), weitere siehe Review
 
 R4 ist der vierte Reifegrad der Konstruktion. Wie R1 bis R3 ist er zu groß für eine Iteration; wir
 teilen ihn in sechs Iterationen, jede mit eigenem Dokument, eigenem PR und eigener Abnahme auf dem
@@ -209,3 +209,136 @@ Plattformen; Animation selbst gebaut, ozz-animation als Rückfall; Hot Reload ü
 Spiel-UI (UI-01, UI-02) nach R5, die Evaluation entscheidet; TD-29 in R4.2 nur, wenn die Messung
 es lohnt; Demo-Szene „Spielplatz“ mit Modellen und Klängen unter CC0. Die neuen Fristen stehen im
 [Schuldenregister](../tech-debt.md) und im [Feature-Katalog](../features.md).
+
+## Review
+
+**Ergebnis:** Aus der Welt zum Ansehen ist eine Welt zum Spielen geworden. Sandbox, Editor und
+Server laufen über eine gemeinsame Spielschleife mit Phasen, festem Zeitschritt von 60 Hz,
+Interpolation beim Zeichnen und einem Befehlspuffer; Eingabe kommt als benannte Aktionen von
+Tastatur, Maus und Gamepad. Jolt rechnet mit Positionen in doppelter Genauigkeit auf dem
+Job-System, starre Körper fallen und stoßen sich, Abfragen und Kontakte stehen dem Gameplay zur
+Verfügung. Das endlose Terrain hat Kollision um Körper, Figuren und Beobachter, Graben ersetzt die
+Formen, und eine Spielfigur läuft in Ich- und Schulterperspektive durch Höhlen. Gameplay steht in
+C#-Skripten, deren Felder Inspector, Szenen und Prefabs kennen und die beim Speichern neu laden,
+ohne dass das Spiel anhält. Ein eigener Mixer ortet Klänge in 64 Bit, Schritte klingen nach dem
+Boden. Figuren bewegen sich mit Skelett-Animation, verformt auf der GPU vor allen Pässen.
+
+| Iteration | Pull Requests | Ergebnis |
+| --- | --- | --- |
+| [R4.1](R4.1-spielschleife-und-eingabe.md) Spielschleife und Eingabe | #47 (Plan), #49 | `Simulation` mit Phasen und festem Schritt, `Commands`, `ngine.input` mit Aktionen und Gamepad, Kürzel der Pinsel |
+| [R4.2](R4.2-physik-mit-jolt.md) Physik mit Jolt | #50 (Plan), #51 | Jolt 5.6 in doppelter Genauigkeit über einen Overlay-Port, `RigidBody` und `Collider`, Abfragen, Kontakte, Spielplatz, bitgenaues Stoppen im Editor |
+| [R4.3](R4.3-terrain-kollision-und-spielfigur.md) Terrain-Kollision und Spielfigur | #52 (Plan), #53 | Formen der Chunks in Jobs um Anker, Einfrieren ohne Boden, `CharacterController`, Materialtabelle als Asset |
+| [R4.4](R4.4-csharp-scripting.md) C#-Scripting | #54 (Plan), #55, #56 | Bindings aus der Reflection, Skript-Klassen als Typen der Registry, Hot Reload über `dotnet build`, Prefabs mit Entfernungen und verschachtelt |
+| [R4.5](R4.5-audio.md) Audio | #57 | Eigener Mixer, miniaudio für Gerät und Dekodieren, `AudioSource` und `AudioListener`, Ströme, Klangsätze, Null-Gerät |
+| [R4.6](R4.6-animation.md) Animation | #58 | Skins und Clips gekocht, Automat mit Hot Reload in Jobs, Skinning im Compute-Pass, GPU-Zeiten je Pass |
+
+Abnahme: Alle sechs Iterationen sind abgenommen, jede mit grüner CI auf Linux, unter
+ThreadSanitizer und auf Windows sowie einem Test auf dem PC. Offen ist das Szenario für den ganzen
+Reifegrad auf dem PC (Schritte in der [Einrichtung](../setup.md#r4-testen-szenario-des-reifegrads));
+mit ihm ist der Reifegrad abgeschlossen.
+
+Abweichungen vom Plan:
+
+- **Der Server rechnet die Simulation noch nicht mit:** `--server` lädt weder Spielplatz noch
+  Skripte noch Figuren (TD-54, TD-63) und nimmt die eingebaute Materialtabelle (TD-51). Ohne GPU
+  läuft alles, was der Server braucht, aber gezeigt ist das nur mit `--headless --playground`.
+  Das ist die erste Aufgabe in R5.
+- **Instanzen dauerhaft auf der GPU** (TD-46) und die Zähler der Meshlets je Pass sind nicht
+  gekommen; TD-46 hat die Frist R5.
+- **Root Motion, 2D-Blends, Ebenen im Automaten** und Ereignisse neben dem Modell fehlen bewusst
+  (TD-61), ebenso das Kochen von Klängen (TD-56) und ihre Replikation (TD-58).
+- **Bitgleich nur im selben Build:** Ein Lauf ist mit 1 und 16 Threads gleich, aber Clang und MSVC
+  landen nach 600 Schritten an verschiedenen Orten (R4.3). Wie geplant: Der Server ist die
+  Wahrheit ([ADR 0007](../adr/0007-server-authoritative-multiplayer.md)).
+- **Spiel-UI** blieb wie abgestimmt draußen; der Debug-Text reicht bisher.
+
+**Erkenntnisse:**
+
+- Die Welt als einzige Quelle der Wahrheit hat sich mit jeder Bibliothek bezahlt gemacht: Physik,
+  Skripte, Klänge und Animation halten ihren Laufzustand in eigenen Tabellen, und Inspector,
+  Szenen, Prefabs, Undo und das Stoppen im Editor brauchten für keines davon einen Sonderweg.
+- Reproduzierbarkeit hat mehr Fehler gefunden als jeder andere Test: die Prüfsumme des
+  Spielplatzes, zwei Läufe hintereinander, 1 gegen 16 Threads, Bildraten von 30 bis 240. Fast jede
+  Iteration hat dabei etwas gefunden, das sonst erst im Netzwerk aufgefallen wäre (Zustände in
+  Jolt, Ende von Kontakten, Zeit in `f32`).
+- Was nur in festen Schritten weiterrückt, ruckelt pro Bild. Doppler, Parameter der Animation und
+  die Kamera mussten jeweils über die Zeit seit der letzten Änderung geglättet werden. Für die
+  Vorhersage in R5 gilt das genauso.
+- Eine Fremdbibliothek hinter einem Modul kostet vor allem Arbeit an den Schaltern: Jolt gab
+  Befehlssätze weiter, die Clang beim Laden der Moduldateien ablehnt, und verhielt sich unter
+  Windows als DLL anders. Die Prüfung der Definitionen beim Start und ein eigener Port haben sich
+  gelohnt.
+- Selbst gebaut war in R4 zweimal die bessere Wahl: der Mixer (bitgenau testbar mit dem
+  Null-Gerät) und die Animation (klein, ohne neue Abhängigkeit). Bei der Physik war es richtig,
+  Jolt zu nehmen.
+- Abnahmen auf dem PC fanden in R4.5 und R4.6 Fehler, die nur zu hören oder zu sehen waren
+  (Abschwächung ohne Stille, Skelett in der Figur). Hören und Sehen gehören weiter in jede Abnahme.
+- Ein lokaler Build mit Renderer und Editor vor dem PR (seit R4.1) hat die Läufe der CI von rund
+  25 Minuten pro Fehler deutlich verringert. Bruchstellen bleiben MSVC mit Modulen (`<span>` über
+  andere Header, `==` auf Matrizen, Reihenfolge statischer Objekte) und Code, den ThreadSanitizer
+  nicht sieht (Jolt, lavapipe, .NET).
+
+**Architektur-Review des Reifegrads:**
+
+- Schichten wie geplant: `ngine.input`, `ngine.physics`, `ngine.audio` und `ngine.animation` hängen
+  an Core, Math, Reflection, Asset und Welt, nicht an Fenster oder GPU; `ngine.script` hängt an
+  ihnen, nicht umgekehrt; `ngine.render` kennt `ngine.animation` nur für die Paletten. Nur das
+  Werkzeug `ngine_bindgen` kennt den Renderer, um C#-Structs für dessen Komponenten (Kamera,
+  Lichter, `MeshRenderer`) zu erzeugen. Damit bleibt die Simulation ohne Fenster und GPU
+  lauffähig, wie der Server es braucht.
+- Fremdbibliotheken: Jolt nur in `jolt_world.cpp`, miniaudio und `stb_vorbis` nur in
+  `miniaudio.cpp` und `miniaudio_impl.cpp`, hostfxr nur in `runtime.cpp`, SDL3 weiter nur im
+  Adapter des Fensters.
+- Neue ADRs: 0044 (Spielschleife mit Phasen, festem Schritt und Befehlspuffer), 0045 (Jolt mit
+  doppelter Genauigkeit), 0046 (Kollision des Terrains und `CharacterVirtual`), 0047
+  (Skript-Komponenten, Bindings, Hot Reload), 0048 (Prefabs mit Entfernungen, verschachtelt),
+  0049 (eigener Mixer mit miniaudio), 0050 (Animation und Skinning auf der GPU).
+- **Die Simulation wird zweimal zusammengesetzt:** `ModelScene` in `apps/common` baut für Sandbox und
+  Editor Spielschleife, Physik, Skripte, Animation und Audio zusammen und braucht dafür ein
+  GPU-Gerät; `apps/sandbox/playground.cppm` baut dieselben Systeme für `--headless` noch einmal
+  ohne GPU. Der Server in R5 bräuchte ein drittes Mal. Das ist der wichtigste Befund des Reviews:
+  Die Engine-Module sind sauber getrennt, die Apps aber nicht.
+- Größte Dateien: `engine/physics/jolt_world.cpp` (rund 2 260 Zeilen), `apps/common/model_scene.cppm`
+  (rund 1 280), `engine/world/prefab.cpp` (rund 950), `apps/editor/main.cpp` (rund 940),
+  `engine/voxel/surface_nets.cpp` (rund 940). `jolt_world.cpp` mischt sechs Aufgaben (Laufzeit,
+  Job-Adapter, Ebenen und Filter, Kontakte, Kollision des Terrains, Figuren) und ist so groß wie
+  keine Datei zuvor; `model_scene.cppm` hält Standardszene, Kamera, Laden und alle Systeme in einer
+  Klasse. Beides kommt als TD-64 ins Register (siehe [Zur Abstimmung](#zur-abstimmung-des-reviews)).
+  `main.cpp` des Editors und `surface_nets.cpp` sind seit R3 Kandidaten und kaum gewachsen.
+- Schulden: Alle mit Frist R4 sind abgebaut oder umgeplant: TD-32, TD-37, TD-42, TD-45 und TD-52
+  abgebaut; TD-29 und TD-38 nach Messung „bei Bedarf“, TD-46 nach R5. Neu aus R4 sind TD-47 bis
+  TD-63; davon haben elf zusammen mit TD-13, TD-14 und TD-41 die Frist R5 (Server, Replikation,
+  ThreadSanitizer für Jolt), die übrigen „bei Bedarf“ oder die Übergabe.
+- 432 Testfälle (339 am Ende von R3), dazu die GPU-Tests über lavapipe in beiden Zeichenpfaden und
+  die `[script]`-Fälle mit dem .NET-SDK in der CI.
+
+**Leistung** auf dem PC (RTX 3060 Ti, 16 Threads, Windows, Release), gemessen in den Iterationen:
+
+| Größe | Wert |
+| --- | --- |
+| Schritt der Physik mit 2 031 Körpern, Median | 2,9 ms |
+| `update_transforms()` mit 2 031 Körpern, Median | 0,26 ms |
+| Spielfigur (`CharacterVirtual`) | 0,013 ms pro Figur |
+| Bau einer Form des Terrains | 1,1 ms pro Chunk (in Jobs) |
+| 10 000 Skripte, `Update` pro Bild | 0,94 ms |
+| 500 geortete Klänge, `AudioSystem` pro Bild / Last des Mixers | 0,3 ms / 12 % |
+| 200 animierte Figuren, `AnimationSystem` in Jobs / Skinning auf der GPU | 0,073 ms / 0,25 ms |
+| GPU gesamt im Spielplatz mit 200 Figuren | 4,32 ms (Schatten 1,70, Vorwärts 2,10) |
+
+Teuerstes Einzelsystem ist der Schritt der Physik bei vielen wachen Körpern; der Spielplatz hat
+nur einen Bruchteil davon. Die GPU-Zeit hängt an Schatten und Vorwärts-Pass, nicht an den
+neuen Systemen.
+
+### Zur Abstimmung des Reviews
+
+1. **TD-64, Simulation einmal zusammensetzen** mit Frist R5, als erster Schritt der ersten
+   Iteration: Ein Teil ohne GPU in `apps/common` (Arbeitstitel `GameWorld`: Welt, Spielschleife,
+   Physik, Terrain-Kollision, Skripte, Automaten der Animation) nutzen `ModelScene`, `--headless`
+   und der Server gleich; `ModelScene` legt nur Renderer, Audio und Kamera darüber. Dabei zerfällt
+   `jolt_world.cpp` in Dateien für Laufzeit und Jobs, Körper und Abfragen, Terrain und Figuren mit
+   einer internen Partition für den gemeinsamen Zustand, wie der Renderer seit R3.2. Alternative:
+   Der Server baut die Systeme ein drittes Mal, und TD-64 bekommt die Frist „bei Bedarf“; das spart
+   jetzt Zeit, aber Netzwerk-Code müsste dann in drei Zusammenbauten gleich eingehängt werden.
+2. **Plan für R5 als nächster PR**, wie bei R3 zu R4: Das Review hier schließt R4, sobald das
+   Szenario auf dem PC bestanden ist; der Plan für R5 (Multiplayer) entsteht parallel dazu und
+   verteilt die Schulden mit Frist R5 auf seine Iterationen.

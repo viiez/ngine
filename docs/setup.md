@@ -412,6 +412,31 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R4 testen: Szenario des Reifegrads
+
+Ein Durchgang durch alles, was R4 gebracht hat, im Release-Build mit .NET-SDK und Gamepad. Er
+schließt den Reifegrad ab; Einzelheiten zu jedem Schritt stehen unter R4.1 bis R4.6.
+
+1. **Tests:** `ctest` ist grün, unter ThreadSanitizer (`linux-clang-tsan`) ebenso.
+2. **Editor:** `ngine_editor` starten, `szenen/spielplatz.json` öffnen, Spielen (F5) und ins Bild
+   klicken. Die Puppe steht atmend auf der Ebene, Radio und Wind sind zu hören.
+3. **Laufen und Höhle:** Mit W/A/S/D und Shift über das Terrain laufen, mit V in die
+   Schulterperspektive. Gehen und Laufen gehen ohne Sprung ineinander über, jeder Schritt klingt
+   nach dem Boden. In eine Höhle steigen, ohne durch den Boden zu fallen.
+4. **Graben:** Zurück zur Ebene, mit der rechten Maustaste unter einer losen Kiste graben: Sie
+   fällt in die Grube.
+5. **Laterne:** Zur Laterne laufen, F drücken: Das Licht geht aus und wieder an.
+6. **Klang:** Vom Radio weggehen, bis es still ist; das kreisende Summen zieht mit Doppler vorbei.
+7. **Skript ändern:** Bei laufendem Spiel in `assets/skripte/Laterne.cs` den Text in `Log.Info`
+   ändern und speichern. Nach rund zwei Sekunden meldet das Log den Bau, das Spiel lief weiter, F
+   zeigt den neuen Text.
+8. **Stoppen:** Stoppen (F5 bzw. „Stopp“): Kisten, Figur, Laterne und Terrain sind wie vor dem
+   Spielen, die Grube ist weg.
+9. **Gamepad in der Sandbox:** `ngine_sandbox --playground` mit Gamepad: linker Stick laufen,
+   rechter schauen, A springen, linker Trigger gräbt, Y schaltet die Laterne.
+10. **Ohne Fenster:** `ngine_sandbox --headless --playground` endet ohne Fehler und meldet die
+    „Prüfsumme der Lagen“ wie bisher (`cf2714dafd651cda` im Container; auf dem PC zwei Läufe gleich).
+
 ## R4.6 testen: Animation
 
 1. **Tests:** `ctest` meldet die `[animation]`-Fälle (Import, gekochtes Format, Hüllen der
