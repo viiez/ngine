@@ -16,9 +16,9 @@ namespace ngine::render {
 using math::DVec3;
 using math::Vec3;
 
-void DebugDraw::line(DVec3 a, DVec3 b, Vec3 color) {
+void DebugDraw::line(DVec3 a, DVec3 b, Vec3 color, bool on_top) {
     if (enabled) {
-        lines_.push_back({a, b, color});
+        (on_top ? top_lines_ : lines_).push_back({a, b, color});
     }
 }
 
@@ -98,6 +98,7 @@ void DebugDraw::text(DVec3 position, std::string text, Vec3 color) {
 
 void DebugDraw::clear() noexcept {
     lines_.clear();
+    top_lines_.clear();
     texts_.clear();
 }
 
@@ -107,6 +108,10 @@ std::span<const DebugText> DebugDraw::texts() const noexcept {
 
 std::span<const DebugLine> DebugDraw::lines() const noexcept {
     return lines_;
+}
+
+std::span<const DebugLine> DebugDraw::top_lines() const noexcept {
+    return top_lines_;
 }
 
 bool clip_line(Vec3& a, Vec3& b, Vec3 forward, f32 near_plane) {

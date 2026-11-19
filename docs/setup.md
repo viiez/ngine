@@ -430,7 +430,7 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
 5. **Editor:** `szenen/spielplatz.json` öffnen, Menü „Ansicht“, „Animation“. Die Spielfigur oder
    eine Puppe wählen: Das Fenster zeigt den Zustand „Boden“ und die Parameter. Ohne zu spielen
    `Tempo` auf 4 ziehen: Die Puppe geht auf der Stelle; `Springen` auslösen: Sie springt und landet.
-   „Skelette zeigen“ zeichnet die Knochen in Orange. Spielen (F5): Die Werte kommen aus den
+   „Skelette zeigen“ zeichnet die Knochen in Orange über der Figur. Spielen (F5): Die Werte kommen aus den
    Skripten; Stoppen setzt die Automaten zurück. Das Statistikfenster zeigt die GPU-Zeiten je Pass
    mit „Skinning“.
 6. **Hot Reload:** Bei laufendem Spiel in `assets/figuren/spielfigur.animgraph` z. B. die Dauer

@@ -449,22 +449,29 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     const u64 terrain_materials = r.write_terrain_materials(slot, r.stats.terrain_chunks > 0);
 
     // Debug-Linien relativ zur Kamera; die Liste gilt nur für diesen Frame.
+    // Zuerst die Linien mit Tiefentest, dahinter die über allem.
     r.line_count = 0;
+    r.top_line_count = 0;
     u64 lines_address = 0;
-    if (camera && !r.debug.lines().empty()) {
-        const std::vector<GpuDebugLine> prepared =
+    if (camera && (!r.debug.lines().empty() || !r.debug.top_lines().empty())) {
+        std::vector<GpuDebugLine> prepared =
             prepare_lines(r.debug.lines(), origin, forward, camera->camera.near_plane);
+        const usize depth_tested = prepared.size();
+        const std::vector<GpuDebugLine> top =
+            prepare_lines(r.debug.top_lines(), origin, forward, camera->camera.near_plane);
+        prepared.insert(prepared.end(), top.begin(), top.end());
         if (!prepared.empty()) {
             if (auto buffer = r.line_buffer(slot, prepared.size())) {
                 (*buffer)->write(0, std::as_bytes(std::span{prepared}));
                 lines_address = (*buffer)->device_address();
-                r.line_count = static_cast<u32>(prepared.size());
+                r.line_count = static_cast<u32>(depth_tested);
+                r.top_line_count = static_cast<u32>(top.size());
             } else {
                 log::error("Renderer, Puffer der Debug-Linien: {}", buffer.error());
             }
         }
     }
-    r.stats.debug_lines = r.line_count;
+    r.stats.debug_lines = r.line_count + r.top_line_count;
     r.debug.clear();
 
     // Pfad und Hi-Z dieses Frames.

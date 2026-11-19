@@ -382,7 +382,8 @@ enum class CullMode : u8 { None, Back };
 
 // Wann ein Fragment den Tiefentest besteht. Die Kamera nutzt umgekehrte Tiefe (nah 1, fern 0)
 // mit Greater; LessOrEqual passt zu klassischer Tiefe.
-enum class CompareOp : u8 { LessOrEqual, Greater, GreaterOrEqual };
+// Always: Tiefentest besteht immer (z. B. Debug-Linien über allem).
+enum class CompareOp : u8 { LessOrEqual, Greater, GreaterOrEqual, Always };
 
 enum class BlendMode : u8 {
     // Farbe ersetzt das Ziel.

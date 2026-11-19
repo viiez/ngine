@@ -134,6 +134,18 @@ RendererCore::add_forward_passes(RenderGraph& graph, const FrameInfo& frame,
             commands.push_constants(std::as_bytes(std::span{&line_push, 1}));
             commands.draw(line_count * 6);
         }
+        // Linien über allem liegen im Puffer hinter den anderen.
+        if (top_line_count > 0) {
+            const detail::DebugPush line_push{
+                .lines = frame.lines_address + u64{line_count} * sizeof(GpuDebugLine),
+                .frame = frame.frame_address,
+                .viewport = {static_cast<f32>(frame.extent.width),
+                             static_cast<f32>(frame.extent.height)},
+                .width = debug.width};
+            commands.bind_pipeline(*debug_lines_on_top);
+            commands.push_constants(std::as_bytes(std::span{&line_push, 1}));
+            commands.draw(top_line_count * 6);
+        }
     };
 
     stats.forward_draws += job_draw_calls(frame.mesh_shaders) * (frame.occlusion ? 2u : 1u) +

@@ -312,6 +312,8 @@ flowchart LR
 - `DebugDraw` (`Renderer::debug()`, REND-15) sammelt Linien, Quader, Kugeln und Achsenkreuze für
   einen Frame. Der Renderer schneidet sie an der nahen Ebene ab und zeichnet sie im Vorwärts-Pass
   mit Tiefentest; der Vertex-Shader zieht jede Linie zu einem Rechteck fester Pixelbreite auf.
+  Linien mit `on_top` (`top_lines()`, R4.6) zeichnet er danach ohne Tiefentest über allem, z. B.
+  Skelette in einer Figur.
   Texte in der Welt (`DebugDraw::text()`, R2.3) zeichnet der Renderer nicht, weil die Engine keine
   Schrift hat: Die Anwendung liest `texts()` vor `add_passes()` und zeichnet sie mit ihrer UI (der
   Editor über die Zeichenliste von ImGui); `add_passes()` leert beide Listen.

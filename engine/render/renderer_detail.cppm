@@ -258,6 +258,8 @@ struct RendererCore {
     f32 shadow_bias_constant = 0.0f;
     f32 shadow_bias_slope = 0.0f;
     std::unique_ptr<rhi::Pipeline> debug_lines;
+    // Debug-Linien ohne Tiefentest (DebugDraw::top_lines).
+    std::unique_ptr<rhi::Pipeline> debug_lines_on_top;
     std::unique_ptr<rhi::Pipeline> tonemap;
     std::unique_ptr<rhi::Pipeline> cull;
     std::unique_ptr<rhi::Pipeline> hiz;
@@ -317,7 +319,9 @@ struct RendererCore {
     bool previous_valid = false;
     // Zuletzt von der GPU gelesene Statistik der Kamera (einige Frames alt).
     std::array<u32, detail::stat_words> gpu_stats{};
+    // Linien im Puffer: zuerst line_count mit Tiefentest, dahinter top_line_count ohne.
     u32 line_count = 0;
+    u32 top_line_count = 0;
     RenderStats stats;
     // Modelle, die MeshRenderer brauchen (R2.4). Ein Eintrag hält das Handle, solange ihn ein
     // Frame benutzt; danach gibt der Ressourcen-Manager das Modell nach einer Weile frei.

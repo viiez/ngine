@@ -66,7 +66,8 @@ public:
         ui::end_window();
     }
 
-    // Skelette aller Figuren mit Pose: Linien von jedem Knoten zu seinem Elternknoten.
+    // Skelette aller Figuren mit Pose: Linien von jedem Knoten zu seinem Elternknoten, über allem
+    // gezeichnet, weil das Skelett sonst in der Figur verschwindet.
     void draw_skeletons(render::DebugDraw& debug, world::World& world,
                         const animation::AnimationSystem& system) const {
         if (!show_skeletons_) {
@@ -92,7 +93,7 @@ public:
                         continue;
                     }
                     debug.line(position(static_cast<usize>(parent)), position(node),
-                               {1.0f, 0.55f, 0.1f});
+                               {1.0f, 0.55f, 0.1f}, true);
                 }
             });
     }

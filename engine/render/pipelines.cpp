@@ -171,6 +171,16 @@ rhi::Result<void> RendererCore::create_pipelines() {
         return std::unexpected("Renderer, Debug-Linien: " + lines_pipeline.error());
     }
     debug_lines = *std::move(lines_pipeline);
+    auto top_lines_pipeline = device->create_pipeline({.vertex = debug_vertex.get(),
+                                                       .fragment = debug_fragment.get(),
+                                                       .color_format = hdr_format,
+                                                       .depth_format = depth_format,
+                                                       .depth_compare = rhi::CompareOp::Always,
+                                                       .depth_write = false});
+    if (!top_lines_pipeline) {
+        return std::unexpected("Renderer, Debug-Linien über allem: " + top_lines_pipeline.error());
+    }
+    debug_lines_on_top = *std::move(top_lines_pipeline);
     auto tonemap_pipeline = device->create_pipeline({.vertex = fullscreen_vertex.get(),
                                                      .fragment = tonemap_fragment.get(),
                                                      .color_format = target_format});
