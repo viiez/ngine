@@ -61,6 +61,9 @@ public abstract class Script
     // Nur Spielfiguren: aufgesetzt nach einem Fall von height Metern, Schritt am Boden.
     public virtual void OnLanded(float height, uint material) { }
     public virtual void OnStep(DVec3 position, uint material, bool run) { }
+    // Ereignis eines Zustands der Animation (z. B. "Fuss_links") aus dem letzten Bild, vor Update
+    // zugestellt; an den Skripten der Entity mit dem Animator und ihrer Vorfahren.
+    public virtual void OnAnimEvent(string name, Entity animator) { }
 
     // Bequemer Zugriff auf Komponenten der eigenen Entity.
     protected ref T Get<T>() where T : unmanaged, IComponent => ref Entity.Get<T>();

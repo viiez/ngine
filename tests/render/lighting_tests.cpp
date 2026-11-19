@@ -232,10 +232,19 @@ TEST_CASE("DebugDraw builds lines for shapes", "[render]") {
     REQUIRE(debug.lines().size() == 13 + 48 + 3);
     CHECK(math::near(debug.lines().back().b, DVec3{5.0, 0.0, 0.5}, 1e-6));
 
+    // Linien über allem stehen in einer eigenen Liste.
+    debug.line({0, 0, 0}, {0, 1, 0}, {1, 1, 1}, true);
+    CHECK(debug.lines().size() == 13 + 48 + 3);
+    REQUIRE(debug.top_lines().size() == 1);
+    CHECK(debug.top_lines()[0].b.y == 1.0);
+
     debug.clear();
+    CHECK(debug.top_lines().empty());
     debug.enabled = false;
     debug.sphere({0, 0, 0}, 1.0f, {1, 1, 1});
+    debug.line({0, 0, 0}, {0, 1, 0}, {1, 1, 1}, true);
     CHECK(debug.lines().empty());
+    CHECK(debug.top_lines().empty());
 }
 
 TEST_CASE("Debug lines are clipped at the near plane", "[render]") {
@@ -474,5 +483,37 @@ TEST_CASE("Renderer draws debug lines with depth test", "[render][gpu]") {
     const auto empty = scene->render(world);
     CHECK(scene->renderer->stats().debug_lines == 0);
     CHECK(red_at(empty, world, origin + DVec3{1.0, 0.0, -5.0}) < 20);
+    CHECK(scene->device->validation_errors() == 0);
+}
+
+TEST_CASE("Renderer draws on-top debug lines through surfaces", "[render][gpu]") {
+    auto scene = Scene::create();
+    if (!scene) {
+        SKIP("Kein nutzbares Vulkan-Gerät");
+    }
+    const asset::AssetRef wall =
+        scene->mesh(asset::make_box({10.0f, 10.0f, 0.1f}),
+                    {.base_color = {0.0f, 0.0f, 0.0f, 1.0f}, .roughness = 1.0f});
+    const auto types = make_types();
+    world::World world{types};
+    world.create("Wand")
+        .set(world::Transform{.position = {0.0, 0.0, -3.0}})
+        .set(render::MeshRenderer{.mesh = wall});
+    world.create("Kamera")
+        .set(world::Transform{.position = {0.0, 0.0, 0.0}})
+        .set(render::Camera{.fov_y = math::radians(60.0f)});
+    // Beide Linien liegen hinter der Wand: Die mit Tiefentest verdeckt sie, die andere nicht.
+    render::DebugDraw& debug = scene->renderer->debug();
+    debug.width = 3.0f;
+    debug.line({-5.0, 1.0, -5.0}, {5.0, 1.0, -5.0}, {1.0f, 0.0f, 0.0f});
+    debug.line({-5.0, -1.0, -5.0}, {5.0, -1.0, -5.0}, {1.0f, 0.0f, 0.0f}, true);
+
+    const auto pixels = scene->render(world);
+    CHECK(scene->renderer->stats().debug_lines == 2);
+    const int hidden = red_at(pixels, world, {1.0, 1.0, -5.0});
+    const int on_top = red_at(pixels, world, {1.0, -1.0, -5.0});
+    INFO("verdeckt " << hidden << ", über allem " << on_top);
+    CHECK(hidden < 20);
+    CHECK(on_top > 150);
     CHECK(scene->device->validation_errors() == 0);
 }

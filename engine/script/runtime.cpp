@@ -30,6 +30,7 @@ import ngine.profile;
 import ngine.reflect;
 import ngine.world;
 import ngine.audio;
+import ngine.animation;
 import :game_api;
 import :native;
 import :script_api;
@@ -247,6 +248,7 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
     bind_script_input(nullptr);
     bind_script_physics(nullptr);
     bind_script_audio(nullptr, nullptr, nullptr);
+    bind_script_animation(nullptr);
     bind_script_events(nullptr);
     static_cast<void>(script_registry());
 
@@ -387,6 +389,7 @@ ScriptRuntime::~ScriptRuntime() {
     bind_script_input(nullptr);
     bind_script_physics(nullptr);
     bind_script_audio(nullptr, nullptr, nullptr);
+    bind_script_animation(nullptr);
     bind_script_events(nullptr);
     impl_.reset();
     runtime_alive = false;
@@ -443,6 +446,12 @@ Result<void> ScriptRuntime::run(ScriptPhase phase, f32 delta_time) {
         if (!events.empty()) {
             errors += impl_->managed.deliver_events(events.data(), static_cast<i32>(events.size()));
         }
+    } else {
+        // Ereignisse der Animation (Phase::Late des letzten Bilds) vor Update.
+        const std::vector<NativeEvent> events = take_script_animation_events();
+        if (!events.empty()) {
+            errors += impl_->managed.deliver_events(events.data(), static_cast<i32>(events.size()));
+        }
     }
     errors += impl_->managed.run_scripts(phase == ScriptPhase::Fixed ? 0 : 1, delta_time);
     set_script_input_fixed(false);
@@ -465,6 +474,10 @@ void ScriptRuntime::bind_physics(const physics::PhysicsWorld* physics, events::E
 void ScriptRuntime::bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                                const world::TerrainMaterials* materials) {
     bind_script_audio(audio, engine, materials);
+}
+
+void ScriptRuntime::bind_animation(animation::AnimationSystem* animation) {
+    bind_script_animation(animation);
 }
 
 void ScriptRuntime::store_fields() {

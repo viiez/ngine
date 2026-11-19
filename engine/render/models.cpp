@@ -248,9 +248,16 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
             submeshes.push_back({.vertices = primitive.vertices,
                                  .indices = primitive.indices,
                                  .material = material,
-                                 .meshlets = primitive.meshlets});
+                                 .meshlets = primitive.meshlets,
+                                 .skin = mesh.skin ? std::span<const asset::SkinVertex>{primitive.skin}
+                                                   : std::span<const asset::SkinVertex>{}});
         }
-        auto index = renderer.meshes().add(submeshes, textures != nullptr ? &ticket : nullptr);
+        const u32 joints =
+            mesh.skin && *mesh.skin < model.skins.size()
+                ? static_cast<u32>(model.skins[*mesh.skin].joints.size())
+                : 0;
+        auto index = renderer.meshes().add(submeshes, textures != nullptr ? &ticket : nullptr,
+                                           mesh.skin, joints);
         if (!index) {
             partial = GpuModel{renderer, std::move(instance), {}};
             return std::unexpected("Modell, Mesh " + mesh.name + ": " + index.error());
@@ -264,9 +271,16 @@ rhi::Result<GpuModel> upload_model(Renderer& renderer, const asset::Model& model
     layout.textures = model.textures;
     layout.nodes = model.nodes;
     layout.roots = model.roots;
+    layout.skins = model.skins;
+    for (const asset::Animation& animation : model.animations) {
+        // Nur Namen und Dauer; Spuren braucht der Renderer nicht.
+        layout.animations.push_back(
+            {.name = animation.name, .duration = animation.duration, .channels = {}});
+    }
     for (const asset::Mesh& mesh : model.meshes) {
         asset::Mesh& copy = layout.meshes.emplace_back();
         copy.name = mesh.name;
+        copy.skin = mesh.skin;
         for (const asset::Primitive& primitive : mesh.primitives) {
             copy.primitives.push_back({.vertices = {},
                                        .indices = {},

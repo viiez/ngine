@@ -173,9 +173,16 @@ u64 MaterialStore::address() const {
 
 // --- MeshStore ------------------------------------------------------------------------------
 
-rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::UploadTicket* ticket) {
+rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::UploadTicket* ticket,
+                                std::optional<u32> skin, u32 joint_count) {
     GpuMesh mesh;
     std::vector<asset::Vertex> vertices;
+    std::vector<asset::SkinVertex> weights;
+    const bool skinned =
+        skin.has_value() && joint_count > 0 && !submeshes.empty() &&
+        std::ranges::all_of(submeshes, [](const SubmeshData& submesh) {
+            return submesh.skin.size() == submesh.vertices.size();
+        });
     std::vector<u32> indices;
     // Meshlets je Teilnetz: übernommen oder auf der Kopie der Indizes gebaut (R3.5).
     std::vector<std::vector<meshlet::Meshlet>> meshlets(submeshes.size());
@@ -212,11 +219,21 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::Upl
             high = math::max(high, vertex.position);
         }
         vertices.insert(vertices.end(), submesh.vertices.begin(), submesh.vertices.end());
+        if (skinned) {
+            weights.insert(weights.end(), submesh.skin.begin(), submesh.skin.end());
+            // Hülle über die vergrößerten Kugeln: umschließt jede Pose der Clips.
+            for (const meshlet::Meshlet& m : meshlets[s]) {
+                const math::Vec3 r{m.radius, m.radius, m.radius};
+                low = math::min(low, m.center - r);
+                high = math::max(high, m.center + r);
+            }
+        }
     }
     if (!vertices.empty()) {
         mesh.bounds_min = low;
         mesh.bounds_max = high;
     }
+    mesh.vertex_count = static_cast<u32>(vertices.size());
     if (!indices.empty()) {
         std::vector<MeshletPart> parts;
         for (usize s = 0; s < submeshes.size(); ++s) {
@@ -253,6 +270,25 @@ rhi::Result<u32> MeshStore::add(std::span<const SubmeshData> submeshes, rhi::Upl
             geometry_->upload(*index_range, index_bytes);
             geometry_->upload(*meshlet_range, meshlet_bytes);
         }
+        if (skinned) {
+            const auto skin_bytes = std::as_bytes(std::span{weights});
+            auto skin_range = geometry_->allocate(skin_bytes.size());
+            if (!skin_range) {
+                geometry_->free(*vertex_range);
+                geometry_->free(*index_range);
+                geometry_->free(*meshlet_range);
+                return std::unexpected(skin_range.error());
+            }
+            if (ticket != nullptr) {
+                *ticket = rhi::later(*ticket, geometry_->upload_async(*skin_range, skin_bytes));
+            } else {
+                geometry_->upload(*skin_range, skin_bytes);
+            }
+            mesh.skin = *skin_range;
+            mesh.skin_address = geometry_->address(*skin_range);
+            mesh.skin_index = skin;
+            mesh.joint_count = joint_count;
+        }
         mesh.vertices = *vertex_range;
         mesh.indices = *index_range;
         mesh.meshlet_data = *meshlet_range;
@@ -282,6 +318,9 @@ void MeshStore::remove(u32 index) {
     geometry_->free(meshes_[index].vertices);
     geometry_->free(meshes_[index].indices);
     geometry_->free(meshes_[index].meshlet_data);
+    if (meshes_[index].skin.valid()) {
+        geometry_->free(meshes_[index].skin);
+    }
     meshes_[index] = GpuMesh{};
     free_.push_back(index);
 }

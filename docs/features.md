@@ -124,8 +124,8 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| ANIM-01 | Skelett-Animation | Skinning auf der GPU | R4 | geplant |
-| ANIM-02 | Blending | Übergänge, Blend Trees, Zustandsautomaten | R4 | geplant |
+| ANIM-01 | Skelett-Animation | Skins und Clips aus glTF, lineares Skinning mit vier Einflüssen im Compute-Pass, beide Zeichenpfade ([ADR 0050](adr/0050-animation-gpu-skinning.md)) | R4.6 | fertig |
+| ANIM-02 | Blending | Zustandsautomat als `.animgraph` mit Hot Reload, 1D-Blend, weiche Übergänge, Ereignisse in Zuständen, Steuerung aus C# | R4.6 | fertig |
 | ANIM-03 | Inverse Kinematik | Füße auf unebenem Terrain | später | Idee |
 
 ## Audio

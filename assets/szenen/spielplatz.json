@@ -2870,6 +2870,71 @@
     },
     {
       "id": 43,
+      "prefab": 132078551039189280,
+      "overrides": [
+        {
+          "node": 1,
+          "components": {
+            "Transform": {
+              "position": {
+                "x": 23.8,
+                "y": 1.3774139404296875,
+                "z": -5.7
+              }
+            },
+            "Spaziergang": {
+              "Radius": 1.8
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "prefab": 132078551039189280,
+      "overrides": [
+        {
+          "node": 1,
+          "components": {
+            "Transform": {
+              "position": {
+                "x": 18.7,
+                "y": 1.3774139404296875,
+                "z": -5.7
+              }
+            },
+            "Spaziergang": {
+              "Radius": 2.2,
+              "Tempo": 5.5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "prefab": 132078551039189280,
+      "overrides": [
+        {
+          "node": 1,
+          "components": {
+            "Transform": {
+              "position": {
+                "x": 10.0,
+                "y": 1.3774139404296875,
+                "z": -6.5
+              }
+            },
+            "Spaziergang": {
+              "Radius": 0.0,
+              "Tempo": 0.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 46,
       "components": {
         "Name": {
           "value": "Plattform"

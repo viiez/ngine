@@ -379,6 +379,7 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(DeviceContext& context,
     case CompareOp::LessOrEqual: compare = VK_COMPARE_OP_LESS_OR_EQUAL; break;
     case CompareOp::Greater: compare = VK_COMPARE_OP_GREATER; break;
     case CompareOp::GreaterOrEqual: compare = VK_COMPARE_OP_GREATER_OR_EQUAL; break;
+    case CompareOp::Always: compare = VK_COMPARE_OP_ALWAYS; break;
     }
     const VkPipelineDepthStencilStateCreateInfo depth_stencil{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,

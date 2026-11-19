@@ -101,6 +101,7 @@ import editor.overlay;
 import editor.scene_tree;
 import editor.scripts;
 import editor.audio;
+import editor.animation;
 import ngine.audio;
 import editor.terrain_materials;
 import editor.terrain_tools;
@@ -389,6 +390,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         render::GpuProfiler gpu_profiler{**device};
         editor::ScriptsPanel scripts_panel;
         editor::AudioPanel audio_panel;
+        editor::AnimationPanel animation_panel;
         Panels panels;
         FrameTimes times;
         bool running = true;
@@ -572,6 +574,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                                          panels.terrain_materials);
             scripts_panel.draw((*scene)->scripts(), panels.scripts);
             audio_panel.draw((*scene)->audio_engine(), (*scene)->audio(), panels.audio);
+            animation_panel.draw((*scene)->animation(), document.world(),
+                                 document.entity_of(selection.current()), document.playing(),
+                                 panels.animation);
             if (panels.stats) {
                 if (ui::begin_window(stats_window, &panels.stats)) {
                     const render::RenderStats& stats = (*scene)->renderer().stats();
@@ -593,6 +598,21 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                     ui::text(std::format("Lichter: {}", stats.lights));
                     ui::text(std::format("Wartet auf Modelle: {}", stats.waiting));
                     ui::text(std::format("UI-Draws: {}", (*ui_renderer)->draw_count()));
+                    // Zeiten je Pass auf der GPU (R4.6, TD-45), einige Frames verspätet.
+                    ui::separator();
+                    if (!gpu_profiler.active()) {
+                        ui::text_disabled("GPU-Zeiten: keine Zeitstempel auf diesem Gerät");
+                    } else {
+                        ui::text(std::format("GPU: {:.2f} ms", gpu_profiler.total_ms()));
+                        for (const render::PassGroup& group :
+                             render::grouped_pass_times(gpu_profiler)) {
+                            ui::text(std::format("  {:<24} {:7.3f} ms{}", group.name,
+                                                 group.milliseconds,
+                                                 group.count > 1
+                                                     ? std::format(" ({}×)", group.count)
+                                                     : std::string{}));
+                        }
+                    }
                     ui::separator();
                     ui::text(std::format("Entities: {}", document.world().entity_count()));
                     ui::text(std::format("Verlauf: {} von {}", document.history().position(),
@@ -692,6 +712,7 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             debug.clear();
             editor::draw_overlay(debug, (*scene)->renderer(), document, selection);
             audio_panel.draw_ranges(debug, document.world());
+            animation_panel.draw_skeletons(debug, document.world(), (*scene)->animation());
 
             const auto framebuffer = window->framebuffer_size();
             context.begin_frame(static_cast<f32>(framebuffer.width),

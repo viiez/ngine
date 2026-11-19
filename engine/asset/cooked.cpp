@@ -35,6 +35,8 @@ using serialize::BinaryWriter;
 static_assert(std::endian::native == std::endian::little);
 static_assert(sizeof(Vertex) == 48 && std::is_trivially_copyable_v<Vertex>);
 static_assert(sizeof(meshlet::Meshlet) == 44 && std::is_trivially_copyable_v<meshlet::Meshlet>);
+static_assert(sizeof(SkinVertex) == 16 && std::is_trivially_copyable_v<SkinVertex>);
+static_assert(sizeof(math::Mat4) == 64 && std::is_trivially_copyable_v<math::Mat4>);
 
 constexpr u32 cooked_magic = 0x444D474Eu;       // „NGMD“
 constexpr u32 cooked_image_magic = 0x5854474Eu; // „NGTX“
@@ -79,6 +81,7 @@ void write_model(BinaryWriter& w, const Model& model) {
     w.write(static_cast<u32>(model.meshes.size()));
     for (const Mesh& mesh : model.meshes) {
         w.write_string(mesh.name);
+        write_optional(w, mesh.skin);
         w.write(static_cast<u32>(mesh.primitives.size()));
         for (const Primitive& primitive : mesh.primitives) {
             write_optional(w, primitive.material);
@@ -86,6 +89,7 @@ void write_model(BinaryWriter& w, const Model& model) {
             write_raw(w, primitive.vertices);
             write_raw(w, primitive.indices);
             write_raw(w, primitive.meshlets);
+            write_raw(w, primitive.skin);
         }
     }
     w.write(static_cast<u32>(model.materials.size()));
@@ -116,10 +120,30 @@ void write_model(BinaryWriter& w, const Model& model) {
         write_vec(w, {&node.rotation.x, 4});
         write_vec(w, {&node.scale.x, 3});
         write_optional(w, node.mesh);
+        write_optional(w, node.skin);
         write_optional(w, node.parent);
         write_raw(w, node.children);
     }
     write_raw(w, model.roots);
+    w.write(static_cast<u32>(model.skins.size()));
+    for (const Skin& skin : model.skins) {
+        w.write_string(skin.name);
+        write_raw(w, skin.joints);
+        write_raw(w, skin.inverse_bind);
+    }
+    w.write(static_cast<u32>(model.animations.size()));
+    for (const Animation& animation : model.animations) {
+        w.write_string(animation.name);
+        w.write(animation.duration);
+        w.write(static_cast<u32>(animation.channels.size()));
+        for (const AnimationChannel& channel : animation.channels) {
+            w.write(channel.node);
+            w.write(static_cast<u8>(channel.path));
+            w.write(static_cast<u8>(channel.interpolation));
+            write_raw(w, channel.times);
+            write_raw(w, channel.values);
+        }
+    }
 }
 
 // --- Lesen ---
@@ -224,6 +248,7 @@ Model read_model(Input& in) {
     model.meshes.resize(in.count(8));
     for (Mesh& mesh : model.meshes) {
         mesh.name = in.text();
+        mesh.skin = in.optional();
         mesh.primitives.resize(in.count(16));
         for (Primitive& primitive : mesh.primitives) {
             primitive.material = in.optional();
@@ -231,6 +256,7 @@ Model read_model(Input& in) {
             primitive.vertices = in.raw<Vertex>();
             primitive.indices = in.raw<u32>();
             primitive.meshlets = in.raw<meshlet::Meshlet>();
+            primitive.skin = in.raw<SkinVertex>();
         }
     }
     model.materials.resize(in.count(16));
@@ -260,10 +286,31 @@ Model read_model(Input& in) {
         in.floats(&node.rotation.x, 4);
         in.floats(&node.scale.x, 3);
         node.mesh = in.optional();
+        node.skin = in.optional();
         node.parent = in.optional();
         node.children = in.raw<u32>();
     }
     model.roots = in.raw<u32>();
+    model.skins.resize(in.count(20));
+    for (Skin& skin : model.skins) {
+        skin.name = in.text();
+        skin.joints = in.raw<u32>();
+        skin.inverse_bind = in.raw<math::Mat4>();
+    }
+    model.animations.resize(in.count(16));
+    for (Animation& animation : model.animations) {
+        animation.name = in.text();
+        animation.duration = in.get<f32>();
+        animation.channels.resize(in.count(22));
+        for (AnimationChannel& channel : animation.channels) {
+            channel.node = in.get<u32>();
+            channel.path = in.enumeration<AnimationPath>(static_cast<u8>(AnimationPath::Scale));
+            channel.interpolation =
+                in.enumeration<Interpolation>(static_cast<u8>(Interpolation::Linear));
+            channel.times = in.raw<f32>();
+            channel.values = in.raw<f32>();
+        }
+    }
     return model;
 }
 
@@ -284,6 +331,43 @@ Result<void> validate(const CookedModel& cooked) {
                 !meshlet::valid(primitive.meshlets, primitive.indices)) {
                 return std::unexpected(std::string{"Meshlets passen nicht zu den Indizes"});
             }
+            if (!primitive.skin.empty()) {
+                if (!mesh.skin || *mesh.skin >= model.skins.size() ||
+                    primitive.skin.size() != primitive.vertices.size()) {
+                    return std::unexpected(std::string{"Gewichte passen nicht zum Netz"});
+                }
+                const usize joints = model.skins[*mesh.skin].joints.size();
+                for (const SkinVertex& vertex : primitive.skin) {
+                    for (const u16 joint : vertex.joints) {
+                        if (joint >= joints) {
+                            return std::unexpected(std::string{"Gelenk außerhalb des Skins"});
+                        }
+                    }
+                }
+            }
+        }
+        if (mesh.skin && *mesh.skin >= model.skins.size()) {
+            return std::unexpected(std::string{"Skin eines Netzes fehlt"});
+        }
+    }
+    for (const Skin& skin : model.skins) {
+        if (skin.joints.empty() || skin.joints.size() > max_joints ||
+            skin.inverse_bind.size() != skin.joints.size()) {
+            return std::unexpected(std::string{"Skin hat falsch viele Gelenke"});
+        }
+        for (const u32 joint : skin.joints) {
+            if (joint >= model.nodes.size()) {
+                return std::unexpected(std::string{"Gelenk eines Skins fehlt"});
+            }
+        }
+    }
+    for (const Animation& animation : model.animations) {
+        for (const AnimationChannel& channel : animation.channels) {
+            const usize width = channel.path == AnimationPath::Rotation ? 4 : 3;
+            if (channel.node >= model.nodes.size() || channel.times.empty() ||
+                channel.values.size() != channel.times.size() * width) {
+                return std::unexpected(std::string{"Spur eines Clips ist kaputt"});
+            }
         }
     }
     for (const Material& material : model.materials) {
@@ -302,6 +386,7 @@ Result<void> validate(const CookedModel& cooked) {
     }
     for (const Node& node : model.nodes) {
         if ((node.mesh && *node.mesh >= model.meshes.size()) ||
+            (node.skin && *node.skin >= model.skins.size()) ||
             (node.parent && *node.parent >= model.nodes.size())) {
             return std::unexpected(std::string{"Knoten verweist ins Leere"});
         }

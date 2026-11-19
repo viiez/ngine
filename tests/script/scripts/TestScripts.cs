@@ -188,3 +188,27 @@ public class Bumper : Script
 
     public override void OnTriggerEntered(Entity other) => Triggers += 1;
 }
+
+// Steuert den Animator seines Kindes (R4.6): setzt Tempo, liest den Zustand und zählt Fußereignisse.
+public class Taenzer : Script
+{
+    public float Wunsch = 2.0f;
+    public int Ereignisse;
+    public int Gehen;
+    public int Unbekannt;
+
+    public override void Update()
+    {
+        Entity.SetAnimFloat("Tempo", Wunsch);
+        Unbekannt = Entity.SetAnimFloat("Gibt es nicht", 1.0f) ? 1 : 0;
+        Gehen = Entity.GetAnimState() == "Gehen" ? 1 : 0;
+    }
+
+    public override void OnAnimEvent(string name, Entity animator)
+    {
+        if (name == "Fuss" && animator.Has<Animator>())
+        {
+            Ereignisse += 1;
+        }
+    }
+}

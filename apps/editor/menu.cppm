@@ -46,6 +46,8 @@ export struct Panels {
     bool scripts = false;
     // Busse und Mixer (R4.5), anfangs zu.
     bool audio = false;
+    // Automat und Parameter der gewählten Figur (R4.6), anfangs zu.
+    bool animation = false;
 };
 
 export ui::DockLayout default_layout() {
@@ -254,6 +256,7 @@ public:
             ui::menu_item("Terrain-Materialien", {}, &panels.terrain_materials);
             ui::menu_item("Skripte", {}, &panels.scripts);
             ui::menu_item("Audio", {}, &panels.audio);
+            ui::menu_item("Animation", {}, &panels.animation);
             ui::separator();
             if (ui::menu_item("Layout zurücksetzen")) {
                 panels = {};

@@ -5,8 +5,8 @@ module;
 #include <vector>
 
 // Debug-Zeichnen (REND-15): Linien und Texte in 64-Bit-Weltkoordinaten, gesammelt für einen
-// Frame. Der Renderer zeichnet die Linien im Vorwärts-Pass mit Tiefentest und leert danach beide
-// Listen. Texte zeichnet er nicht selbst, weil die Engine keine Schrift hat: Die Anwendung bringt
+// Frame. Der Renderer zeichnet die Linien im Vorwärts-Pass mit Tiefentest, Linien mit on_top danach
+// ohne Tiefentest über allem (z. B. Skelette in einer Figur, R4.6), und leert danach die Listen. Texte zeichnet er nicht selbst, weil die Engine keine Schrift hat: Die Anwendung bringt
 // sie mit ihrer UI ins Bild, bevor add_passes() die Liste leert (der Editor über die Zeichenliste
 // von Dear ImGui, seit R2.3).
 export module ngine.render:debug_draw;
@@ -44,7 +44,8 @@ public:
     // Breite der Linien in Pixeln.
     f32 width = 2.0f;
 
-    void line(math::DVec3 a, math::DVec3 b, math::Vec3 color);
+    // on_top: ohne Tiefentest über allem, auch über Flächen davor.
+    void line(math::DVec3 a, math::DVec3 b, math::Vec3 color, bool on_top = false);
     // Quader von local_min bis local_max, abgebildet mit transform (z. B. die Hülle eines Meshes
     // an der Lage seiner Entity): zwölf Kanten.
     void box(const math::Affine& transform, math::Vec3 local_min, math::Vec3 local_max,
@@ -61,10 +62,13 @@ public:
 
     void clear() noexcept;
     [[nodiscard]] std::span<const DebugLine> lines() const noexcept;
+    // Linien mit on_top.
+    [[nodiscard]] std::span<const DebugLine> top_lines() const noexcept;
     [[nodiscard]] std::span<const DebugText> texts() const noexcept;
 
 private:
     std::vector<DebugLine> lines_;
+    std::vector<DebugLine> top_lines_;
     std::vector<DebugText> texts_;
 };
 

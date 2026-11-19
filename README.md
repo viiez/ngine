@@ -3,9 +3,10 @@
 Eine moderne 3D-Engine in C++23 mit Vulkan, Voxel-Terrain im Stil von Enshrouded, C#-Scripting,
 eigenem Editor und Multiplayer. Lernprojekt und Grundlage für ein eigenes Spiel.
 
-**Stand:** Konstruktion, Reifegrad R4 (Gameplay-Systeme) in Arbeit: R1 bis R3 und R4.1 bis R4.4
-sind abgeschlossen, als Nächstes kommen R4.5 (Audio) und R4.6 (Animation). Die Sandbox zeigt einen
-Spielplatz auf endlosem Voxel-Terrain mit Physik, einer Spielfigur und C#-Skripten, der Editor
+**Stand:** Konstruktion, Reifegrad R4 (Gameplay-Systeme) in Arbeit: R1 bis R3 und R4.1 bis R4.5
+sind abgeschlossen, R4.6 (Animation) ist umgesetzt und wartet auf die Abnahme. Die Sandbox zeigt
+einen Spielplatz auf endlosem Voxel-Terrain mit Physik, animierten Figuren, C#-Skripten und
+räumlichem Klang, der Editor
 bearbeitet und spielt Szenen. Siehe [Roadmap](docs/roadmap.md).
 
 ## Bauen

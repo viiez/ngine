@@ -24,6 +24,14 @@ struct Vertex {
     math::Vec2 uv;
 };
 
+// Einfluss der Gelenke auf einen Eckpunkt (R4.6, ANIM-01): bis zu vier Gelenke (Index in
+// Skin::joints) mit Gewichten als normierte u16 (65535 = 1), Summe 65535. 16 Bytes; liegt als
+// zweiter Strom neben Vertex, damit starre Netze bei 48 Bytes bleiben.
+struct SkinVertex {
+    u16 joints[4] = {};
+    u16 weights[4] = {};
+};
+
 // Teilnetz mit einem Material, immer als Dreiecksliste.
 struct Primitive {
     std::vector<Vertex> vertices;
@@ -37,11 +45,16 @@ struct Primitive {
     // heißt: noch nicht aufgeteilt (ensure_meshlets()). Gekochte Modelle bringen sie aus
     // meshoptimizer mit.
     std::vector<meshlet::Meshlet> meshlets;
+    // Gelenke und Gewichte je Eckpunkt (R4.6), gleich viele wie vertices; leer bei starren Netzen.
+    std::vector<SkinVertex> skin;
 };
 
 struct Mesh {
     std::string name;
     std::vector<Primitive> primitives;
+    // Skin, mit dem das Netz verformt wird (Index in Model::skins), aus dem ersten Knoten, der das
+    // Netz mit einem Skin zeigt. Ohne Skin ist das Netz starr.
+    std::optional<u32> skin;
 };
 
 enum class Filter : u8 { Nearest, Linear };
@@ -94,8 +107,38 @@ struct Node {
     math::Quat rotation = math::quat_identity();
     math::Vec3 scale{1.0f, 1.0f, 1.0f};
     std::optional<u32> mesh;
+    std::optional<u32> skin;
     std::optional<u32> parent;
     std::vector<u32> children;
+};
+
+// Skin aus glTF (R4.6): Gelenke als Knotenindizes und je Gelenk die inverse Bindematrix (vom
+// Modellraum des Netzes in den Raum des Gelenks in der Bindepose).
+struct Skin {
+    std::string name;
+    std::vector<u32> joints;
+    std::vector<math::Mat4> inverse_bind;
+};
+
+enum class AnimationPath : u8 { Translation, Rotation, Scale };
+// CUBICSPLINE tastet der Import auf 30 Hz linear ab.
+enum class Interpolation : u8 { Step, Linear };
+
+// Eine Spur eines Clips: Zeiten in Sekunden (aufsteigend) und je Zeit ein Wert (drei Zahlen für
+// Verschiebung und Skalierung, vier für Drehung als x, y, z, w).
+struct AnimationChannel {
+    u32 node = 0;
+    AnimationPath path = AnimationPath::Translation;
+    Interpolation interpolation = Interpolation::Linear;
+    std::vector<f32> times;
+    std::vector<f32> values;
+};
+
+// Clip aus glTF; Spuren zeigen auf Knoten. Dauer ist die letzte Zeit aller Spuren.
+struct Animation {
+    std::string name;
+    f32 duration = 0.0f;
+    std::vector<AnimationChannel> channels;
 };
 
 struct Model {
@@ -104,6 +147,8 @@ struct Model {
     std::vector<Texture> textures;
     std::vector<Image> images;
     std::vector<Node> nodes;
+    std::vector<Skin> skins;
+    std::vector<Animation> animations;
     // Wurzelknoten der Szene, die gezeigt werden soll (Standardszene, sonst die erste, sonst
     // alle Knoten ohne Elternteil).
     std::vector<u32> roots;
@@ -113,10 +158,13 @@ struct Model {
 // keine GPU und läuft beim Laden im Hintergrund.
 void ensure_meshlets(Model& model);
 
+// Größte Zahl Gelenke in einem Skin (Paletten und Indizes in SkinVertex sind darauf ausgelegt).
+inline constexpr u32 max_joints = 256;
+
 // Lädt eine glTF-2.0-Datei (.gltf mit eingebetteten oder externen Puffern, .glb) samt Bildern.
 // Fehlerhafte Dateien liefern eine Meldung mit Pfad und Ursache, nie einen Absturz. Was nicht
-// unterstützt wird (Punkte und Linien, Skins, Animationen, Morph Targets, weitere UV-Sätze), wird
-// mit einer Warnung übergangen. dependencies bekommt die lokalen Dateien, aus denen externe
+// unterstützt wird (Punkte und Linien, Morph Targets, weitere UV-Sätze, mehr als vier Einflüsse je
+// Eckpunkt), wird mit einer Warnung übergangen bzw. gekürzt. dependencies bekommt die lokalen Dateien, aus denen externe
 // Puffer und Bilder stammen (normalisiert), z. B. für Hot Reload.
 [[nodiscard]] Result<Model> load_gltf(std::string_view path,
                                       std::vector<std::string>* dependencies = nullptr);

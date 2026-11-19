@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Text;
 
 namespace NGine;
 
@@ -364,6 +365,13 @@ public static unsafe class Host
                         break;
                     case EventKind.Step:
                         Each(e.A, s => s.OnStep(e.Point, e.Material, e.Value != 0));
+                        break;
+                    case EventKind.Animation:
+                        if (byEntity.ContainsKey(e.A))
+                        {
+                            string name = Encoding.UTF8.GetString(e.Text, e.TextLength);
+                            Each(e.A, s => s.OnAnimEvent(name, b));
+                        }
                         break;
                 }
             }

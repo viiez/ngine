@@ -26,6 +26,7 @@ import ngine.profile;
 import ngine.rhi;
 import ngine.asset;
 import ngine.world;
+import ngine.animation;
 import :renderer_detail;
 
 namespace ngine::render {
@@ -118,7 +119,7 @@ rhi::Result<rhi::Buffer*> RendererCore::line_buffer(usize slot, usize count) {
     return buffer.get();
 }
 
-void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
+void RendererCore::collect_meshes(world::World& world, math::DVec3 origin, usize slot) {
     world.each<const world::WorldTransform, const MeshRenderer>(
         [&](world::Entity entity, const world::WorldTransform& transform,
             const MeshRenderer& renderer) {
@@ -134,6 +135,8 @@ void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
             const auto id = static_cast<u32>(entity.id());
             const Mat4 rows = math::transpose(transform.value.relative_to(origin));
             const auto [center, radius] = bounding_sphere(*found, transform.value, origin);
+            const u64 vertices =
+                skinned_vertices(world, entity.id(), *found, renderer.mesh.asset, slot);
             for (const Submesh& submesh : found->submeshes) {
                 if (submesh.meshlet_count == 0) {
                     continue;
@@ -154,7 +157,7 @@ void RendererCore::collect_meshes(world::World& world, math::DVec3 origin) {
                 instances.push_back(
                     {.model = {rows[0], rows[1], rows[2]},
                      .sphere = math::extend(center, radius),
-                     .vertices = found->vertex_address,
+                     .vertices = vertices,
                      .meshlets = found->meshlet_address,
                      .words = found->meshlet_address,
                      .first_meshlet = submesh.first_meshlet,
@@ -243,6 +246,7 @@ rhi::Result<std::unique_ptr<Renderer>> Renderer::create(rhi::Device& device,
         impl->pick_buffers.push_back(*std::move(pick));
         impl->pick_pending.emplace_back();
         impl->driven.emplace_back();
+        impl->palette_buffers.emplace_back();
     }
     return std::unique_ptr<Renderer>{new Renderer{std::move(impl)}};
 }
@@ -267,6 +271,10 @@ MaterialStore& Renderer::materials() noexcept {
 }
 rhi::Device& Renderer::device() noexcept {
     return *impl_->device;
+}
+
+void Renderer::set_animation(const animation::AnimationSystem* animation) noexcept {
+    impl_->animation = animation;
 }
 
 void Renderer::set_resources(asset::ResourceManager* resources) noexcept {
@@ -429,31 +437,41 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
     r.instances.clear();
     r.instance_keys.clear();
     r.blend_draws.clear();
+    r.skin_jobs.clear();
+    r.palette_data.clear();
     if (camera) {
         r.collect_terrain(world, origin);
-        r.collect_meshes(world, origin);
+        r.collect_meshes(world, origin, slot);
     }
+    r.finish_skinning(slot);
     r.build_groups();
     r.stats.instances = static_cast<u32>(r.instances.size());
     const u64 terrain_materials = r.write_terrain_materials(slot, r.stats.terrain_chunks > 0);
 
     // Debug-Linien relativ zur Kamera; die Liste gilt nur für diesen Frame.
+    // Zuerst die Linien mit Tiefentest, dahinter die über allem.
     r.line_count = 0;
+    r.top_line_count = 0;
     u64 lines_address = 0;
-    if (camera && !r.debug.lines().empty()) {
-        const std::vector<GpuDebugLine> prepared =
+    if (camera && (!r.debug.lines().empty() || !r.debug.top_lines().empty())) {
+        std::vector<GpuDebugLine> prepared =
             prepare_lines(r.debug.lines(), origin, forward, camera->camera.near_plane);
+        const usize depth_tested = prepared.size();
+        const std::vector<GpuDebugLine> top =
+            prepare_lines(r.debug.top_lines(), origin, forward, camera->camera.near_plane);
+        prepared.insert(prepared.end(), top.begin(), top.end());
         if (!prepared.empty()) {
             if (auto buffer = r.line_buffer(slot, prepared.size())) {
                 (*buffer)->write(0, std::as_bytes(std::span{prepared}));
                 lines_address = (*buffer)->device_address();
-                r.line_count = static_cast<u32>(prepared.size());
+                r.line_count = static_cast<u32>(depth_tested);
+                r.top_line_count = static_cast<u32>(top.size());
             } else {
                 log::error("Renderer, Puffer der Debug-Linien: {}", buffer.error());
             }
         }
     }
-    r.stats.debug_lines = r.line_count;
+    r.stats.debug_lines = r.line_count + r.top_line_count;
     r.debug.clear();
 
     // Pfad und Hi-Z dieses Frames.
@@ -553,6 +571,8 @@ void Renderer::add_passes(RenderGraph& graph, world::World& world, TextureHandle
 
     std::array<TextureHandle, cascade_count> shadow_maps{};
     TextureHandle hdr;
+    // Verformte Eckpunkte vor allem, was sie liest (R4.6).
+    r.add_skinning_pass(graph);
     if (have_buffers && driven_ok) {
         r.add_clear_pass(graph, frame, handles.counters);
         if (!mesh_shaders) {

@@ -12,3 +12,4 @@ export import :geometry;
 export import :database;
 export import :resources;
 export import :cooked;
+export import :skin;

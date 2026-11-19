@@ -1,5 +1,6 @@
 module;
 
+#include <string>
 #include <vector>
 
 // Dienste der Engine für Skripte (R4.4): Aktionen der Eingabe, Abfragen der Physik und die
@@ -12,6 +13,7 @@ import ngine.input;
 import ngine.physics;
 import ngine.world;
 import ngine.audio;
+import ngine.animation;
 
 namespace ngine::script {
 
@@ -55,6 +57,9 @@ enum class EventKind : i32 {
     TriggerLeft,
     Landed,
     Step,
+    // Ereignis eines Zustands der Animation (R4.6); a: Entity mit dem Skript, b: Entity mit dem
+    // Animator, text: Name des Ereignisses.
+    Animation,
 };
 
 struct NativeEvent {
@@ -66,6 +71,10 @@ struct NativeEvent {
     f32 normal[3] = {};
     // Landen: Fallhöhe; Schritt: 1, wenn die Figur läuft.
     f32 value = 0.0f;
+    // Animation: Name des Ereignisses, gültig während der Zustellung.
+    const u8* text = nullptr;
+    i32 text_length = 0;
+    i32 reserved = 0;
 };
 
 struct GameApi {
@@ -93,6 +102,13 @@ struct GameApi {
     f32 (*bus_volume)(i32 bus);
     // Klang der Schritte zu einem Material des Terrains (TerrainMaterial::footstep_sounds), 0 ohne.
     u64 (*footstep_sound)(u32 material);
+    // Animation (R4.6). Parameter des Animators an entity oder dem ersten Nachkommen mit Animator
+    // setzen; kind 0: Zahl, 1: Wahrheitswert, 2: Auslöser. 1: angenommen, 0: kein Animator oder
+    // unbekannter Parameter.
+    i32 (*anim_set)(u64 entity, const u8* name, i32 length, i32 kind, f32 value);
+    // Aktiver Zustand als UTF-8 in out (höchstens capacity Bytes); liefert die volle Länge, -1 ohne
+    // Animator.
+    i32 (*anim_state)(u64 entity, u8* out, i32 capacity);
 };
 
 [[nodiscard]] GameApi make_game_api();
@@ -105,8 +121,14 @@ void bind_script_physics(const physics::PhysicsWorld* physics);
 // Audio und Materialtabelle für Skripte (R4.5); nullptr löst sie.
 void bind_script_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                        const world::TerrainMaterials* materials);
-// Meldet die Ereignisse der Physik am Bus an; sie sammeln sich bis take_script_events().
+// Animation für Skripte (R4.6); nullptr löst sie.
+void bind_script_animation(animation::AnimationSystem* animation);
+// Meldet die Ereignisse der Physik und der Animation am Bus an; sie sammeln sich bis
+// take_script_events() bzw. take_script_animation_events().
 void bind_script_events(events::EventBus* bus);
 [[nodiscard]] std::vector<NativeEvent> take_script_events();
+// Ereignisse der Animation seit dem letzten Aufruf, je Vorfahre des Animators eins (für Update).
+// Die Namen bleiben bis zum nächsten Aufruf gültig.
+[[nodiscard]] std::vector<NativeEvent> take_script_animation_events();
 
 } // namespace ngine::script

@@ -23,6 +23,7 @@ import ngine.platform;
 import ngine.reflect;
 import ngine.world;
 import ngine.audio;
+import ngine.animation;
 
 namespace ngine::script {
 
@@ -471,6 +472,10 @@ void ScriptSystem::bind(world::World* world, const input::ActionState* actions,
 void ScriptSystem::bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                               const world::TerrainMaterials* materials) {
     impl_->runtime->bind_audio(audio, engine, materials);
+}
+
+void ScriptSystem::bind_animation(animation::AnimationSystem* animation) {
+    impl_->runtime->bind_animation(animation);
 }
 
 void ScriptSystem::run(ScriptPhase phase, f32 delta) {

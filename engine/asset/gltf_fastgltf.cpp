@@ -3,6 +3,7 @@ module;
 // Einzige Übersetzungseinheit, die fastgltf kennt (ADR 0027).
 #include <ngine/profile.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <expected>
@@ -116,6 +117,265 @@ Converted<void> check_accessor(const fastgltf::Asset& gltf, std::size_t accessor
     return {};
 }
 
+// Gelenke und Gewichte eines Teilnetzes (JOINTS_n, WEIGHTS_n). Mehr als vier Einflüsse kürzt der
+// Import auf die vier stärksten; Gewichte werden auf die Summe 1 normiert und als u16 gespeichert.
+Converted<std::vector<SkinVertex>> convert_skin_attributes(const fastgltf::Asset& gltf,
+                                                           const fastgltf::Primitive& source,
+                                                           std::size_t count,
+                                                           std::string_view what) {
+    struct Influence {
+        u32 joint = 0;
+        f32 weight = 0.0f;
+    };
+    std::vector<std::vector<Influence>> influences;
+    for (u32 set = 0;; ++set) {
+        const auto* joints = source.findAttribute(std::format("JOINTS_{}", set));
+        const auto* weights = source.findAttribute(std::format("WEIGHTS_{}", set));
+        if (joints == source.attributes.end() || weights == source.attributes.end()) {
+            break;
+        }
+        for (const auto* attribute : {joints, weights}) {
+            if (auto ok =
+                    check_accessor(gltf, attribute->accessorIndex, fastgltf::AccessorType::Vec4, what);
+                !ok) {
+                return std::unexpected(ok.error());
+            }
+            if (gltf.accessors[attribute->accessorIndex].count != count) {
+                return std::unexpected(Failure{
+                    std::format("{}: Gelenke und Gewichte passen nicht zu POSITION", what)});
+            }
+        }
+        if (set == 0) {
+            influences.resize(count);
+        }
+        std::vector<fastgltf::math::fvec4> joint_values(count);
+        fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(
+            gltf, gltf.accessors[joints->accessorIndex],
+            [&](fastgltf::math::fvec4 j, std::size_t i) { joint_values[i] = j; });
+        fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(
+            gltf, gltf.accessors[weights->accessorIndex],
+            [&](fastgltf::math::fvec4 w, std::size_t i) {
+                for (std::size_t c = 0; c < 4; ++c) {
+                    if (w[c] > 0.0f) {
+                        influences[i].push_back(
+                            {static_cast<u32>(joint_values[i][c] + 0.5f), w[c]});
+                    }
+                }
+            });
+    }
+    std::vector<SkinVertex> skin;
+    if (influences.empty()) {
+        return skin;
+    }
+    skin.resize(count);
+    bool truncated = false;
+    for (std::size_t i = 0; i < count; ++i) {
+        auto& list = influences[i];
+        std::sort(list.begin(), list.end(),
+                  [](const Influence& a, const Influence& b) { return a.weight > b.weight; });
+        if (list.size() > 4) {
+            list.resize(4);
+            truncated = true;
+        }
+        f32 sum = 0.0f;
+        for (const Influence& influence : list) {
+            if (influence.joint >= max_joints) {
+                return std::unexpected(
+                    Failure{std::format("{}: Gelenk {} ist zu groß", what, influence.joint)});
+            }
+            sum += influence.weight;
+        }
+        if (sum <= 0.0f) {
+            skin[i].weights[0] = 65535; // ohne Gewicht: starr am ersten Gelenk
+            continue;
+        }
+        // Auf 65535 runden und den Rest dem stärksten geben, damit die Summe genau stimmt.
+        u32 total = 0;
+        for (std::size_t c = 0; c < list.size(); ++c) {
+            const u32 weight = static_cast<u32>(list[c].weight / sum * 65535.0f + 0.5f);
+            skin[i].joints[c] = static_cast<u16>(list[c].joint);
+            skin[i].weights[c] = static_cast<u16>(weight > 65535 ? 65535 : weight);
+            total += skin[i].weights[c];
+        }
+        skin[i].weights[0] = static_cast<u16>(static_cast<i64>(skin[i].weights[0]) + 65535 -
+                                              static_cast<i64>(total));
+    }
+    if (truncated) {
+        log::warn("glTF, {}: mehr als vier Gelenke je Eckpunkt, auf die vier stärksten gekürzt",
+                  what);
+    }
+    return skin;
+}
+
+Converted<Skin> convert_skin(const fastgltf::Asset& gltf, const fastgltf::Skin& source,
+                             usize number) {
+    const std::string what = std::format("Skin {} ({})", number, source.name);
+    Skin skin;
+    skin.name = std::string{source.name};
+    if (source.joints.empty() || source.joints.size() > max_joints) {
+        return std::unexpected(
+            Failure{std::format("{}: {} Gelenke (1 bis {} erlaubt)", what, source.joints.size(),
+                                max_joints)});
+    }
+    for (const std::size_t joint : source.joints) {
+        if (joint >= gltf.nodes.size()) {
+            return std::unexpected(Failure{std::format("{}: Knoten {} fehlt", what, joint)});
+        }
+        skin.joints.push_back(static_cast<u32>(joint));
+    }
+    skin.inverse_bind.assign(skin.joints.size(), math::mat4_identity());
+    if (source.inverseBindMatrices.has_value()) {
+        const std::size_t accessor = source.inverseBindMatrices.value();
+        if (auto ok = check_accessor(gltf, accessor, fastgltf::AccessorType::Mat4, what); !ok) {
+            return std::unexpected(ok.error());
+        }
+        if (gltf.accessors[accessor].count != skin.joints.size()) {
+            return std::unexpected(
+                Failure{std::format("{}: Zahl der Bindematrizen passt nicht", what)});
+        }
+        fastgltf::iterateAccessorWithIndex<fastgltf::math::fmat4x4>(
+            gltf, gltf.accessors[accessor], [&](const fastgltf::math::fmat4x4& m, std::size_t i) {
+                math::Mat4& target = skin.inverse_bind[i];
+                for (std::size_t c = 0; c < 4; ++c) {
+                    target[c] = {m.col(c)[0], m.col(c)[1], m.col(c)[2], m.col(c)[3]};
+                }
+            });
+    }
+    return skin;
+}
+
+// Hermite-Spline zwischen zwei Schlüsseln (glTF CUBICSPLINE), Werte je width Zahlen.
+void hermite(const std::vector<f32>& data, usize width, usize key, f32 dt, f32 t, f32* out) {
+    // Je Schlüssel: Tangente rein, Wert, Tangente raus.
+    const f32* v0 = &data[(key * 3 + 1) * width];
+    const f32* b0 = &data[(key * 3 + 2) * width];
+    const f32* a1 = &data[((key + 1) * 3 + 0) * width];
+    const f32* v1 = &data[((key + 1) * 3 + 1) * width];
+    const f32 t2 = t * t;
+    const f32 t3 = t2 * t;
+    for (usize c = 0; c < width; ++c) {
+        out[c] = (2.0f * t3 - 3.0f * t2 + 1.0f) * v0[c] + (t3 - 2.0f * t2 + t) * dt * b0[c] +
+                 (-2.0f * t3 + 3.0f * t2) * v1[c] + (t3 - t2) * dt * a1[c];
+    }
+}
+
+Converted<Animation> convert_animation(const fastgltf::Asset& gltf,
+                                       const fastgltf::Animation& source, usize number) {
+    const std::string what = std::format("Animation {} ({})", number, source.name);
+    Animation animation;
+    animation.name = std::string{source.name};
+    for (const fastgltf::AnimationChannel& channel : source.channels) {
+        if (!channel.nodeIndex.has_value()) {
+            continue;
+        }
+        AnimationChannel converted;
+        switch (channel.path) {
+        case fastgltf::AnimationPath::Translation:
+            converted.path = AnimationPath::Translation;
+            break;
+        case fastgltf::AnimationPath::Rotation: converted.path = AnimationPath::Rotation; break;
+        case fastgltf::AnimationPath::Scale: converted.path = AnimationPath::Scale; break;
+        default:
+            log::warn("glTF, {}: Morph Targets werden nicht unterstützt, Spur übergangen", what);
+            continue;
+        }
+        if (channel.nodeIndex.value() >= gltf.nodes.size() ||
+            channel.samplerIndex >= source.samplers.size()) {
+            return std::unexpected(Failure{std::format("{}: Spur verweist ins Leere", what)});
+        }
+        converted.node = static_cast<u32>(channel.nodeIndex.value());
+        const fastgltf::AnimationSampler& sampler = source.samplers[channel.samplerIndex];
+        const usize width = converted.path == AnimationPath::Rotation ? 4 : 3;
+        const auto value_type = width == 4 ? fastgltf::AccessorType::Vec4
+                                           : fastgltf::AccessorType::Vec3;
+        if (auto ok = check_accessor(gltf, sampler.inputAccessor, fastgltf::AccessorType::Scalar,
+                                     what);
+            !ok) {
+            return std::unexpected(ok.error());
+        }
+        if (auto ok = check_accessor(gltf, sampler.outputAccessor, value_type, what); !ok) {
+            return std::unexpected(ok.error());
+        }
+        const fastgltf::Accessor& input = gltf.accessors[sampler.inputAccessor];
+        const fastgltf::Accessor& output = gltf.accessors[sampler.outputAccessor];
+        const bool cubic = sampler.interpolation == fastgltf::AnimationInterpolation::CubicSpline;
+        if (input.count == 0 || output.count != input.count * (cubic ? 3 : 1)) {
+            return std::unexpected(
+                Failure{std::format("{}: Zeiten und Werte passen nicht zusammen", what)});
+        }
+        std::vector<f32> times(input.count);
+        fastgltf::copyFromAccessor<f32>(gltf, input, times.data());
+        for (usize i = 1; i < times.size(); ++i) {
+            if (!(times[i] >= times[i - 1])) {
+                return std::unexpected(
+                    Failure{std::format("{}: Zeiten sind nicht aufsteigend", what)});
+            }
+        }
+        std::vector<f32> values(output.count * width);
+        if (width == 4) {
+            fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(
+                gltf, output, [&](fastgltf::math::fvec4 v, std::size_t i) {
+                    for (usize c = 0; c < 4; ++c) {
+                        values[i * 4 + c] = v[c];
+                    }
+                });
+        } else {
+            fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(
+                gltf, output, [&](fastgltf::math::fvec3 v, std::size_t i) {
+                    for (usize c = 0; c < 3; ++c) {
+                        values[i * 3 + c] = v[c];
+                    }
+                });
+        }
+        if (cubic) {
+            // Linear auf 30 Hz abtasten.
+            constexpr f32 rate = 30.0f;
+            const f32 start = times.front();
+            const f32 end = times.back();
+            const usize steps = static_cast<usize>((end - start) * rate) + 1;
+            usize key = 0;
+            for (usize step = 0; step <= steps; ++step) {
+                const f32 time = step == steps ? end : start + static_cast<f32>(step) / rate;
+                while (key + 2 < times.size() && times[key + 1] <= time) {
+                    ++key;
+                }
+                f32 out[4] = {};
+                if (times.size() == 1) {
+                    std::copy_n(&values[width], width, out);
+                } else {
+                    const f32 dt = times[key + 1] - times[key];
+                    const f32 t = dt > 0.0f ? std::clamp((time - times[key]) / dt, 0.0f, 1.0f)
+                                            : 0.0f;
+                    hermite(values, width, key, dt, t, out);
+                }
+                if (width == 4) {
+                    const math::Quat q =
+                        math::normalize(math::Quat{out[0], out[1], out[2], out[3]});
+                    out[0] = q.x;
+                    out[1] = q.y;
+                    out[2] = q.z;
+                    out[3] = q.w;
+                }
+                converted.times.push_back(time);
+                converted.values.insert(converted.values.end(), out, out + width);
+                if (step == steps || time >= end) {
+                    break;
+                }
+            }
+            converted.interpolation = Interpolation::Linear;
+        } else {
+            converted.times = std::move(times);
+            converted.values = std::move(values);
+            converted.interpolation = sampler.interpolation == fastgltf::AnimationInterpolation::Step
+                                          ? Interpolation::Step
+                                          : Interpolation::Linear;
+        }
+        animation.duration = std::max(animation.duration, converted.times.back());
+        animation.channels.push_back(std::move(converted));
+    }
+    return animation;
+}
+
 Converted<Primitive> convert_primitive(const fastgltf::Asset& gltf,
                                        const fastgltf::Primitive& source, std::string_view what) {
     Primitive primitive;
@@ -196,6 +456,12 @@ Converted<Primitive> convert_primitive(const fastgltf::Asset& gltf,
     if (primitive.indices.size() % 3 != 0) {
         return std::unexpected(Failure{std::format("{}: {} Indizes sind keine ganzen Dreiecke",
                                                    what, primitive.indices.size())});
+    }
+
+    if (auto skin = convert_skin_attributes(gltf, source, positions.count, what); !skin) {
+        return std::unexpected(skin.error());
+    } else {
+        primitive.skin = std::move(*skin);
     }
 
     if (*normals) {
@@ -445,8 +711,65 @@ Converted<Model> convert(const fastgltf::Asset& gltf) {
         }
     }
 
-    if (!gltf.skins.empty() || !gltf.animations.empty()) {
-        log::warn("glTF: Skins und Animationen werden noch nicht unterstützt");
+    for (usize i = 0; i < gltf.skins.size(); ++i) {
+        auto skin = convert_skin(gltf, gltf.skins[i], i);
+        if (!skin) {
+            return std::unexpected(skin.error());
+        }
+        model.skins.push_back(std::move(*skin));
+    }
+    for (usize i = 0; i < gltf.nodes.size(); ++i) {
+        const fastgltf::Node& source = gltf.nodes[i];
+        if (!source.skinIndex.has_value()) {
+            continue;
+        }
+        const u32 skin = static_cast<u32>(source.skinIndex.value());
+        if (skin >= model.skins.size()) {
+            return std::unexpected(Failure{std::format("Knoten {}: Skin {} fehlt", i, skin)});
+        }
+        model.nodes[i].skin = skin;
+        if (const auto mesh = model.nodes[i].mesh) {
+            Mesh& target = model.meshes[*mesh];
+            if (!target.skin) {
+                target.skin = skin;
+            } else if (*target.skin != skin) {
+                log::warn("glTF: Mesh {} ({}) hat mehrere Skins, nur der erste gilt", *mesh,
+                          target.name);
+            }
+        }
+    }
+    // Gelenke in SkinVertex müssen im Skin des Netzes liegen; Netze ohne Skin bleiben starr.
+    for (usize m = 0; m < model.meshes.size(); ++m) {
+        Mesh& mesh = model.meshes[m];
+        for (Primitive& primitive : mesh.primitives) {
+            if (!mesh.skin) {
+                primitive.skin.clear();
+                continue;
+            }
+            const usize joints = model.skins[*mesh.skin].joints.size();
+            for (const SkinVertex& vertex : primitive.skin) {
+                for (usize c = 0; c < 4; ++c) {
+                    if (vertex.weights[c] != 0 && vertex.joints[c] >= joints) {
+                        return std::unexpected(Failure{std::format(
+                            "Mesh {} ({}): Gelenk {} liegt außerhalb des Skins", m, mesh.name,
+                            vertex.joints[c])});
+                    }
+                }
+            }
+        }
+        if (mesh.skin && std::ranges::any_of(mesh.primitives, [](const Primitive& p) {
+                return p.skin.empty();
+            })) {
+            log::warn("glTF: Mesh {} ({}) hat einen Skin, aber Teile ohne Gewichte", m,
+                      mesh.name);
+        }
+    }
+    for (usize i = 0; i < gltf.animations.size(); ++i) {
+        auto animation = convert_animation(gltf, gltf.animations[i], i);
+        if (!animation) {
+            return std::unexpected(animation.error());
+        }
+        model.animations.push_back(std::move(*animation));
     }
     return model;
 }

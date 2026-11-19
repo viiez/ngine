@@ -121,6 +121,9 @@ void generate_tangents(asset::Primitive& primitive) {
     // Ecken mit gleichem Eckpunkt und gleicher Tangente wieder zusammenführen.
     std::vector<asset::Vertex> vertices;
     vertices.reserve(primitive.vertices.size());
+    // Gewichte verformter Netze wandern mit ihren Eckpunkten (R4.6).
+    std::vector<asset::SkinVertex> skin;
+    const bool skinned = primitive.skin.size() == primitive.vertices.size();
     std::vector<u32> indices(primitive.indices.size());
     std::unordered_map<Key, u32, KeyHash> merged;
     merged.reserve(primitive.indices.size());
@@ -137,11 +140,17 @@ void generate_tangents(asset::Primitive& primitive) {
             asset::Vertex vertex = primitive.vertices[source];
             vertex.tangent = tangent;
             vertices.push_back(vertex);
+            if (skinned) {
+                skin.push_back(primitive.skin[source]);
+            }
         }
         indices[corner] = it->second;
     }
     primitive.vertices = std::move(vertices);
     primitive.indices = std::move(indices);
+    if (skinned) {
+        primitive.skin = std::move(skin);
+    }
     primitive.generated_tangents = false;
 }
 

@@ -63,13 +63,15 @@ enum class AssetType : u8 {
     TerrainMaterials,
     Script,
     Sound,
-    SoundSet
+    SoundSet,
+    AnimGraph
 };
 
 // Art nach der Endung: .gltf/.glb Modell, .png/.jpg/.jpeg/.tga/.bmp Textur, .slang Shader,
 // .json und .nscene Szene, .prefab Prefab (R2.5), .input Belegung der Eingabe (R4.1),
 // .terrain-materials Materialtabelle des Terrains (R4.3), .cs Skript (R4.4), .wav/.ogg/.flac/.mp3
-// Klang und .soundset Klangsatz (R4.5). Dateien unbekannter Art bekommen keine Kennung.
+// Klang, .soundset Klangsatz (R4.5) und .animgraph Automat der Animation (R4.6). Dateien
+// unbekannter Art bekommen keine Kennung.
 [[nodiscard]] AssetType type_of(std::string_view path);
 [[nodiscard]] std::string_view to_string(AssetType type);
 

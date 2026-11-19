@@ -19,6 +19,8 @@ public unsafe struct GameApi
     public delegate* unmanaged<int, float, void> SetBusVolume;
     public delegate* unmanaged<int, float> BusVolume;
     public delegate* unmanaged<uint, ulong> FootstepSound;
+    public delegate* unmanaged<ulong, byte*, int, int, float, int> AnimSet;
+    public delegate* unmanaged<ulong, byte*, int, int> AnimState;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -314,7 +316,76 @@ public static unsafe class Audio
     }
 }
 
-// Ereignisse der Physik für Skripte; Werte wie EventKind in game_api.cppm.
+// Animation (R4.6): Parameter und Zustand des Animators an einer Entity oder ihrem ersten
+// Nachkommen mit Animator (z. B. das Netz unter der Spielfigur). Ereignisse der Zustände kommen als
+// Script.OnAnimEvent.
+public static unsafe class Animation
+{
+    // Setzt einen Zahl-Parameter; false, wenn es keinen Animator oder Parameter gibt.
+    public static bool SetFloat(Entity entity, string parameter, float value) => Set(entity, parameter, 0, value);
+    public static bool SetBool(Entity entity, string parameter, bool value) => Set(entity, parameter, 1, value ? 1.0f : 0.0f);
+    // Löst einen Auslöser aus; er gilt, bis ihn ein Übergang verbraucht.
+    public static bool SetTrigger(Entity entity, string parameter) => Set(entity, parameter, 2, 0.0f);
+
+    // Name des aktiven Zustands, leer ohne Animator oder solange er lädt.
+    public static string State(Entity entity)
+    {
+        var api = Host.Api;
+        if (api == null)
+        {
+            return "";
+        }
+        Span<byte> buffer = stackalloc byte[128];
+        int length;
+        fixed (byte* data = buffer)
+        {
+            length = api->Game.AnimState(entity.Id, data, buffer.Length);
+        }
+        if (length <= 0)
+        {
+            return "";
+        }
+        if (length <= buffer.Length)
+        {
+            return Encoding.UTF8.GetString(buffer[..length]);
+        }
+        var large = new byte[length];
+        fixed (byte* data = large)
+        {
+            length = Math.Min(length, api->Game.AnimState(entity.Id, data, large.Length));
+        }
+        return Encoding.UTF8.GetString(large, 0, length);
+    }
+
+    private static bool Set(Entity entity, string parameter, int kind, float value)
+    {
+        var api = Host.Api;
+        if (api == null)
+        {
+            return false;
+        }
+        Span<byte> buffer = stackalloc byte[Encoding.UTF8.GetMaxByteCount(parameter.Length)];
+        int length = Encoding.UTF8.GetBytes(parameter, buffer);
+        fixed (byte* text = buffer)
+        {
+            return api->Game.AnimSet(entity.Id, text, length, kind, value) == 1;
+        }
+    }
+}
+
+// Dieselben Aufrufe an der Entity: entity.SetAnimFloat("Tempo", 3.0f).
+public static class AnimationExtensions
+{
+    public static bool SetAnimFloat(this Entity entity, string parameter, float value) =>
+        Animation.SetFloat(entity, parameter, value);
+    public static bool SetAnimBool(this Entity entity, string parameter, bool value) =>
+        Animation.SetBool(entity, parameter, value);
+    public static bool SetAnimTrigger(this Entity entity, string parameter) =>
+        Animation.SetTrigger(entity, parameter);
+    public static string GetAnimState(this Entity entity) => Animation.State(entity);
+}
+
+// Ereignisse der Physik und der Animation für Skripte; Werte wie EventKind in game_api.cppm.
 public enum EventKind
 {
     ContactBegan,
@@ -323,10 +394,11 @@ public enum EventKind
     TriggerLeft,
     Landed,
     Step,
+    Animation,
 }
 
 [StructLayout(LayoutKind.Sequential)]
-public struct NativeEvent
+public unsafe struct NativeEvent
 {
     public EventKind Kind;
     public uint Material;
@@ -335,6 +407,10 @@ public struct NativeEvent
     public DVec3 Point;
     public Vec3 Normal;
     public float Value;
+    // Animation: Name des Ereignisses (UTF-8), gültig während der Zustellung.
+    public byte* Text;
+    public int TextLength;
+    public int Reserved;
 }
 
 // Berührung mit einem anderen Körper.

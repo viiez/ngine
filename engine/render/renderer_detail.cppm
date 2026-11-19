@@ -1,6 +1,8 @@
 module;
 
 #include <array>
+#include <map>
+#include <utility>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -23,6 +25,7 @@ import ngine.math;
 import ngine.rhi;
 import ngine.asset;
 import ngine.world;
+import ngine.animation;
 import :debug_draw;
 import :geometry;
 import :graph;
@@ -85,6 +88,25 @@ struct DrivenPush {
 };
 static_assert(sizeof(DrivenPush) == 104);
 static_assert(sizeof(DrivenPush) <= rhi::max_push_constant_size);
+
+// Wie SkinningPush in skinning.slang (48 Bytes).
+struct SkinningPush {
+    u64 source = 0;
+    u64 skin = 0;
+    u64 target = 0;
+    u64 palette = 0;
+    u32 vertex_count = 0;
+    u32 joint_count = 0;
+    u32 reserved[2] = {};
+};
+static_assert(sizeof(SkinningPush) == 48);
+
+// Ein Netz, das der Skinning-Pass in diesem Frame verformt.
+struct SkinJob {
+    SkinningPush push;
+    // Block des Geometriepuffers mit dem Ziel (für die Barriere danach).
+    const rhi::Buffer* target = nullptr;
+};
 
 struct HizPush {
     u32 source = 0;
@@ -207,6 +229,7 @@ struct RendererCore {
     std::unique_ptr<rhi::Shader> terrain_id_fragment;
     std::unique_ptr<rhi::Shader> cull_compute;
     std::unique_ptr<rhi::Shader> hiz_compute;
+    std::unique_ptr<rhi::Shader> skinning_compute;
     // Nur mit der Stufe Mesh Shader (R3.5).
     std::unique_ptr<rhi::Shader> cull_task;
     std::unique_ptr<rhi::Shader> pbr_mesh;
@@ -235,9 +258,12 @@ struct RendererCore {
     f32 shadow_bias_constant = 0.0f;
     f32 shadow_bias_slope = 0.0f;
     std::unique_ptr<rhi::Pipeline> debug_lines;
+    // Debug-Linien ohne Tiefentest (DebugDraw::top_lines).
+    std::unique_ptr<rhi::Pipeline> debug_lines_on_top;
     std::unique_ptr<rhi::Pipeline> tonemap;
     std::unique_ptr<rhi::Pipeline> cull;
     std::unique_ptr<rhi::Pipeline> hiz;
+    std::unique_ptr<rhi::Pipeline> skinning;
     // Mesh-Shader-Pfad: dieselben Pipelines mit Task- und Mesh-Shader statt Vertex-Shader.
     std::array<std::unique_ptr<rhi::Pipeline>, 2> pbr_meshlets;
     std::unique_ptr<rhi::Pipeline> shadow_opaque_meshlets;
@@ -272,6 +298,17 @@ struct RendererCore {
     // Befehle je Aufgabe im Rückfallpfad (Summe der max_commands aller Bereiche).
     u32 commands_per_job = 0;
     std::vector<detail::BlendDraw> blend_draws;
+    // Skinning (R4.6): Posen aus dem AnimationSystem, Aufträge und Paletten dieses Frames,
+    // Bereiche für verformte Eckpunkte je Entity und Netz (einer pro Frame im Flug).
+    const animation::AnimationSystem* animation = nullptr;
+    std::vector<detail::SkinJob> skin_jobs;
+    std::vector<animation::JointMatrix> palette_data;
+    std::vector<std::unique_ptr<rhi::Buffer>> palette_buffers;
+    struct SkinnedOutput {
+        std::vector<GeometryRange> ranges;
+        u64 last_used = 0;
+    };
+    std::map<std::pair<u64, u64>, SkinnedOutput> skinned_outputs;
     // Hi-Z im Wechsel: eines baut dieser Frame, das andere stammt vom letzten.
     std::array<detail::HizSet, 2> hiz_sets;
     rhi::Extent2D hiz_size;
@@ -282,7 +319,9 @@ struct RendererCore {
     bool previous_valid = false;
     // Zuletzt von der GPU gelesene Statistik der Kamera (einige Frames alt).
     std::array<u32, detail::stat_words> gpu_stats{};
+    // Linien im Puffer: zuerst line_count mit Tiefentest, dahinter top_line_count ohne.
     u32 line_count = 0;
+    u32 top_line_count = 0;
     RenderStats stats;
     // Modelle, die MeshRenderer brauchen (R2.4). Ein Eintrag hält das Handle, solange ihn ein
     // Frame benutzt; danach gibt der Ressourcen-Manager das Modell nach einer Weile frei.
@@ -340,7 +379,14 @@ struct RendererCore {
     // Puffer für Debug-Linien dieses Frames, mindestens count Linien groß.
     rhi::Result<rhi::Buffer*> line_buffer(usize slot, usize count);
     // Sammelt die Teilnetze aller MeshRenderer als Instanzen.
-    void collect_meshes(world::World& world, math::DVec3 origin);
+    void collect_meshes(world::World& world, math::DVec3 origin, usize slot);
+    // Adresse der verformten Eckpunkte eines Netzes an entity in diesem Frame (R4.6): reiht einen
+    // Auftrag für den Skinning-Pass ein. Ohne Pose die Ruhe-Eckpunkte.
+    [[nodiscard]] u64 skinned_vertices(world::World& world, u64 entity, const GpuMesh& mesh,
+                                       asset::AssetId model, usize slot);
+    // Paletten in den Puffer dieses Frames, Aufträge vervollständigen; Ausgaben ohne Nutzer frei.
+    void finish_skinning(usize slot);
+    void add_skinning_pass(RenderGraph& graph);
 
     // --- terrain_pass.cpp ------------------------------------------------------------------
 
