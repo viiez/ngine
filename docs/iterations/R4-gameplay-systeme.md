@@ -339,6 +339,6 @@ neuen Systemen.
    einer internen Partition für den gemeinsamen Zustand, wie der Renderer seit R3.2. Alternative:
    Der Server baut die Systeme ein drittes Mal, und TD-64 bekommt die Frist „bei Bedarf“; das spart
    jetzt Zeit, aber Netzwerk-Code müsste dann in drei Zusammenbauten gleich eingehängt werden.
-2. **Plan für R5 als nächster PR**, wie bei R3 zu R4: Das Review hier schließt R4, sobald das
-   Szenario auf dem PC bestanden ist; der Plan für R5 (Multiplayer) entsteht parallel dazu und
-   verteilt die Schulden mit Frist R5 auf seine Iterationen.
+2. **Plan für R5 im selben PR:** Das Review hier schließt R4, sobald das Szenario auf dem PC
+   bestanden ist; der [Plan für R5](R5-multiplayer.md) (Multiplayer) liegt zur Abstimmung daneben
+   und verteilt die Schulden mit Frist R5 auf seine Iterationen.

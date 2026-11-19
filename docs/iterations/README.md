@@ -36,6 +36,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R4.4](R4.4-csharp-scripting.md) | Konstruktion | C#-Scripting | abgeschlossen |
 | [R4.5](R4.5-audio.md) | Konstruktion | Audio | abgeschlossen |
 | [R4.6](R4.6-animation.md) | Konstruktion | Animation | abgeschlossen |
+| [R5](R5-multiplayer.md) | Konstruktion | Reifegrad Multiplayer (R5.1 bis R5.5) | geplant |
 
 ## Vorlage
 
