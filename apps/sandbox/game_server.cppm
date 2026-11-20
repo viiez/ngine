@@ -338,6 +338,8 @@ export int run_game_server(const GameServerOptions& options) {
                   game.scripts_running() ? "laufen" : "aus",
                   scene_figure ? scene_figure.name() : std::string_view{"fehlt"},
                   track ? " (läuft die Spur)" : "", load_time.count());
+        // Sofort sichtbar, auch wenn stdout in eine Datei geht: Skripte warten auf diese Zeile.
+        log::flush();
         return true;
     };
     if (options.frames && *options.frames == 0 && !listen()) {
