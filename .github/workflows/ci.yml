@@ -137,7 +137,8 @@ jobs:
       - name: ThreadSanitizer
         if: ${{ matrix.tsan }}
         env:
-          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+          # cmake/tsan.supp: nur Zusicherungen in Jolts Debug-Build (R5.1).
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1 suppressions=${{ github.workspace }}/cmake/tsan.supp
         run: |
           # Ältere TSan-Laufzeiten scheitern an der hohen ASLR-Entropie aktueller Kernel.
           sudo sysctl -w vm.mmap_rnd_bits=28

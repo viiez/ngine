@@ -420,7 +420,9 @@ für Skripte braucht es das .NET-SDK wie in R4.4.
 
 1. **Tests:** `ctest` meldet auch `[game]` (zwei Figuren mit eigenen Aktionen, gleiche Prüfsumme
    zweimal) und die neuen `[replication]`-Tests als bestanden; unter ThreadSanitizer
-   (`linux-clang-tsan`) ebenso, die Physik rechnet dort jetzt auf den Workern.
+   (`linux-clang-tsan`) ebenso, die Physik rechnet dort jetzt auf den Workern. Dafür
+   `TSAN_OPTIONS=suppressions=$PWD/cmake/tsan.supp` setzen; die Datei blendet nur Zusicherungen in
+   Jolts Debug-Build aus.
 2. **Server und `--headless` rechnen gleich:** Nacheinander
    `ngine_sandbox --headless --playground --frames 600` und
    `ngine_sandbox --server --scene szenen/spielplatz.json --track --frames 600` starten. Beide
