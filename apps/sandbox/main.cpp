@@ -575,8 +575,10 @@ int run_windowed(const Options& options) {
         }
         bool looking = false;
         // Auf dem Spielplatz mit Figur ist die Maus gefangen und schaut ohne Taste (R4.3).
+        // Als Client steuert man immer die eigene Figur des Servers (R5.2).
         const auto player_mode = [&] {
-            return scene && !voxels && scene->active_player() && !scene->flying();
+            return net != nullptr ||
+                   (scene && !voxels && scene->active_player() && !scene->flying());
         };
         if (player_mode() || net) {
             looking = true;

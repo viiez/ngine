@@ -425,8 +425,10 @@ Die Sandbox mit `--client` öffnet ein Fenster und zeigt die Welt des Servers.
    wartende Entities.
 3. **Client mit Fenster:** `ngine_sandbox --client 127.0.0.1`. Der Spielplatz erscheint, wie ihn
    der Server rechnet; Maus und WASD steuern die eigene Figur (in R5.2 noch um die Latenz
-   verzögert). F3 öffnet das Fenster „Netzwerk“ mit Ping, Verlust, Datenraten und dem Puffer der
-   Interpolation (um 3 Ticks).
+   verzögert). Die Maus bleibt gefangen. Die linke Maustaste wirft Kugeln, die der Server anlegt
+   und alle Clients sehen. Graben (rechte Maustaste) ignoriert der Server bis R5.4, weil die
+   Löcher sonst bei keinem Client ankämen. F3 öffnet das Fenster „Netzwerk“ mit Ping, Verlust,
+   Datenraten und dem Puffer der Interpolation (um 3 Ticks).
 4. **Zwei Clients:** Einen zweiten Client starten. Beide sehen die Figur des anderen flüssig laufen
    und die Kisten fallen.
 5. **Schlechtes Netz:** Einen Client mit `--net-sim 150 5` starten. Fremde Figuren und Kisten

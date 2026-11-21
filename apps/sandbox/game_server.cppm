@@ -55,6 +55,7 @@ import ngine.replication;
 import ngine.script;
 import ngine.world;
 import app.game_world;
+import app.physics;
 import app.player;
 import app.scripting;
 import sandbox.net_client;
@@ -148,7 +149,9 @@ public:
                math::DVec3 spawn)
         : game_{&game}, server_{&server}, scene_figure_{scene_figure}, spawn_{spawn},
           map_hash_{input::ActionMap::standard().hash()},
-          look_{input::ActionMap::standard().find("look")} {}
+          look_{input::ActionMap::standard().find("look")},
+          dig_{input::ActionMap::standard().find("dig")},
+          throw_{input::ActionMap::standard().find("throw")} {}
 
     // Die Figur der Szene gehört der Spur (--track) und keinem Client.
     void reserve_scene_figure() {
@@ -231,9 +234,43 @@ public:
                     view->pitch = std::clamp(player.view->pitch, -1.55f, 1.55f);
                 }
             }
+            // Löcher im Terrain kämen nicht bei den Clients an (Terrain-Deltas übers Netz folgen
+            // in R5.4), Figuren und Kisten fielen für sie durch den Boden: bis dahin kein Graben.
+            if (dig_ && *dig_ < player.latest.size() && player.latest[*dig_].down) {
+                player.latest[*dig_] = {};
+                if (!dig_warned_) {
+                    log::info("Server: Graben von Clients ist bis R5.4 abgeschaltet");
+                    dig_warned_ = true;
+                }
+            }
+            if (throw_ && *throw_ < player.latest.size() && player.latest[*throw_].pressed) {
+                throw_ball(player.figure);
+            }
             player.actions->apply(player.latest);
             player.fresh = false;
         }
+    }
+
+    // Kugel aus dem Auge der Figur in Blickrichtung, wie ModelScene::throw_ball() lokal.
+    void throw_ball(u64 figure_id) {
+        world::World& world = game_->world();
+        const world::Entity figure = world.entity(figure_id);
+        const auto* transform = figure ? figure.get<world::WorldTransform>() : nullptr;
+        const auto* input = figure ? figure.get<app::PlayerInput>() : nullptr;
+        if (transform == nullptr || input == nullptr) {
+            return;
+        }
+        f32 eye = input->eye_height;
+        if (const auto* motion = figure.get<physics::CharacterMotion>();
+            motion != nullptr && motion->crouched) {
+            eye *= 0.6f;
+        }
+        const math::Vec3 forward = app::view_rotation(*input) * math::Vec3{0.0f, 0.0f, -1.0f};
+        const math::DVec3 origin =
+            transform->position() + math::DVec3{0.0, static_cast<f64>(eye), 0.0};
+        world::Entity ball =
+            app::add_ball(world, origin + math::to_f64(forward * 0.8f), forward * 18.0f);
+        ball.set(world::Name{"Wurf"});
     }
 
     // Mittelpunkt der Relevanz jedes Clients: seine Figur.
@@ -327,6 +364,9 @@ private:
     math::DVec3 spawn_;
     u32 map_hash_;
     std::optional<usize> look_;
+    std::optional<usize> dig_;
+    std::optional<usize> throw_;
+    bool dig_warned_ = false;
     u32 spawned_ = 0;
     std::map<net::ConnectionId, Player> players_;
 };
