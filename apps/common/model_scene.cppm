@@ -440,10 +440,10 @@ public:
 
     // Ein Bild als Client (R5.2): Die Welt kommt vom Server, die Kamera vom Aufrufer. Automaten
     // und Klänge laufen wie im Spiel.
-    void update_remote(f32 dt, DVec3 view_position, math::Quat view_rotation) {
-        view_position_ = view_position;
-        view_rotation_ = view_rotation;
-        throw_origin_ = view_position;
+    void update_remote(f32 dt, DVec3 eye, math::Quat look) {
+        view_position_ = eye;
+        view_rotation_ = look;
+        throw_origin_ = eye;
         camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
         update_animation(dt);
         update_audio(dt);
