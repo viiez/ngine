@@ -420,9 +420,10 @@ Die Sandbox mit `--client` öffnet ein Fenster und zeigt die Welt des Servers.
 
 1. **Tests:** `ctest` meldet die `[replication]`-Tests als bestanden, darunter einen Client, der bei
    100 ms Verzögerung und rund 19 % Verlust zur Welt des Servers heilt.
-2. **Server:** `ngine_sandbox --server --scene szenen/spielplatz.json --bodies 500` (500 bewegte
-   Kisten). Das Log meldet alle fünf Sekunden pro Client Datenrate, Größe der Schnappschüsse und
-   wartende Entities.
+2. **Server:** `ngine_sandbox --server --scene szenen/spielplatz.json --bodies 500`: 500 Kisten
+   und Kugeln regnen beim Start etwa 14 m hinter der Startposition der Figur herab und schlafen
+   danach ein. Das Log meldet alle fünf Sekunden pro Client Datenrate, Größe der Schnappschüsse
+   und wartende Entities.
 3. **Client mit Fenster:** `ngine_sandbox --client 127.0.0.1`. Der Spielplatz erscheint, wie ihn
    der Server rechnet; Maus und WASD steuern die eigene Figur (in R5.2 noch um die Latenz
    verzögert). Die Maus bleibt gefangen. Die linke Maustaste wirft Kugeln, die der Server anlegt
