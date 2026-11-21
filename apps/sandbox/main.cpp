@@ -113,6 +113,7 @@ import ngine.net;
 import ngine.replication;
 import ngine.world;
 import ngine.math;
+import ngine.physics;
 import ngine.editor_ui;
 import sandbox.playground;
 import sandbox.animation_bench;
