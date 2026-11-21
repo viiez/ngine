@@ -414,6 +414,9 @@ TEST_CASE("Entity references are translated to client ids", "[replication]") {
     world::Entity prey = link.server.create("Beute");
     hunter.set(Follow{prey.id()});
     REQUIRE(hunter.id() < prey.id());
+    // Eigene Entities des Clients verschieben seine Kennungen gegenüber denen des Servers.
+    (void)link.client.create("Versatz");
+    (void)link.client.create("Versatz");
 
     link.step();
     CHECK(link.on_client(hunter).alive());
