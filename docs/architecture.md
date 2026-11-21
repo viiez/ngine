@@ -42,7 +42,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.animation` | `ngine::animation` | Animation (R4.6, ANIM-01, ANIM-02): Skelett und Clips eines Modells als Ressource `Rig` mit `register_loaders()` (aus dem Cache oder glTF), `Pose`, `sample()`, `blend()` (nlerp), `palette()` als 3×4-Matrizen `JointMatrix` (`:rig`); Automat als Asset `AnimGraph` (`.animgraph`, JSON mit Parametern `float`, `bool`, `trigger`, Zuständen mit Clip oder 1D-Blend und Ereignissen, Übergängen mit Bedingungen, Dauer und `after_end`, `parse_anim_graph()`, `register_graph_loader()`, `:graph`); `StateMachine` ohne Welt und Sperren mit weicher Überblendung und eingefrorener Pose bei Übergängen mitten in einer Überblendung (`:machine`); Komponente `Animator` mit `PoseMode` `Visible`, `Always`, `Never` und Ereignis `AnimationEvent` (`:components`); `AnimationSystem` rechnet Automaten, Posen und Paletten pro Bild in Jobs, schickt Ereignisse sortiert über den `EventBus` und schreibt nichts in die Welt (`:system`, [ADR 0050](adr/0050-animation-gpu-skinning.md)) | vorhanden (ab R4.6) |
 | `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` (`:runtime`) startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/`. Seit R4.4 C#-Bindings aus der Reflection (`:bindings`, Werkzeug `ngine_bindgen`, Prüfung der Anordnung beim Start), die Tabelle `NativeApi` für Welt, Eingabe, Physik und Terrain, Skript-Klassen als Typen der Registry mit Umzug beim Neuladen, Lauf als feste Stufe vor der Physik und als Stufe des Bildes, Ereignisse der Physik (seit R4.6 auch Parameter, Zustand und Ereignisse der Animation); `ScriptSystem` (`:system`) baut `assets/skripte` mit `dotnet build` im Hintergrund (`ScriptBuilder`, Meldungen als `Diagnostic`), beobachtet den Ordner und lädt neu ([ADR 0047](adr/0047-script-components-bindings-hot-reload.md)) | vorhanden (ab D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
-| `ngine.replication` | `ngine::replication` | Replikation der Welt: Schnappschüsse ausgewählter Komponenten (`encode_snapshot`, `Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)); seit R5.1 Nachrichten des Spiels in `:input`: Aktionen eines Spielers (`encode_actions()`, geprüft über `ActionMap::hash()`) und seine Figur (`encode_possess()`) | vorhanden (Durchstich D3, Ausbau R5) |
+| `ngine.replication` | `ngine::replication` | Replikation der Welt: `Schema` aus den markierten Komponenten der Reflection, Schnappschüsse als Delta gegen den bestätigten Stand mit Relevanz und Budget pro Client (`SnapshotEncoder`), Spiegel mit Interpolation auf dem Client (`Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md), [ADR 0052](adr/0052-replication-deltas-relevance.md)); seit R5.1 Nachrichten des Spiels in `:input`: Aktionen eines Spielers (`encode_actions()`, geprüft über `ActionMap::hash()`), seine Figur (`encode_possess()`) und sein Blick (`encode_view()`) | vorhanden (Ausbau R5) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten nach Scancode mit Loslassen, Texteingabe, Fokus, Maus mit relativem Modus und Zeigerform, Zwischenablage, Bildschirmskalierung, Rückruf zum Zeichnen beim Ziehen des Fensters; seit R4.1 Gamepads nach dem Xbox-Schema von SDL3 mit Anstecken, Abziehen, Tasten, Sticks und Triggern); seit R4.4 externe Programme mit gesammelter Ausgabe (`:process`, `run_process()`, Adapter `process_posix.cpp` und `process_windows.cpp`). Ohne `NGINE_WITH_WINDOW` baut es ohne SDL3 nur die Typen der Ereignisse (`window_null.cpp`, `Window::create()` meldet einen Fehler) | vorhanden |
 | `ngine.input` | `ngine::input` | Eingabe als Aktionen (R4.1, PLAT-02): `ActionMap` bildet Tasten, Maustasten, Mausachsen, Gamepad-Tasten und -Achsen auf benannte Aktionen ab (`Button`, `Axis`, `Axis2`, tote Zone, Empfindlichkeit, Begrenzung, Raten pro Sekunde), Belegung als JSON über die Reflection (`assets/eingabe/standard.input`, Assets der Art `Input`), `ActionState` mit Wert und Flanken pro Bild und gesammelten Flanken für die feste Simulation (`fixed()`, `end_fixed_step()`); braucht nur die Ereignistypen von `ngine.platform`, kein Fenster | vorhanden (ab R4.1) |
 | `ngine.rhi` | `ngine::rhi` | API-unabhängige Schnittstelle: Device, Texture (Verwendungen, bindlose Indizes), Buffer (Geräteadresse, GPU- oder CPU-Speicher), Sampler (mit Anisotropie), Shader, Grafik-Pipeline (Tiefenvergleich, Tiefenversatz, Überblenden, auch nur mit Tiefe) und Compute-Pipeline, CommandList mit Barrieren über `ResourceState`, Scissor, Push Constants, Zeichnen, Dispatch und Zeitstempeln; `upload()` über Staging, für Texturen mit Mip-Stufen von der GPU; `upload_async()` mit `UploadTicket` über eine eigene Transfer-Queue, wo es eine gibt (R2.4, [ADR 0035](adr/0035-transfer-queue-concurrent-sharing.md)), auch für blockkomprimierte Texturen (BC7, `Capabilities::bc_compression`, R2.5); Rücklesen über Puffer im Speicher `CpuRead` (`copy_texture_to_buffer()`, `Buffer::read()`); Zeitstempel der GPU ohne Warten (`calibrated_timestamp()`); `Capabilities` mit den optionalen `Features` der GPU ([ADR 0026](adr/0026-render-graph-bindless.md)) | vorhanden |
@@ -797,26 +797,40 @@ sequenceDiagram
     participant S as Server (replication::Server)
     C->>T: connect("host:27020")
     T->>S: event::Connected
-    S->>C: Welcome (zuverlässig): Protokoll, Namen der Komponenten
-    C->>C: Komponentenliste prüfen, sonst trennen
+    S->>C: Welcome (zuverlässig): Protokoll, Hash des Schemas
+    C->>C: Hash prüfen, sonst trennen
     loop jeder Tick (30 Hz)
-        S->>C: Snapshot (unzuverlässig): Tick, Entities mit Replicated und ihre Komponenten
-        C->>C: Mirror::apply: anlegen, setzen, entfernen, zerstören
-        C->>S: Application (Eingaben)
+        S->>S: capture: Stand jeder replizierten Entity
+        S->>C: Snapshot (unzuverlässig): Delta gegen den bestätigten Stand, nur Relevantes
+        C->>C: Mirror::apply: Basis + Delta, anlegen, setzen, entfernen, umhängen
+        C->>S: Ack (Tick)
+        C->>S: Application (Aktionen, Blick)
     end
 ```
 
 - Ein `Transport` ist Server (`listen`), Client (`connect`) oder beides. `poll()` liefert
   Verbindungs- und Nachrichtenereignisse; Rückrufe der Bibliothek laufen nur darin, im Thread des
-  Aufrufers. Port 0 wählt einen zufälligen freien Port.
-- Repliziert werden Entities mit der Komponente `Replicated`, und von ihnen nur die Komponenten der
-  Liste, die Server und Client gleich festlegen. Die Felder schreibt `serialize::write_binary`
-  über die Reflection; neue Komponenten brauchen keinen Netzwerkcode.
+  Aufrufers. Port 0 wählt einen zufälligen freien Port. `Transport::simulate()` stellt
+  Verzögerung und Verlust für den ganzen Prozess ein (`--net-sim`, Tests).
+- Was repliziert wird, sagt die Reflection ([ADR 0052](adr/0052-replication-deltas-relevance.md)):
+  `replicated()` am Typ, `local()` an Feldern, die nicht mitgehen, `Hint::Entity` an Feldern mit
+  einer Entity-Kennung. `Schema` sammelt die markierten Typen; Server und Client vergleichen
+  seinen Hash. Repliziert wird jede Entity mit einer markierten Komponente.
+- Der Server liest pro Tick einmal die Welt (`SnapshotEncoder::capture()`) und kodiert für jeden
+  Client gegen den Stand, den dieser zuletzt bestätigt hat (Ring von 32 Ständen auf beiden
+  Seiten). Deltas gehen pro Teil (Feld, beim `Transform` Position, Drehung, Skalierung); der
+  `Transform` ist quantisiert (Millimeter, 15 Bit je Drehungskomponente).
+- Relevant ist pro Client, was höchstens 150 m von seiner Figur liegt (`Server::set_focus()`),
+  dazu Globales (`Server::set_global()`, Entities ohne Lage). Über 40 m nur jeder dritte Tick; pro
+  Schnappschuss höchstens 64 KB/s geteilt durch 30, der Rest wartet nach Vorrang.
 - Der Client hält eine Zuordnung von Server-Kennungen zu eigenen Entities (`Mirror`). Eigene
   Entities des Clients (Kamera, UI) bleiben unberührt; gespiegelte tragen
-  `Replicated::server_id`.
-- Jeder Schnappschuss enthält den vollen Zustand. Geht einer verloren, korrigiert ihn der nächste;
-  ältere, die zu spät kommen, werden verworfen. Deltas, Relevanz und Vorhersage kommen in R5.
+  `Replicated::server_id`. `Mirror::interpolate()` zeichnet Transforms 100 ms in der
+  Vergangenheit und rechnet bei fehlenden Ständen höchstens 100 ms weiter.
+- Die Sandbox mit `--client` ist ein Client mit Fenster (`ModelScene::create_client()`): leere
+  Welt, die der Spiegel füllt, Automaten folgen den replizierten Parametern
+  (`AnimatorParameters`, `ParameterSync::Follow`), Kamera und Blick rechnet der Client selbst.
+  F3 zeigt das Fenster „Netzwerk“. `--bots n` startet n Clients ohne Fenster in einem Prozess.
 
 ### Dedizierter Server (R5.1)
 

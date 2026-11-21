@@ -257,6 +257,23 @@ public:
         return scene;
     }
 
+    // Client mit Fenster (R5.2): eine leere Welt, die die Replikation vom Server füllt. Keine
+    // Simulation, keine Skripte; Automaten übernehmen die Parameter vom Server, das Terrain
+    // erzeugt der Client aus der replizierten Komponente Terrain selbst. update_remote() statt
+    // update().
+    [[nodiscard]] static rhi::Result<std::unique_ptr<ModelScene>>
+    create_client(rhi::Device& device, rhi::Format target_format, SceneAssets assets = {}) {
+        auto renderer = render::Renderer::create(device, target_format);
+        if (!renderer) {
+            return std::unexpected(renderer.error());
+        }
+        auto scene = std::unique_ptr<ModelScene>{
+            new ModelScene{*std::move(renderer), DVec3{}, SceneMode::Game, std::move(assets)}};
+        scene->player_enabled_ = false;
+        scene->game_.animation().set_parameter_sync(animation::ParameterSync::Follow);
+        return scene;
+    }
+
     ~ModelScene() {
         game_.bind_audio(nullptr, nullptr);
     }
@@ -417,6 +434,17 @@ public:
                                    .rotation = math::to_mat3(view_rotation_),
                                    .camera = camera_settings_};
         }
+        update_animation(dt);
+        update_audio(dt);
+    }
+
+    // Ein Bild als Client (R5.2): Die Welt kommt vom Server, die Kamera vom Aufrufer. Automaten
+    // und Klänge laufen wie im Spiel.
+    void update_remote(f32 dt, DVec3 view_position, math::Quat view_rotation) {
+        view_position_ = view_position;
+        view_rotation_ = view_rotation;
+        throw_origin_ = view_position;
+        camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
         update_animation(dt);
         update_audio(dt);
     }

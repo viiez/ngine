@@ -6,15 +6,17 @@ target_sources(ngine_replication
         FILE_SET CXX_MODULES
         FILES
             replication.cppm
+            schema.cppm
             snapshot.cppm
             session.cppm
             input.cppm
     PRIVATE
+        schema.cpp
         snapshot.cpp
         session.cpp
         input.cpp)
 
 target_link_libraries(ngine_replication
-    PUBLIC ngine::core ngine::reflect ngine::world ngine::net ngine::input
+    PUBLIC ngine::core ngine::math ngine::reflect ngine::world ngine::net ngine::input
     PRIVATE ngine::serialize ngine::profile)
 ngine_set_compiler_options(ngine_replication)

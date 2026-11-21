@@ -3,6 +3,7 @@ module;
 #include <ngine/profile.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <map>
 #include <optional>
@@ -179,6 +180,26 @@ void AnimationSystem::update(world::World& world, f64 dt) {
         }
     }
 
+    // Client: Parameter, wie sie der Server zuletzt geschickt hat (R5.2).
+    constexpr usize synced_parameters = 4;
+    if (sync_ == ParameterSync::Follow) {
+        for (Instance* instance : active_) {
+            const auto* synced = world.entity(instance->entity).get<AnimatorParameters>();
+            if (synced == nullptr) {
+                continue;
+            }
+            const std::array<f32, synced_parameters> values{synced->p0, synced->p1, synced->p2,
+                                                            synced->p3};
+            StateMachine& machine = instance->machine;
+            const usize count = std::min(machine.parameter_count(), synced_parameters);
+            for (usize i = 0; i < count; ++i) {
+                if (machine.parameter_type(i) != ParameterType::Trigger) {
+                    (void)machine.set_float(machine.parameter_name(i), values[i]);
+                }
+            }
+        }
+    }
+
     // Jeder Job schreibt nur in seine eigenen Instanzen.
     const f32 step = static_cast<f32>(dt);
     if (jobs_ != nullptr && active_.size() > 8) {
@@ -190,6 +211,27 @@ void AnimationSystem::update(world::World& world, f64 dt) {
     } else {
         for (Instance* instance : active_) {
             run(*instance, step);
+        }
+    }
+
+    // Server: Parameter für die Replikation, nur wenn sie sich geändert haben.
+    if (sync_ == ParameterSync::Publish) {
+        for (const Instance* instance : active_) {
+            const StateMachine& machine = instance->machine;
+            std::array<f32, synced_parameters> values{};
+            const usize count = std::min(machine.parameter_count(), synced_parameters);
+            for (usize i = 0; i < count; ++i) {
+                if (machine.parameter_type(i) != ParameterType::Trigger) {
+                    values[i] = machine.parameter_value(i);
+                }
+            }
+            const AnimatorParameters synced{
+                .p0 = values[0], .p1 = values[1], .p2 = values[2], .p3 = values[3]};
+            world::Entity entity = world.entity(instance->entity);
+            const auto* current = entity.get<AnimatorParameters>();
+            if (current == nullptr || *current != synced) {
+                entity.set(synced);
+            }
         }
     }
 

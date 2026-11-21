@@ -559,6 +559,7 @@ void register_terrain_types(reflect::TypeRegistry& types) {
     }
     if (types.find<Terrain>() == nullptr) {
         types.add<Terrain>("Terrain")
+            .replicated()
             .field("size_x", &Terrain::size_x)
             .range(1.0, max_size, 1.0)
             .field("size_y", &Terrain::size_y)
@@ -584,7 +585,9 @@ void register_terrain_types(reflect::TypeRegistry& types) {
             .range(16.0, 16000.0, 1.0)
             .field("detail", &Terrain::detail)
             .range(1.0, 8.0, 0.05)
-            .field("deltas", &Terrain::deltas);
+            .field("deltas", &Terrain::deltas)
+            // Deltas kommen vom Server (R5.4), nicht aus Dateien des Clients.
+            .local();
     }
     if (types.find<TerrainObserver>() == nullptr) {
         types.add<TerrainObserver>("TerrainObserver").field("active", &TerrainObserver::active);

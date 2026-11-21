@@ -1,6 +1,7 @@
 module;
 
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <expected>
 #include <format>
@@ -44,7 +45,7 @@ std::optional<GameMessage> game_message(std::span<const std::byte> data) noexcep
         return std::nullopt;
     }
     const auto kind = static_cast<GameMessage>(data[0]);
-    if (kind == GameMessage::Actions || kind == GameMessage::Possess) {
+    if (kind == GameMessage::Actions || kind == GameMessage::Possess || kind == GameMessage::View) {
         return kind;
     }
     return std::nullopt;
@@ -107,6 +108,27 @@ Result<u64> decode_possess(std::span<const std::byte> data) {
         return std::unexpected("Figur: Nachricht hat die falsche Länge oder Art");
     }
     return get<u64>(data, 1);
+}
+
+std::vector<std::byte> encode_view(f32 yaw, f32 pitch) {
+    std::vector<std::byte> out;
+    out.reserve(9);
+    out.push_back(static_cast<std::byte>(GameMessage::View));
+    put<u32>(out, std::bit_cast<u32>(yaw));
+    put<u32>(out, std::bit_cast<u32>(pitch));
+    return out;
+}
+
+Result<ViewAngles> decode_view(std::span<const std::byte> data) {
+    if (data.size() != 9 || game_message(data) != GameMessage::View) {
+        return std::unexpected("Blick: Nachricht hat die falsche Länge oder Art");
+    }
+    const ViewAngles view{.yaw = std::bit_cast<f32>(get<u32>(data, 1)),
+                          .pitch = std::bit_cast<f32>(get<u32>(data, 5))};
+    if (!std::isfinite(view.yaw) || !std::isfinite(view.pitch)) {
+        return std::unexpected("Blick: keine endlichen Winkel");
+    }
+    return view;
 }
 
 } // namespace ngine::replication

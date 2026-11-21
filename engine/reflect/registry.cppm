@@ -53,6 +53,14 @@ public:
     TypeBuilder& value(std::string_view name, T value)
         requires std::is_enum_v<T>;
 
+    // Markiert den Typ als Komponente, die der Server an Clients schickt (TypeInfo::replicated).
+    TypeBuilder& replicated() noexcept {
+        info_->replicated = true;
+        return *this;
+    }
+    // Nimmt das zuletzt hinzugefügte Feld von der Replikation aus (Field::local).
+    TypeBuilder& local();
+
     // Markiert den Typ als nur zur Laufzeit vorhanden (TypeInfo::transient).
     TypeBuilder& transient() noexcept {
         info_->transient = true;
@@ -150,6 +158,7 @@ private:
                    usize field_size);
     static void set_range(TypeInfo& owner, Range range);
     static void set_hint(TypeInfo& owner, Hint hint);
+    static void set_local(TypeInfo& owner);
     static void add_enumerator(TypeInfo& owner, std::string_view name, i64 value);
 
     struct Impl;
@@ -190,6 +199,12 @@ TypeBuilder<T>& TypeBuilder<T>::range(f64 min, f64 max, f64 step) {
 template <typename T>
 TypeBuilder<T>& TypeBuilder<T>::hint(Hint hint) {
     TypeRegistry::set_hint(*info_, hint);
+    return *this;
+}
+
+template <typename T>
+TypeBuilder<T>& TypeBuilder<T>::local() {
+    TypeRegistry::set_local(*info_);
     return *this;
 }
 

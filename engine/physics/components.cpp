@@ -103,15 +103,25 @@ void register_types(reflect::TypeRegistry& types) {
     if (types.find<CharacterMotion>() == nullptr) {
         types.add<CharacterMotion>("CharacterMotion")
             .transient()
+            // Clients sehen, wie sich fremde Figuren bewegen (R5.2); die Wünsche bleiben lokal.
+            .replicated()
             .field("move", &CharacterMotion::move)
+            .local()
             .field("run", &CharacterMotion::run)
+            .local()
             .field("crouch", &CharacterMotion::crouch)
+            .local()
             .field("jump", &CharacterMotion::jump)
+            .local()
             .field("velocity", &CharacterMotion::velocity)
             .field("ground", &CharacterMotion::ground)
             .field("ground_normal", &CharacterMotion::ground_normal)
+            .local()
             .field("ground_entity", &CharacterMotion::ground_entity)
+            .hint(reflect::Hint::Entity)
+            .local()
             .field("ground_material", &CharacterMotion::ground_material)
+            .local()
             .field("crouched", &CharacterMotion::crouched);
     }
 }

@@ -40,6 +40,7 @@ void register_types(reflect::TypeRegistry& types) {
     }
     if (types.find<DirectionalLight>() == nullptr) {
         types.add<DirectionalLight>("DirectionalLight")
+            .replicated()
             .field("color", &DirectionalLight::color)
             .hint(reflect::Hint::Color)
             .field("intensity", &DirectionalLight::intensity)
@@ -49,6 +50,7 @@ void register_types(reflect::TypeRegistry& types) {
     }
     if (types.find<PointLight>() == nullptr) {
         types.add<PointLight>("PointLight")
+            .replicated()
             .field("color", &PointLight::color)
             .hint(reflect::Hint::Color)
             .field("intensity", &PointLight::intensity)
@@ -59,6 +61,7 @@ void register_types(reflect::TypeRegistry& types) {
     }
     if (types.find<SpotLight>() == nullptr) {
         types.add<SpotLight>("SpotLight")
+            .replicated()
             .field("color", &SpotLight::color)
             .hint(reflect::Hint::Color)
             .field("intensity", &SpotLight::intensity)
@@ -81,6 +84,7 @@ void register_types(reflect::TypeRegistry& types) {
     }
     if (types.find<MeshRenderer>() == nullptr) {
         types.add<MeshRenderer>("MeshRenderer")
+            .replicated()
             .field("mesh", &MeshRenderer::mesh)
             .field("material", &MeshRenderer::material);
     }

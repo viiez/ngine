@@ -149,10 +149,10 @@ Aus der Spielidee abgeleitet: faszinierende Natur mit Horror-Elementen.
 
 | ID | Feature | Beschreibung | Wann | Status |
 | --- | --- | --- | --- | --- |
-| NET-01 | Transport | GameNetworkingSockets hinter `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | D3 / R5 | in Arbeit |
+| NET-01 | Transport | GameNetworkingSockets hinter `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md)); R5.2: simulierte Verzögerung und Verlust (`Transport::simulate()`, `--net-sim`), Ping, Verlust und Datenraten in den Statistiken | D3 / R5 | fertig |
 | NET-02 | Dedizierter Server | Headless-Build ohne Grafik (`ngine_sandbox --server`); R5.1: rechnet über `app::GameWorld` den Spielplatz oder eine Szene mit Terrain, Physik, Skripten und Automaten im festen Takt, eine Figur pro Client, gesteuert von dessen Aktionen ([ADR 0051](adr/0051-game-world-dedicated-server.md)) | D3 / R5 | fertig |
 | NET-03 | Listen-Server | Ein Spieler hostet | R5 | geplant |
-| NET-04 | Replikation | Geänderte Komponenten an Clients senden; in D3 volle Schnappschüsse über die Reflection, seit R5.1 auch Aktionen der Spieler zum Server und die Figur zum Client (`replication:input`) | D3 / R5 | in Arbeit |
+| NET-04 | Replikation | Geänderte Komponenten an Clients senden; in D3 volle Schnappschüsse über die Reflection, seit R5.1 auch Aktionen der Spieler zum Server und die Figur zum Client (`replication:input`); R5.2: Markierung in der Reflection, Deltas gegen den bestätigten Stand, quantisierte Transforms, Relevanz und Budget pro Client, Interpolation, Client mit Fenster und Fenster „Netzwerk“, `--bots` ([ADR 0052](adr/0052-replication-deltas-relevance.md)) | D3 / R5 | fertig |
 | NET-05 | Vorhersage | Client-seitige Vorhersage und Korrektur | R5 | geplant |
 | NET-06 | Voxel-Synchronisation | Terrain-Änderungen effizient verteilen | R5 | geplant |
 

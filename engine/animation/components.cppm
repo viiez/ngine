@@ -32,6 +32,19 @@ struct Animator {
     PoseMode pose_mode = PoseMode::Visible;
 };
 
+// Parameter des Automaten nach ihrem Platz im Automaten (R5.2): Der Server schreibt sie nach jedem
+// Bild, Clients übernehmen sie vor dem nächsten (AnimationSystem::set_parameter_sync()). So laufen
+// fremde Figuren auf dem Client im selben Zustand, ohne dass dort ein Skript rechnet. Vier Plätze
+// reichen für die Figuren; Auslöser gehen nicht mit, weil sie im Bild verbraucht werden.
+struct AnimatorParameters {
+    f32 p0 = 0.0f;
+    f32 p1 = 0.0f;
+    f32 p2 = 0.0f;
+    f32 p3 = 0.0f;
+
+    friend bool operator==(const AnimatorParameters&, const AnimatorParameters&) = default;
+};
+
 // Ereignis aus einem Zustand (z. B. ein Fuß setzt auf), über den EventBus nach update(), nach
 // Entity sortiert.
 struct AnimationEvent {

@@ -165,6 +165,11 @@ void TypeRegistry::set_hint(TypeInfo& owner, Hint hint) {
     owner.fields.back().hint = hint;
 }
 
+void TypeRegistry::set_local(TypeInfo& owner) {
+    verify(!owner.fields.empty(), "local() vor dem ersten Feld");
+    owner.fields.back().local = true;
+}
+
 void TypeRegistry::add_enumerator(TypeInfo& owner, std::string_view name, i64 value) {
     verify(owner.kind == Kind::Enum, "value() nur für Enums");
     if (owner.find_enumerator(name) != nullptr || owner.find_enumerator(value) != nullptr) {

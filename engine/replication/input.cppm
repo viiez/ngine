@@ -13,6 +13,8 @@ module;
 //   Actions: u32 Prüfsumme der Belegung (input::ActionMap::hash()), u16 Anzahl, dann je Aktion
 //            f32 x, f32 y, u8 Flanken (1 gehalten, 2 gedrückt, 4 losgelassen)
 //   Possess: u64 Kennung der Figur auf dem Server
+//   View:    f32 yaw, f32 pitch (R5.2): Der Client dreht die Kamera selbst und sagt dem Server,
+//            wohin die Figur schaut; so gehen verlorene Mausbewegungen nicht verloren.
 //
 // Zahlen stehen in Little Endian. Die Eingabe geht in R5.1 jedes Bild unzuverlässig an den
 // Server; Nummern pro festem Schritt und Wiederholung gegen Verlust kommen mit der Vorhersage
@@ -30,6 +32,13 @@ enum class GameMessage : u8 {
     Actions = 1,
     // Server an Client: Diese Figur steuerst du.
     Possess = 2,
+    // Client an Server: Blick der Figur.
+    View = 3,
+};
+
+struct ViewAngles {
+    f32 yaw = 0.0f;
+    f32 pitch = 0.0f;
 };
 
 // Art einer Nachricht des Spiels; nullopt bei leeren oder unbekannten.
@@ -43,5 +52,8 @@ decode_actions(std::span<const std::byte> data, u32 map_hash);
 
 [[nodiscard]] std::vector<std::byte> encode_possess(u64 entity);
 [[nodiscard]] Result<u64> decode_possess(std::span<const std::byte> data);
+
+[[nodiscard]] std::vector<std::byte> encode_view(f32 yaw, f32 pitch);
+[[nodiscard]] Result<ViewAngles> decode_view(std::span<const std::byte> data);
 
 } // namespace ngine::replication
