@@ -42,6 +42,20 @@ namespace {
 // beendet sie.
 std::mutex library_mutex;
 u32 library_users = 0;
+NetworkConditions conditions;
+
+// Unter library_mutex; nur bei laufender Bibliothek.
+void apply_conditions() {
+    ISteamNetworkingUtils* utils = SteamNetworkingUtils();
+    const auto half = static_cast<int32>(conditions.lag_ms / 2);
+    utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_FakePacketLag_Send, half);
+    utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_FakePacketLag_Recv,
+                                     static_cast<int32>(conditions.lag_ms) - half);
+    utils->SetGlobalConfigValueFloat(k_ESteamNetworkingConfig_FakePacketLoss_Send,
+                                     conditions.loss_percent);
+    utils->SetGlobalConfigValueFloat(k_ESteamNetworkingConfig_FakePacketLoss_Recv,
+                                     conditions.loss_percent);
+}
 
 void debug_output(ESteamNetworkingSocketsDebugOutputType type, const char* message) {
     if (type <= k_ESteamNetworkingSocketsDebugOutputType_Error) {
@@ -68,6 +82,7 @@ Result<void> acquire_library() {
     // Ohne Steam gibt es keine Zertifikate; die Verbindung ist trotzdem verschlüsselt, nur die
     // Gegenseite ist nicht beglaubigt (ADR 0024).
     utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
+    apply_conditions();
     return {};
 }
 
@@ -178,6 +193,23 @@ Result<std::unique_ptr<Transport>> Transport::create() {
     // Nachrichten mit einem Aufruf abholt.
     impl->poll_group = impl->sockets->CreatePollGroup();
     return std::make_unique<Transport>(std::move(impl));
+}
+
+void Transport::simulate(const NetworkConditions& wanted) {
+    const std::scoped_lock lock{library_mutex};
+    conditions = wanted;
+    if (library_users > 0) {
+        apply_conditions();
+    }
+    if (wanted.lag_ms > 0 || wanted.loss_percent > 0.0f) {
+        log::info("Netz simuliert: {} ms mehr Rundlaufzeit, {:.1f} % Verlust je Richtung",
+                  wanted.lag_ms, wanted.loss_percent);
+    }
+}
+
+NetworkConditions Transport::simulated() {
+    const std::scoped_lock lock{library_mutex};
+    return conditions;
 }
 
 Transport::Transport(std::unique_ptr<Impl> impl) : impl_{std::move(impl)} {

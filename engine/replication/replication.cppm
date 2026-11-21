@@ -1,9 +1,12 @@
-// Replikation der Welt vom Server zu den Clients (NET-04, ADR 0024). Der Server schickt
-// regelmäßig einen Schnappschuss ausgewählter Komponenten aller Entities mit Replicated; der
-// Client spiegelt ihn in seine eigene Welt. Seit R5.1 dazu die Eingabe der Spieler und welche
-// Figur ein Client steuert (:input).
+// Replikation der Welt vom Server zu den Clients (NET-04, ADR 0024, ADR 0052). Der Server schickt
+// jedem Client regelmäßig ein Delta gegen dessen letzten bestätigten Stand: alle Entities mit
+// Komponenten, die die Reflection als repliziert markiert (:schema), aus der Umgebung seiner Figur
+// und mit quantisierten Transforms. Der Client spiegelt das in seine eigene Welt und zeichnet
+// Bewegungen interpoliert (:snapshot). Seit R5.1 dazu die Eingabe der Spieler und welche Figur ein
+// Client steuert (:input).
 export module ngine.replication;
 
+export import :schema;
 export import :snapshot;
 export import :session;
 export import :input;

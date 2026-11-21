@@ -38,6 +38,16 @@ struct AnimationStats {
 };
 
 // Was das Editor-Fenster „Animation“ über einen Animator zeigt.
+// Wohin die Parameter der Automaten gehen (R5.2, AnimatorParameters).
+enum class ParameterSync : u8 {
+    // Nur im System (Spiel ohne Netz, Editor).
+    None,
+    // Nach jedem update() in AnimatorParameters schreiben (Server).
+    Publish,
+    // Vor jedem update() aus AnimatorParameters lesen (Client).
+    Follow,
+};
+
 struct AnimatorView {
     const StateMachine* machine = nullptr;
     const Rig* rig = nullptr;
@@ -64,6 +74,9 @@ public:
     }
     [[nodiscard]] bool rendering() const noexcept {
         return rendering_;
+    }
+    void set_parameter_sync(ParameterSync sync) noexcept {
+        sync_ = sync;
     }
 
     // Einmal pro Bild nach update_transforms(); dt ist die Bildzeit in Sekunden.
@@ -128,6 +141,7 @@ private:
     jobs::JobSystem* jobs_;
     events::EventBus* events_ = nullptr;
     bool rendering_ = true;
+    ParameterSync sync_ = ParameterSync::None;
     std::map<u64, Instance> instances_;
     std::vector<Instance*> active_;
     // Automaten (Kennung, Stand von Automat und Rig), deren Warnungen schon im Log stehen.

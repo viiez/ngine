@@ -25,14 +25,23 @@ module;
 // Clients verbinden sich über ngine.replication. Der erste übernimmt die Figur aus der Szene, jeder
 // weitere bekommt eine neue aus prefabs/spielfigur.prefab neben dem Startpunkt; geht er, endet
 // seine Figur (die aus der Szene bleibt stehen). Jeder Client schickt pro Bild die Werte seiner
-// Aktionen; auf dem Server liest das Skript Spielersteuerung seiner Figur genau diese (ohne .NET
-// die Steuerung in C++). Figuren gehen als Schnappschuss mit Name und Transform an alle; die ganze
-// Welt replizieren erst R5.2 (Deltas, Relevanz) und R5.4 (Terrain).
+// Aktionen und seinen Blick; auf dem Server liest das Skript Spielersteuerung seiner Figur genau
+// diese (ohne .NET die Steuerung in C++).
+//
+// Seit R5.2 repliziert der Server die ganze Welt (ADR 0052): jede Entity mit Komponenten, die die
+// Reflection als repliziert markiert, als Delta gegen den letzten bestätigten Stand jedes Clients,
+// aus 150 m um seine Figur und höchstens 64 KB/s. Terrain und Sonne sehen alle. Die Parameter der
+// Automaten gehen mit (AnimatorParameters), damit fremde Figuren auf Clients laufen. Deltas des
+// Terrains folgen in R5.4.
+//
+// Clients ohne Fenster (--client --headless) und Bots (--bots) stehen ebenfalls hier; die Sandbox
+// mit Fenster als Client steht in main.cpp.
 //
 // Bis R4.6 rechnete --server die Kugeln der Szenen-Demo aus D3 (TD-54, TD-63).
 export module sandbox.game_server;
 
 import ngine.core;
+import ngine.animation;
 import ngine.asset;
 import ngine.input;
 import ngine.math;
@@ -41,19 +50,33 @@ import ngine.physics;
 import ngine.platform;
 import ngine.profile;
 import ngine.reflect;
+import ngine.render;
 import ngine.replication;
 import ngine.script;
 import ngine.world;
 import app.game_world;
+import app.physics;
 import app.player;
 import app.scripting;
+import sandbox.net_client;
 import sandbox.playground;
 
 namespace sandbox {
 
 using namespace ngine;
 
-export constexpr u16 default_game_port = 27020;
+// Registry, wie Clients sie brauchen: dieselben Typen wie die Spielwelt (gleiche Reihenfolge,
+// gleiches Schema) und Replicated.
+export reflect::TypeRegistry make_client_types() {
+    reflect::TypeRegistry types = app::make_game_types();
+    replication::register_types(types);
+    return types;
+}
+
+// Komponenten, deren Entities jeder Client sieht, egal wie weit weg.
+export std::vector<const reflect::TypeInfo*> global_components(const reflect::TypeRegistry& types) {
+    return {&types.get<world::Terrain>(), &types.get<render::DirectionalLight>()};
+}
 
 export struct GameServerOptions {
     // Ohne Angabe läuft der Server, bis man ihn beendet.
@@ -64,6 +87,8 @@ export struct GameServerOptions {
     // Die Figur der Szene läuft die feste Spur von --headless --playground (wie ein Client).
     bool track = false;
     bool scripts = true;
+    // Weitere Körper auf dem Spielplatz, z. B. 500 für die Messung der Bandbreite (--bodies).
+    u32 bodies = 0;
     const asset::AssetDatabase* database = nullptr;
     const asset::AssetCache* cache = nullptr;
 };
@@ -94,12 +119,6 @@ private:
     u64 resets_ = 0;
 };
 
-// Was repliziert wird (R5.1): Name und Transform der Figuren.
-std::vector<const reflect::TypeInfo*> replicated_components(reflect::TypeRegistry& types) {
-    replication::register_types(types);
-    return {&types.get<world::Name>(), &types.get<world::Transform>()};
-}
-
 std::unique_ptr<net::Transport> make_transport() {
     auto transport = net::Transport::create();
     if (!transport) {
@@ -118,6 +137,8 @@ struct Player {
     // Letzte Werte und die Flanken aller Nachrichten seit dem letzten Bild.
     std::vector<input::ActionValue> latest;
     bool fresh = false;
+    // Blick, den der Client zuletzt geschickt hat (R5.2); ersetzt dann die Mausbewegung.
+    std::optional<replication::ViewAngles> view;
     u64 messages = 0;
     u64 rejected = 0;
 };
@@ -127,7 +148,10 @@ public:
     GameServer(app::GameWorld& game, replication::Server& server, world::Entity scene_figure,
                math::DVec3 spawn)
         : game_{&game}, server_{&server}, scene_figure_{scene_figure}, spawn_{spawn},
-          map_hash_{input::ActionMap::standard().hash()} {}
+          map_hash_{input::ActionMap::standard().hash()},
+          look_{input::ActionMap::standard().find("look")},
+          dig_{input::ActionMap::standard().find("dig")},
+          throw_{input::ActionMap::standard().find("throw")} {}
 
     // Die Figur der Szene gehört der Spur (--track) und keinem Client.
     void reserve_scene_figure() {
@@ -153,11 +177,22 @@ public:
 
     void handle(const replication::Received& message) {
         const auto found = players_.find(message.connection);
-        if (found == players_.end() ||
-            replication::game_message(message.data) != replication::GameMessage::Actions) {
+        if (found == players_.end()) {
             return;
         }
         Player& player = found->second;
+        const auto kind = replication::game_message(message.data);
+        if (kind == replication::GameMessage::View) {
+            if (auto view = replication::decode_view(message.data)) {
+                player.view = *view;
+            } else if (player.rejected++ == 0) {
+                log::warn("Client {}: {}", message.connection, view.error());
+            }
+            return;
+        }
+        if (kind != replication::GameMessage::Actions) {
+            return;
+        }
         auto values = replication::decode_actions(message.data, map_hash_);
         if (!values) {
             if (player.rejected++ == 0) {
@@ -187,8 +222,64 @@ public:
                     value.released = false;
                 }
             }
+            // Dreht der Client die Kamera selbst, gilt sein Blick statt der Mausbewegung, damit
+            // verlorene Pakete den Blick nicht verstellen.
+            if (player.view) {
+                if (look_ && *look_ < player.latest.size()) {
+                    player.latest[*look_].x = 0.0f;
+                    player.latest[*look_].y = 0.0f;
+                }
+                if (auto* view = game_->world().entity(player.figure).get_mut<app::PlayerInput>()) {
+                    view->yaw = player.view->yaw;
+                    view->pitch = std::clamp(player.view->pitch, -1.55f, 1.55f);
+                }
+            }
+            // Löcher im Terrain kämen nicht bei den Clients an (Terrain-Deltas übers Netz folgen
+            // in R5.4), Figuren und Kisten fielen für sie durch den Boden: bis dahin kein Graben.
+            if (dig_ && *dig_ < player.latest.size() && player.latest[*dig_].down) {
+                player.latest[*dig_] = {};
+                if (!dig_warned_) {
+                    log::info("Server: Graben von Clients ist bis R5.4 abgeschaltet");
+                    dig_warned_ = true;
+                }
+            }
+            if (throw_ && *throw_ < player.latest.size() && player.latest[*throw_].pressed) {
+                throw_ball(player.figure);
+            }
             player.actions->apply(player.latest);
             player.fresh = false;
+        }
+    }
+
+    // Kugel aus dem Auge der Figur in Blickrichtung, wie ModelScene::throw_ball() lokal.
+    void throw_ball(u64 figure_id) {
+        world::World& world = game_->world();
+        const world::Entity figure = world.entity(figure_id);
+        const auto* transform = figure ? figure.get<world::WorldTransform>() : nullptr;
+        const auto* input = figure ? figure.get<app::PlayerInput>() : nullptr;
+        if (transform == nullptr || input == nullptr) {
+            return;
+        }
+        f32 eye = input->eye_height;
+        if (const auto* motion = figure.get<physics::CharacterMotion>();
+            motion != nullptr && motion->crouched) {
+            eye *= 0.6f;
+        }
+        const math::Vec3 forward = app::view_rotation(*input) * math::Vec3{0.0f, 0.0f, -1.0f};
+        const math::DVec3 origin =
+            transform->position() + math::DVec3{0.0, static_cast<f64>(eye), 0.0};
+        world::Entity ball =
+            app::add_ball(world, origin + math::to_f64(forward * 0.8f), forward * 18.0f);
+        ball.set(world::Name{"Wurf"});
+    }
+
+    // Mittelpunkt der Relevanz jedes Clients: seine Figur.
+    void update_focus() {
+        for (const auto& [client, player] : players_) {
+            const world::Entity figure = game_->world().entity(player.figure);
+            const auto* transform = figure ? figure.get<world::WorldTransform>() : nullptr;
+            server_->set_focus(client, transform != nullptr ? std::optional{transform->position()}
+                                                            : std::nullopt);
         }
     }
 
@@ -207,9 +298,13 @@ public:
             const auto* transform = figure ? figure.get<world::Transform>() : nullptr;
             const math::DVec3 at =
                 transform != nullptr ? transform->position - spawn_ : math::DVec3{};
-            log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Eingaben, {} abgelehnt",
+            const replication::EncoderClientStats stats = server_->stats(client);
+            log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Eingaben, {} abgelehnt; "
+                      "{:.1f} KB/s, Schnappschuss {} B, {} Entities, {} warten, {} ohne Basis",
                       client, figure ? figure.name() : std::string_view{"fehlt"}, math::length(at),
-                      player.messages, player.rejected);
+                      player.messages, player.rejected,
+                      static_cast<f64>(stats.bytes_per_second) / 1024.0, stats.last_bytes,
+                      stats.entities, stats.waiting, stats.full);
         }
     }
 
@@ -226,8 +321,8 @@ private:
             const f64 angle = static_cast<f64>(++spawned_) * 2.399963;
             const math::DVec3 position =
                 spawn_ + math::DVec3{std::cos(angle) * 2.5, 0.5, std::sin(angle) * 2.5};
-            world::Entity figure = game_->spawn_figure(position, std::format("Spieler {}", client));
-            figure.set(replication::Replicated{});
+            const world::Entity figure =
+                game_->spawn_figure(position, std::format("Spieler {}", client));
             player.figure = figure.id();
             player.spawned = true;
         }
@@ -268,6 +363,10 @@ private:
     bool scene_figure_taken_ = false;
     math::DVec3 spawn_;
     u32 map_hash_;
+    std::optional<usize> look_;
+    std::optional<usize> dig_;
+    std::optional<usize> throw_;
+    bool dig_warned_ = false;
     u32 spawned_ = 0;
     std::map<net::ConnectionId, Player> players_;
 };
@@ -282,6 +381,8 @@ export int run_game_server(const GameServerOptions& options) {
         {.database = options.database, .cache = options.cache, .deterministic = true}};
     world::World& world = game.world();
     game.animation().set_rendering(false);
+    // Parameter der Automaten für die Clients (R5.2).
+    game.animation().set_parameter_sync(animation::ParameterSync::Publish);
     // Skripte aus dem Cache; mit .NET-SDK baut der Server sie vorher, wenn sie veraltet sind.
     // Gewartet wird, damit die Szene ihre Skript-Komponenten kennt.
     if (runtime) {
@@ -300,19 +401,18 @@ export int run_game_server(const GameServerOptions& options) {
             spawn = player.get<world::WorldTransform>()->position();
         }
     } else {
-        spawn = game.load_playground().spawn;
+        spawn = game.load_playground({}, options.bodies).spawn;
     }
     world::Entity scene_figure = app::find_player(world);
-    const std::vector<const reflect::TypeInfo*> components = replicated_components(game.types());
-    if (scene_figure) {
-        scene_figure.set(replication::Replicated{});
-    }
+    replication::register_types(game.types());
+    const replication::Schema schema{game.types()};
 
     auto transport = make_transport();
     if (!transport) {
         return 1;
     }
-    replication::Server server{*transport, world, components};
+    replication::Server server{*transport, world, schema};
+    server.set_global(global_components(game.types()));
     GameServer players{game, server, scene_figure, spawn};
     std::optional<PlaygroundTrack> track;
     if (options.track && scene_figure) {
@@ -332,9 +432,9 @@ export int run_game_server(const GameServerOptions& options) {
         port = *bound;
         const std::chrono::duration<f64, std::milli> load_time =
             std::chrono::steady_clock::now() - loading;
-        log::info("Server bereit auf Port {}: {} Entities, {} Körper, Skripte {}, Figur der Szene "
-                  "{}{}, geladen in {:.0f} ms",
-                  *port, world.entity_count(), game.physics().body_count(),
+        log::info("Server bereit auf Port {}: {} Entities, {} Körper, {} replizierte Komponenten, "
+                  "Skripte {}, Figur der Szene {}{}, geladen in {:.0f} ms",
+                  *port, world.entity_count(), game.physics().body_count(), schema.size(),
                   game.scripts_running() ? "laufen" : "aus",
                   scene_figure ? scene_figure.name() : std::string_view{"fehlt"},
                   track ? " (läuft die Spur)" : "", load_time.count());
@@ -371,6 +471,7 @@ export int run_game_server(const GameServerOptions& options) {
         (void)game.update(1.0 / 60.0);
         // Schnappschüsse mit 30 Hz.
         if (frame % 2 == 0) {
+            players.update_focus();
             server.send_snapshot();
             snapshot_bytes = std::max(snapshot_bytes, server.last_snapshot_size());
         }
@@ -383,11 +484,12 @@ export int run_game_server(const GameServerOptions& options) {
         if (frame % 300 == 299) {
             const physics::StepStats& stats = game.physics().stats();
             log::info("Server: fester Schritt {}, {} Client(s), {} Entities, {} Körper ({} wach), "
-                      "{} Figuren; Bild im Mittel {:.2f} ms, höchstens {:.2f} ms; Schnappschuss "
-                      "bis {} Bytes",
+                      "{} Figuren, {} repliziert; Bild im Mittel {:.2f} ms, höchstens {:.2f} ms; "
+                      "Schnappschuss bis {} Bytes",
                       game.simulation().time().tick, players.player_count(), world.entity_count(),
                       game.physics().body_count(), stats.active_bodies, stats.characters,
-                      step_total / static_cast<f64>(step_count), step_max, snapshot_bytes);
+                      server.entity_count(), step_total / static_cast<f64>(step_count), step_max,
+                      snapshot_bytes);
             players.report();
             step_total = 0.0;
             step_max = 0.0;
@@ -410,61 +512,41 @@ export int run_game_server(const GameServerOptions& options) {
 
 // Client ohne Fenster (R5.1): verbindet, schickt pro Bild die Aktionen der festen Spur und
 // meldet, wo seine Figur auf dem Server steht. Fehlschlag, wenn bis zum Ende keine Figur kam oder
-// sie sich nicht bewegt hat.
+// sie sich nicht bewegt hat. Seit R5.2 mit der ganzen Welt als Delta.
 export int run_game_client(const std::string& address, u64 frames) {
-    reflect::TypeRegistry types;
-    world::register_types(types);
-    replication::register_types(types);
-    const std::vector<const reflect::TypeInfo*> components = {&types.get<world::Name>(),
-                                                              &types.get<world::Transform>()};
+    reflect::TypeRegistry types = make_client_types();
+    const replication::Schema schema{types};
     world::World world{types};
-    auto transport = make_transport();
-    if (!transport) {
+    auto connected = NetClient::connect(world, schema, address);
+    if (!connected) {
+        log::error("{}", connected.error());
         return 1;
     }
-    replication::Client client{*transport, world, components};
-    const std::string target = address.find(':') == std::string::npos
-                                   ? std::format("{}:{}", address, default_game_port)
-                                   : address;
-    if (auto result = client.connect(target); !result) {
-        log::error("{}", result.error());
-        return 1;
-    }
-    log::info("Verbinde zu {}", target);
+    NetClient& net = **connected;
     input::ActionState actions{input::ActionMap::standard()};
     const u32 map_hash = actions.map().hash();
-    std::vector<replication::Received> received;
     TickClock clock;
-    u64 figure = 0;
     std::optional<math::DVec3> first;
     math::DVec3 last{};
     u64 track_frame = 0;
     for (u64 frame = 0; frame < frames; ++frame) {
-        received.clear();
-        if (auto result = client.poll(received); !result) {
+        if (auto result = net.poll(); !result) {
             log::error("{}", result.error());
             return 1;
         }
-        if (client.state() == replication::ClientState::Disconnected) {
+        if (net.disconnected()) {
             log::error("Keine Verbindung zum Server");
             return 1;
         }
-        for (const replication::Received& message : received) {
-            if (auto possessed = replication::decode_possess(message.data)) {
-                figure = *possessed;
-                log::info("Client: steuere Figur {} des Servers", figure);
-            }
-        }
-        if (client.state() == replication::ClientState::Ready && figure != 0) {
+        if (net.ready()) {
             // Die Spur beginnt, sobald die Figur feststeht.
             actions.begin_frame();
             for (const platform::Event& event : scripted_events(track_frame++)) {
                 actions.handle(event);
             }
             actions.end_frame(1.0f / 60.0f);
-            (void)client.send(replication::encode_actions(map_hash, actions.values()),
-                              net::Delivery::Unreliable);
-            const u64 local = client.mirror().local_id(figure);
+            net.send_input(map_hash, actions.values());
+            const u64 local = net.figure();
             if (const auto* transform =
                     local != 0 ? world.entity(local).get<world::Transform>() : nullptr) {
                 if (!first) {
@@ -475,22 +557,23 @@ export int run_game_client(const std::string& address, u64 frames) {
         }
         if (frame % 60 == 59 && first) {
             log::info("Client: Figur {:.2f} m vom ersten Stand, {} Entities gespiegelt, Tick {}",
-                      math::length(last - *first), client.mirror().entity_count(),
-                      client.mirror().last_tick());
+                      math::length(last - *first), net.client().mirror().entity_count(),
+                      net.client().mirror().last_tick());
+        }
+        if (frame % 180 == 179) {
+            log::info("{}", net.report());
         }
         clock.wait();
     }
-    const net::ConnectionStats stats = transport->stats(client.connection());
-    log::info("Client: {} Schnappschüsse angewendet, Ping {} ms", client.snapshots_applied(),
-              stats.ping_ms);
-    client.disconnect();
+    log::info("Client: {} Schnappschüsse angewendet", net.client().snapshots_applied());
+    log::info("{}", net.report());
+    net.disconnect();
     // Kurz weiterpollen, damit die Trennung beim Server ankommt.
-    std::vector<replication::Received> ignored;
     for (int i = 0; i < 10; ++i) {
-        (void)client.poll(ignored);
+        (void)net.poll();
         std::this_thread::sleep_for(std::chrono::milliseconds{5});
     }
-    if (figure == 0 || !first) {
+    if (net.figure_on_server() == 0 || !first) {
         log::error("Keine Figur vom Server bekommen");
         return 1;
     }
@@ -501,6 +584,113 @@ export int run_game_client(const std::string& address, u64 frames) {
     }
     log::info("Client: Figur ist auf dem Server {:.1f} m gelaufen", moved);
     return 0;
+}
+
+namespace {
+
+// Ein Bot: eigene Welt, eigene Verbindung, läuft die feste Spur versetzt und im Kreis.
+struct Bot {
+    reflect::TypeRegistry types = make_client_types();
+    std::unique_ptr<world::World> world = std::make_unique<world::World>(types);
+    std::unique_ptr<replication::Schema> schema = std::make_unique<replication::Schema>(types);
+    std::unique_ptr<NetClient> net;
+    input::ActionState actions{input::ActionMap::standard()};
+    u64 offset = 0;
+    u64 track_frame = 0;
+    // Bytes der Schnappschüsse pro Sekunde, einmal pro Sekunde gemessen.
+    std::vector<usize> rates;
+};
+
+} // namespace
+
+// count Clients ohne Fenster in einem Prozess (R5.2): messen Bandbreite pro Client. Fehlschlag,
+// wenn einer keine Figur bekommt oder getrennt wird.
+export int run_bots(const std::string& address, u32 count, u64 frames) {
+    std::vector<std::unique_ptr<Bot>> bots;
+    for (u32 i = 0; i < count; ++i) {
+        auto bot = std::make_unique<Bot>();
+        auto connected = NetClient::connect(*bot->world, *bot->schema, address);
+        if (!connected) {
+            log::error("Bot {}: {}", i + 1, connected.error());
+            return 1;
+        }
+        bot->net = std::move(*connected);
+        bot->offset = static_cast<u64>(i) * 97;
+        bots.push_back(std::move(bot));
+    }
+    const u32 map_hash = input::ActionMap::standard().hash();
+    TickClock clock;
+    for (u64 frame = 0; frame < frames; ++frame) {
+        for (usize i = 0; i < bots.size(); ++i) {
+            Bot& bot = *bots[i];
+            if (auto result = bot.net->poll(); !result) {
+                log::error("Bot {}: {}", i + 1, result.error());
+                return 1;
+            }
+            if (bot.net->disconnected()) {
+                log::error("Bot {}: keine Verbindung zum Server", i + 1);
+                return 1;
+            }
+            if (!bot.net->ready()) {
+                continue;
+            }
+            bot.actions.begin_frame();
+            for (const platform::Event& event :
+                 scripted_events((bot.track_frame++ + bot.offset) % 600)) {
+                bot.actions.handle(event);
+            }
+            bot.actions.end_frame(1.0f / 60.0f);
+            bot.net->send_input(map_hash, bot.actions.values());
+            if (frame % 60 == 59) {
+                bot.rates.push_back(bot.net->client().stats().snapshot_bytes_per_second);
+            }
+        }
+        if (frame % 300 == 299) {
+            log::info("Bot 1: {}", bots.front()->net->report());
+        }
+        clock.wait();
+    }
+    usize total = 0;
+    usize samples = 0;
+    usize peak = 0;
+    bool ok = true;
+    for (usize i = 0; i < bots.size(); ++i) {
+        Bot& bot = *bots[i];
+        // Die ersten Sekunden (Beitritt) zählen für den Höchstwert, nicht für den Mittelwert.
+        usize sum = 0;
+        usize n = 0;
+        for (usize s = 0; s < bot.rates.size(); ++s) {
+            peak = std::max(peak, bot.rates[s]);
+            if (s >= 2) {
+                sum += bot.rates[s];
+                ++n;
+            }
+        }
+        total += sum;
+        samples += n;
+        log::info("Bot {}: Figur {}, {} Schnappschüsse, {} Entities, im Mittel {:.1f} KB/s; {}",
+                  i + 1, bot.net->figure_on_server(), bot.net->client().snapshots_applied(),
+                  bot.net->client().mirror().entity_count(),
+                  n > 0 ? static_cast<f64>(sum) / static_cast<f64>(n) / 1024.0 : 0.0,
+                  bot.net->report());
+        if (!bot.net->ready()) {
+            log::error("Bot {} hat keine Figur bekommen", i + 1);
+            ok = false;
+        }
+        bot.net->disconnect();
+    }
+    for (int i = 0; i < 10; ++i) {
+        for (const auto& bot : bots) {
+            (void)bot->net->poll();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{5});
+    }
+    log::info("Bots: {} Clients, Schnappschüsse im Mittel {:.1f} KB/s, höchstens {:.1f} KB/s pro "
+              "Client (Budget 64 KB/s)",
+              bots.size(),
+              samples > 0 ? static_cast<f64>(total) / static_cast<f64>(samples) / 1024.0 : 0.0,
+              static_cast<f64>(peak) / 1024.0);
+    return ok ? 0 : 1;
 }
 
 } // namespace sandbox

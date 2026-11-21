@@ -63,6 +63,9 @@ enum class Hint : u8 {
     // u64 mit der Kennung eines Assets (R2.4); der Editor zeigt den Pfad und nimmt Assets aus
     // dem Asset-Browser an.
     Asset,
+    // u64 mit der Kennung einer Entity (R5.2); die Replikation übersetzt sie in die Kennung, die
+    // dieselbe Entity auf dem Client hat.
+    Entity,
 };
 
 struct Field {
@@ -73,6 +76,8 @@ struct Field {
     // Nur bei Zahlen sinnvoll; fehlt er, ist jeder Wert des Typs erlaubt.
     std::optional<Range> range;
     Hint hint = Hint::None;
+    // Bleibt lokal, auch wenn der Typ repliziert wird (R5.2, TypeBuilder::local()).
+    bool local = false;
 };
 
 // Ein benannter Wert eines Enums.
@@ -108,6 +113,9 @@ struct TypeInfo {
     // Nur zur Laufzeit: Szenen speichern solche Komponenten nicht, weil sie aus anderen berechnet
     // werden (z. B. WorldTransform aus Transform und Hierarchie).
     bool transient = false;
+    // Komponente, die der Server an Clients schickt (R5.2, TypeBuilder::replicated()); Felder mit
+    // Field::local bleiben dabei außen vor.
+    bool replicated = false;
     TypeOps ops{};
     // Nur bei Kind::Struct, in der Reihenfolge der Registrierung.
     std::vector<Field> fields;
@@ -225,7 +233,7 @@ template <Reflectable T>
 // Offset eines Feldes aus einem Zeiger auf ein Datenelement. offsetof() nimmt keine Zeiger auf
 // Elemente; deshalb wird ein Objekt erzeugt und die Adressen verglichen.
 template <typename T, typename M>
-[[nodiscard]] usize offset_of(M T::* member) {
+[[nodiscard]] usize offset_of(M T::*member) {
     const T object{};
     const auto* base = reinterpret_cast<const std::byte*>(std::addressof(object));
     const auto* field = reinterpret_cast<const std::byte*>(std::addressof(object.*member));

@@ -1,17 +1,21 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <format>
 #include <memory>
 #include <span>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 import ngine.core;
 import ngine.input;
+import ngine.math;
 import ngine.net;
 import ngine.reflect;
 import ngine.replication;
@@ -28,19 +32,43 @@ struct Position {
 
 struct Health {
     i32 value = 100;
+    // Nur auf dem Server: wird nicht übertragen.
+    i32 regeneration = 0;
 };
 
-reflect::TypeRegistry make_types() {
+// Verweist auf eine andere Entity (reflect::Hint::Entity).
+struct Follow {
+    u64 target = 0;
+};
+
+// Nicht repliziert.
+struct Secret {
+    i32 code = 0;
+};
+
+reflect::TypeRegistry make_types(bool extra_field = false) {
     reflect::TypeRegistry types;
     world::register_types(types);
     replication::register_types(types);
-    types.add<Position>("Position").field("x", &Position::x).field("y", &Position::y);
-    types.add<Health>("Health").field("value", &Health::value);
+    types.add<Position>("Position").replicated().field("x", &Position::x).field("y", &Position::y);
+    if (extra_field) {
+        types.add<Health>("Health")
+            .replicated()
+            .field("value", &Health::value)
+            .field("regeneration", &Health::regeneration);
+    } else {
+        types.add<Health>("Health")
+            .replicated()
+            .field("value", &Health::value)
+            .field("regeneration", &Health::regeneration)
+            .local();
+    }
+    types.add<Follow>("Follow")
+        .replicated()
+        .field("target", &Follow::target)
+        .hint(reflect::Hint::Entity);
+    types.add<Secret>("Secret").field("code", &Secret::code);
     return types;
-}
-
-std::array<const reflect::TypeInfo*, 3> replicated_components(const reflect::TypeRegistry& types) {
-    return {&types.get<world::Name>(), &types.get<Position>(), &types.get<Health>()};
 }
 
 // Schnappschuss ohne das Byte MessageKind, wie ihn Mirror::apply erwartet.
@@ -51,200 +79,611 @@ std::vector<std::byte> payload(std::vector<std::byte> message) {
     return message;
 }
 
+// Gleiche Stände: dieselben Entities mit denselben Elternteilen, Komponenten und Teilen.
+bool same_view(const replication::View& a, const replication::View& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (usize i = 0; i < a.size(); ++i) {
+        const replication::EntityRecord& x = *a[i];
+        const replication::EntityRecord& y = *b[i];
+        if (x.id != y.id || x.parent != y.parent || x.components != y.components ||
+            x.part_ends.size() != y.part_ends.size()) {
+            return false;
+        }
+        for (usize part = 0; part < x.part_ends.size(); ++part) {
+            const auto p = x.part(part);
+            const auto q = y.part(part);
+            if (p.size() != q.size() || !std::equal(p.begin(), p.end(), q.begin())) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Server-Welt, ein Client und sein Spiegel ohne Netzwerk.
+struct Link {
+    explicit Link(replication::EncoderSettings settings = {})
+        : types{make_types()}, schema{types}, server{types}, client{types},
+          encoder{server, schema, settings}, mirror{client, schema} {
+        encoder.add_client(1);
+    }
+
+    // Ein Schnappschuss: lesen, kodieren, anwenden und (wenn ack) bestätigen. Liefert die Größe.
+    usize step(bool ack = true) {
+        world::update_transforms(server);
+        encoder.capture(++tick);
+        const auto message = encoder.encode(1);
+        auto applied = mirror.apply(payload(message));
+        REQUIRE(applied);
+        if (ack && *applied) {
+            encoder.acknowledge(1, tick);
+        }
+        return message.size();
+    }
+
+    world::Entity on_client(const world::Entity& entity) {
+        return client.entity(mirror.local_id(entity.id()));
+    }
+
+    reflect::TypeRegistry types;
+    replication::Schema schema;
+    world::World server;
+    world::World client;
+    replication::SnapshotEncoder encoder;
+    replication::Mirror mirror;
+    u32 tick = 0;
+};
+
+world::Transform at(f64 x, f64 y = 0.0, f64 z = 0.0) {
+    world::Transform transform;
+    transform.position = {x, y, z};
+    return transform;
+}
+
 } // namespace
 
-TEST_CASE("Snapshots mirror replicated entities into another world", "[replication]") {
+TEST_CASE("Schema takes replicated types and skips local fields", "[replication]") {
     const auto types = make_types();
-    const auto components = replicated_components(types);
-    world::World server{types};
-    world::World client{types};
+    const replication::Schema schema{types};
+    CHECK(schema.index_of(types.get<world::Name>()).has_value());
+    CHECK(schema.index_of(types.get<Position>()).has_value());
+    CHECK_FALSE(schema.index_of(types.get<Secret>()).has_value());
+    CHECK_FALSE(schema.index_of(types.get<replication::Replicated>()).has_value());
+    CHECK_FALSE(schema.index_of(types.get<world::WorldTransform>()).has_value());
 
-    world::Entity player = server.create("Spieler");
-    player.set(replication::Replicated{}).set(Position{1.0f, 2.0f}).set(Health{80});
-    world::Entity tree = server.create("Baum");
-    tree.set(replication::Replicated{}).set(Position{5.0f, 0.0f});
-    world::Entity secret = server.create("Nur auf dem Server");
-    secret.set(Position{9.0f, 9.0f});
+    const auto health = schema.index_of(types.get<Health>());
+    REQUIRE(health);
+    CHECK(schema.component(*health).parts == 1);
+    const auto transform = schema.transform_index();
+    REQUIRE(transform);
+    CHECK(schema.component(*transform).codec == replication::Codec::Transform);
+    CHECK(schema.component(*transform).parts == 3);
 
+    // Ein Feld mehr ändert den Hash.
+    const auto other_types = make_types(true);
+    const replication::Schema other{other_types};
+    CHECK(other.hash() != schema.hash());
+    CHECK(replication::Schema{make_types()}.hash() == schema.hash());
+}
+
+TEST_CASE("Snapshots mirror replicated entities into another world", "[replication]") {
+    Link link;
+    world::Entity player = link.server.create("Spieler");
+    player.set(Position{1.0f, 2.0f}).set(Health{80, 5}).set(Secret{7});
+    world::Entity tree = link.server.create("Baum");
+    tree.set(Position{5.0f, 0.0f});
+    // Ohne replizierte Komponente bleibt eine Entity auf dem Server.
+    world::Entity hidden = link.server.create();
+    hidden.set(Secret{1});
     // Eine eigene Entity des Clients bleibt unberührt.
-    world::Entity local = client.create("Kamera");
+    world::Entity local = link.client.create("Kamera");
 
-    replication::Mirror mirror{client, components};
-    auto applied = mirror.apply(payload(replication::encode_snapshot(server, components, 1)));
-    REQUIRE(applied);
-    CHECK(*applied);
-    CHECK(mirror.entity_count() == 2);
-    CHECK(mirror.last_tick() == 1);
-    CHECK(client.entity_count() == 3);
+    link.step();
+    CHECK(link.mirror.entity_count() == 2);
+    CHECK(link.mirror.last_tick() == 1);
+    CHECK(link.client.entity_count() == 3);
     CHECK(local.alive());
 
-    world::Entity mirrored = client.entity(mirror.local_id(player.id()));
+    world::Entity mirrored = link.on_client(player);
     REQUIRE(mirrored.alive());
     CHECK(mirrored.name() == "Spieler");
     CHECK(mirrored.get<Position>()->x == 1.0f);
     CHECK(mirrored.get<Position>()->y == 2.0f);
     CHECK(mirrored.get<Health>()->value == 80);
+    CHECK(mirrored.get<Health>()->regeneration == 0);
+    CHECK_FALSE(mirrored.has<Secret>());
     CHECK(mirrored.get<replication::Replicated>()->server_id == player.id());
-    CHECK(mirror.local_id(secret.id()) == 0);
-    CHECK_FALSE(client.entity(mirror.local_id(tree.id())).has<Health>());
+    CHECK(link.mirror.local_id(hidden.id()) == 0);
+    CHECK_FALSE(link.on_client(tree).has<Health>());
 
     // Änderungen, entfernte Komponenten und zerstörte Entities kommen mit dem nächsten Tick an.
     player.set(Position{3.0f, 4.0f});
     player.remove<Health>();
     tree.destroy();
-    world::Entity rock = server.create("Stein");
-    rock.set(replication::Replicated{}).set(Health{1});
-    const auto tick2 = payload(replication::encode_snapshot(server, components, 2));
-    REQUIRE(mirror.apply(tick2));
-    CHECK(mirror.entity_count() == 2);
+    world::Entity rock = link.server.create("Stein");
+    rock.set(Health{1});
+    link.step();
+    CHECK(link.mirror.entity_count() == 2);
     CHECK(mirrored.get<Position>()->x == 3.0f);
     CHECK_FALSE(mirrored.has<Health>());
-    CHECK(mirror.local_id(tree.id()) == 0);
-    CHECK(client.entity(mirror.local_id(rock.id())).get<Health>()->value == 1);
-    CHECK(client.entity_count() == 3);
+    CHECK(link.mirror.local_id(tree.id()) == 0);
+    CHECK(link.on_client(rock).get<Health>()->value == 1);
+    CHECK(link.client.entity_count() == 3);
+    CHECK(same_view(link.mirror.view(), link.encoder.captured()));
 
-    // Ein älterer Schnappschuss, der zu spät kommt, ändert nichts.
-    auto stale = mirror.apply(payload(replication::encode_snapshot(server, components, 1)));
-    REQUIRE(stale);
-    CHECK_FALSE(*stale);
-    CHECK(mirror.last_tick() == 2);
-
-    mirror.clear();
-    CHECK(client.entity_count() == 1);
+    link.mirror.clear();
+    CHECK(link.client.entity_count() == 1);
     CHECK(local.alive());
 }
 
-TEST_CASE("Mirror rejects broken snapshots", "[replication]") {
-    const auto types = make_types();
-    const auto components = replicated_components(types);
-    world::World server{types};
-    world::World client{types};
-    server.create("Spieler").set(replication::Replicated{}).set(Position{1.0f, 2.0f});
-    const auto snapshot = payload(replication::encode_snapshot(server, components, 1));
+TEST_CASE("Deltas send only changed parts", "[replication]") {
+    Link link;
+    world::Entity player = link.server.create("Spieler");
+    player.set(Position{1.0f, 2.0f}).set(Health{80}).set(at(10.0, 2.0, 3.0));
+    const usize full = link.step();
 
-    replication::Mirror mirror{client, components};
+    // Nichts geändert: Kopf ohne Einträge (Art, Tick, Basis, zwei leere Anzahlen).
+    CHECK(link.step() == 11);
+
+    // Ein Feld geändert: viel kleiner als der volle Stand.
+    player.set(Health{70});
+    const usize delta = link.step();
+    CHECK(delta < full);
+    CHECK(delta < 11 + 8 + 1 + 1 + 2 + 1 + 1 + 4 + 2);
+    CHECK(link.on_client(player).get<Health>()->value == 70);
+
+    // Nur das Feld regeneration ist lokal: Es zu ändern schickt nichts.
+    player.set(Health{70, 9});
+    CHECK(link.step() == 11);
+    CHECK(link.encoder.stats(1).full == 1);
+    CHECK(same_view(link.mirror.view(), link.encoder.captured()));
+}
+
+TEST_CASE("Mirror drops snapshots with unknown base or out of order", "[replication]") {
+    Link link;
+    world::Entity player = link.server.create("Spieler");
+    player.set(Position{1.0f, 2.0f});
+    world::update_transforms(link.server);
+    link.encoder.capture(1);
+    const auto first = payload(link.encoder.encode(1));
+    // Der Server hält Tick 1 für bestätigt; der Client hat ihn nie bekommen.
+    link.encoder.acknowledge(1, 1);
+    player.set(Position{5.0f, 6.0f});
+    link.encoder.capture(2);
+    const auto second = payload(link.encoder.encode(1));
+
+    auto applied = link.mirror.apply(second);
+    REQUIRE(applied);
+    CHECK_FALSE(*applied);
+    CHECK(link.mirror.stats().missing_base == 1);
+    CHECK(link.mirror.entity_count() == 0);
+
+    applied = link.mirror.apply(first);
+    REQUIRE(applied);
+    CHECK(*applied);
+    applied = link.mirror.apply(second);
+    REQUIRE(applied);
+    CHECK(*applied);
+    CHECK(link.on_client(player).get<Position>()->x == 5.0f);
+
+    // Zu spät: älter als der zuletzt angewendete.
+    applied = link.mirror.apply(first);
+    REQUIRE(applied);
+    CHECK_FALSE(*applied);
+    CHECK(link.mirror.stats().stale == 1);
+    CHECK(link.mirror.last_tick() == 2);
+}
+
+TEST_CASE("Mirror rejects broken snapshots", "[replication]") {
+    Link link;
+    link.server.create("Spieler").set(Position{1.0f, 2.0f}).set(at(1.0));
+    link.encoder.capture(1);
+    const auto snapshot = payload(link.encoder.encode(1));
+
     // Jede Kürzung muss als Fehler enden, nicht als Absturz oder riesige Allokation.
     for (usize size = 0; size < snapshot.size(); ++size) {
-        replication::Mirror fresh{client, components};
+        replication::Mirror fresh{link.client, link.schema};
         CHECK_FALSE(fresh.apply(std::span{snapshot}.first(size)));
         fresh.clear();
     }
     auto extra = snapshot;
     extra.push_back(std::byte{0});
-    CHECK_FALSE(mirror.apply(extra));
+    CHECK_FALSE(link.mirror.apply(extra));
 }
 
-TEST_CASE("Welcome detects mismatched component lists", "[replication]") {
+TEST_CASE("Transform codec keeps millimetres and small angles", "[replication]") {
+    Link link;
+    world::Entity near = link.server.create("Nah");
+    world::Entity far = link.server.create("Fern");
+    world::Transform a = at(12.3456, -0.0004, 63.9996);
+    a.rotation = math::angle_axis(2.0f, math::normalize(math::Vec3{1.0f, 2.0f, 3.0f}));
+    a.scale = {1.5f, 2.0f, 0.25f};
+    near.set(a);
+    const world::Transform b = at(1234567.891, -98765.4321, 5e6);
+    far.set(b);
+    link.step();
+
+    const auto* x = link.on_client(near).get<world::Transform>();
+    REQUIRE(x != nullptr);
+    CHECK(std::abs(x->position.x - a.position.x) <= 0.0005);
+    CHECK(std::abs(x->position.y - a.position.y) <= 0.0005);
+    CHECK(std::abs(x->position.z - a.position.z) <= 0.0005);
+    CHECK(x->scale.x == a.scale.x);
+    CHECK(x->scale.z == a.scale.z);
+    // Gleiche Drehung bis auf das Vorzeichen: |Skalarprodukt| nahe 1.
+    const f32 dot = std::abs(x->rotation.x * a.rotation.x + x->rotation.y * a.rotation.y +
+                             x->rotation.z * a.rotation.z + x->rotation.w * a.rotation.w);
+    CHECK(dot > 0.99999f);
+
+    const auto* y = link.on_client(far).get<world::Transform>();
+    REQUIRE(y != nullptr);
+    CHECK(std::abs(y->position.x - b.position.x) <= 0.0005);
+    CHECK(std::abs(y->position.y - b.position.y) <= 0.0005);
+    CHECK(std::abs(y->position.z - b.position.z) <= 0.0005);
+}
+
+TEST_CASE("Relevance limits entities to the area around the focus", "[replication]") {
+    Link link;
+    link.encoder.set_focus(1, math::DVec3{0.0, 0.0, 0.0});
+    world::Entity close = link.server.create("Nah");
+    close.set(at(10.0));
+    world::Entity distant = link.server.create("Mittel");
+    distant.set(at(100.0));
+    world::Entity outside = link.server.create("Weit weg");
+    outside.set(at(500.0));
+    // Ohne Lage für alle relevant.
+    world::Entity global = link.server.create("Wetter");
+    global.set(Health{3});
+    for (int i = 0; i < 3; ++i) {
+        link.step();
+    }
+    CHECK(link.on_client(close).alive());
+    CHECK(link.on_client(distant).alive());
+    CHECK(link.on_client(global).alive());
+    CHECK(link.mirror.local_id(outside.id()) == 0);
+
+    // Hinein und hinaus.
+    outside.set(at(20.0));
+    close.set(at(1000.0));
+    link.step();
+    CHECK(link.on_client(outside).alive());
+    CHECK(link.mirror.local_id(close.id()) == 0);
+
+    // Ferne Entities (über 40 m) kommen nur jeden dritten Schnappschuss.
+    u32 updates = 0;
+    f64 last = 100.0;
+    for (int i = 0; i < 6; ++i) {
+        distant.set(at(100.0 + i + 1));
+        link.step();
+        const f64 seen = link.on_client(distant).get<world::Transform>()->position.x;
+        if (seen != last) {
+            ++updates;
+            last = seen;
+        }
+    }
+    CHECK(updates == 2);
+}
+
+TEST_CASE("Budget spreads a large world over several snapshots", "[replication]") {
+    replication::EncoderSettings settings;
+    settings.budget = 400;
+    Link link{settings};
+    std::vector<world::Entity> entities;
+    for (int i = 0; i < 100; ++i) {
+        entities.push_back(link.server.create(std::format("Kiste {}", i)));
+        entities.back().set(at(i * 0.5));
+    }
+    // Ohne Bestätigung kommt immer dieselbe Auswahl, und die Welt wächst nicht.
+    link.step(false);
+    const usize first = link.mirror.entity_count();
+    CHECK(first > 0);
+    CHECK(first < 100);
+    link.step(false);
+    CHECK(link.mirror.entity_count() == first);
+
+    int steps = 0;
+    while (link.mirror.entity_count() < 100 && steps < 100) {
+        CHECK(link.step() < settings.budget + 128);
+        ++steps;
+    }
+    CHECK(link.mirror.entity_count() == 100);
+
+    // Alle bewegen sich: Wer warten musste, kommt zuerst.
+    for (int round = 0; round < 3; ++round) {
+        for (world::Entity& entity : entities) {
+            entity.set(at(entity.get<world::Transform>()->position.x + 1.0));
+        }
+        link.step();
+    }
+    CHECK(link.encoder.stats(1).waiting > 0);
+    for (int i = 0; i < 100 && link.encoder.stats(1).waiting > 0; ++i) {
+        link.step();
+    }
+    CHECK(link.encoder.stats(1).waiting == 0);
+    CHECK(same_view(link.mirror.view(), link.encoder.captured()));
+}
+
+TEST_CASE("Entity references are translated to client ids", "[replication]") {
+    replication::EncoderSettings settings;
+    // Ein Eintrag pro Schnappschuss: Der Verweis kommt vor seinem Ziel an.
+    settings.budget = 1;
+    Link link{settings};
+    world::Entity hunter = link.server.create("Jäger");
+    world::Entity prey = link.server.create("Beute");
+    hunter.set(Follow{prey.id()});
+    REQUIRE(hunter.id() < prey.id());
+    // Eigene Entities des Clients verschieben seine Kennungen gegenüber denen des Servers.
+    (void)link.client.create("Versatz");
+    (void)link.client.create("Versatz");
+
+    link.step();
+    CHECK(link.on_client(hunter).alive());
+    CHECK(link.mirror.local_id(prey.id()) == 0);
+    CHECK(link.on_client(hunter).get<Follow>()->target == 0);
+
+    link.step();
+    REQUIRE(link.on_client(prey).alive());
+    CHECK(link.on_client(hunter).get<Follow>()->target == link.on_client(prey).id());
+    CHECK(link.on_client(prey).id() != prey.id());
+}
+
+TEST_CASE("Parents follow the server hierarchy", "[replication]") {
+    Link link;
+    world::Entity child = link.server.create("Kind");
+    world::Entity parent = link.server.create("Eltern");
+    child.set(at(1.0));
+    parent.set(at(5.0));
+    child.set_parent(parent);
+    link.step();
+    CHECK(link.on_client(child).parent().id() == link.on_client(parent).id());
+
+    child.set_parent(world::Entity{});
+    link.step();
+    CHECK_FALSE(link.on_client(child).parent().alive());
+    CHECK(same_view(link.mirror.view(), link.encoder.captured()));
+}
+
+TEST_CASE("Mirror interpolates and briefly extrapolates transforms", "[replication]") {
+    Link link;
+    world::Entity box = link.server.create("Kiste");
+    for (int tick = 1; tick <= 5; ++tick) {
+        box.set(at(static_cast<f64>(tick)));
+        link.step();
+    }
+    world::Entity mirrored = link.on_client(box);
+    // Drei Ticks hinter dem neuesten Stand.
+    link.mirror.interpolate(0.0, 3.0);
+    CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(2.0));
+    link.mirror.interpolate(0.5 / replication::snapshot_rate, 3.0);
+    CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(2.5));
+    CHECK(link.mirror.stats().interpolated == 1);
+    CHECK(link.mirror.stats().extrapolated == 0);
+
+    // Keine Schnappschüsse mehr: Die Kiste läuft kurz weiter, höchstens drei Ticks.
+    link.mirror.interpolate(5.0 / replication::snapshot_rate, 3.0);
+    CHECK(link.mirror.stats().extrapolated == 1);
+    CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(7.25));
+    link.mirror.interpolate(5.0 / replication::snapshot_rate, 3.0);
+    CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(8.0));
+}
+
+TEST_CASE("Welcome detects a different schema", "[replication]") {
     const auto types = make_types();
-    const auto components = replicated_components(types);
-    auto welcome = replication::encode_welcome(components);
+    const replication::Schema schema{types};
+    auto welcome = replication::encode_welcome(schema);
     REQUIRE(welcome[0] == static_cast<std::byte>(replication::MessageKind::Welcome));
     const auto body = std::span{welcome}.subspan(1);
-    CHECK(replication::check_welcome(body, components));
+    CHECK(replication::check_welcome(body, schema));
 
-    const std::array<const reflect::TypeInfo*, 2> fewer{components[0], components[1]};
-    CHECK_FALSE(replication::check_welcome(body, fewer));
-    const std::array<const reflect::TypeInfo*, 3> swapped{components[0], components[2],
-                                                          components[1]};
-    CHECK_FALSE(replication::check_welcome(body, swapped));
-    CHECK_FALSE(replication::check_welcome(body.first(3), components));
+    const auto other_types = make_types(true);
+    const replication::Schema other{other_types};
+    CHECK_FALSE(replication::check_welcome(body, other));
+    CHECK_FALSE(replication::check_welcome(body.first(3), schema));
+
+    const auto ack = replication::encode_ack(42);
+    REQUIRE(ack[0] == static_cast<std::byte>(replication::MessageKind::Ack));
+    CHECK(replication::decode_ack(std::span{ack}.subspan(1)) == 42u);
+    CHECK_FALSE(replication::decode_ack(std::span{ack}.subspan(1, 2)).has_value());
 }
 
-TEST_CASE("Server replicates a component to a client over localhost", "[replication][net]") {
-    const auto types = make_types();
-    const auto components = replicated_components(types);
-    world::World server_world{types};
-    world::World client_world{types};
+namespace {
 
-    auto server_transport = net::Transport::create();
-    auto client_transport = net::Transport::create();
-    REQUIRE(server_transport);
-    REQUIRE(client_transport);
-    const auto port = (*server_transport)->listen(0);
-    REQUIRE(port);
+// Server und Client über localhost; ein Schnappschuss alle 33 ms wie im Spiel.
+struct Session {
+    Session(const replication::Schema& server_schema, const replication::Schema& client_schema,
+            world::World& server_world, world::World& client_world) {
+        auto st = net::Transport::create();
+        auto ct = net::Transport::create();
+        REQUIRE(st);
+        REQUIRE(ct);
+        server_transport = std::move(*st);
+        client_transport = std::move(*ct);
+        const auto port = server_transport->listen(0);
+        REQUIRE(port);
+        server =
+            std::make_unique<replication::Server>(*server_transport, server_world, server_schema);
+        client =
+            std::make_unique<replication::Client>(*client_transport, client_world, client_schema);
+        REQUIRE(client->connect(std::format("127.0.0.1:{}", *port)));
+    }
 
-    replication::Server server{**server_transport, server_world, components};
-    replication::Client client{**client_transport, client_world, components};
-    REQUIRE(client.connect(std::format("127.0.0.1:{}", *port)));
-
-    world::Entity player = server_world.create("Spieler");
-    player.set(replication::Replicated{}).set(Position{0.0f, 0.0f});
-
-    std::vector<replication::Received> server_received;
-    std::vector<replication::Received> client_received;
-    auto pump = [&](auto&& done) {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    // Pumpt, bis done() gilt oder die Zeit abläuft; before() läuft vor jedem Schnappschuss.
+    template <typename Done, typename Before>
+    bool pump(Done&& done, Before&& before,
+              std::chrono::seconds timeout = std::chrono::seconds{5}) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
-            server.poll(server_received);
-            server.send_snapshot();
-            REQUIRE(client.poll(client_received));
+            server->poll(server_received);
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= next_snapshot) {
+                before();
+                server->send_snapshot();
+                next_snapshot = now + std::chrono::milliseconds{33};
+            }
+            if (!client->poll(client_received)) {
+                return false;
+            }
             if (done()) {
                 return true;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds{2});
         }
         return false;
-    };
+    }
+    template <typename Done>
+    bool pump(Done&& done) {
+        return pump(std::forward<Done>(done), [] {});
+    }
 
-    REQUIRE(pump([&] { return client.state() == replication::ClientState::Ready; }));
-    CHECK(server.clients().size() == 1);
+    std::unique_ptr<net::Transport> server_transport;
+    std::unique_ptr<net::Transport> client_transport;
+    std::unique_ptr<replication::Server> server;
+    std::unique_ptr<replication::Client> client;
+    std::vector<replication::Received> server_received;
+    std::vector<replication::Received> client_received;
+    std::chrono::steady_clock::time_point next_snapshot{};
+};
+
+// Setzt die simulierte Netzqualität am Ende zurück, auch wenn ein Test scheitert.
+struct SimulatedNetwork {
+    explicit SimulatedNetwork(net::NetworkConditions conditions) {
+        net::Transport::simulate(conditions);
+    }
+    ~SimulatedNetwork() {
+        net::Transport::simulate({});
+    }
+    SimulatedNetwork(const SimulatedNetwork&) = delete;
+    SimulatedNetwork& operator=(const SimulatedNetwork&) = delete;
+};
+
+} // namespace
+
+TEST_CASE("Server replicates a component to a client over localhost", "[replication][net]") {
+    const auto types = make_types();
+    const replication::Schema schema{types};
+    world::World server_world{types};
+    world::World client_world{types};
+    Session session{schema, schema, server_world, client_world};
+    world::Entity player = server_world.create("Spieler");
+    player.set(Position{0.0f, 0.0f});
+
+    REQUIRE(
+        session.pump([&] { return session.client->state() == replication::ClientState::Ready; }));
+    CHECK(session.server->clients().size() == 1);
 
     // Der Client schickt eine Eingabe, der Server bewegt den Spieler, der Client sieht es.
     const std::array input{std::byte{1}};
-    REQUIRE(client.send(input, net::Delivery::Reliable));
-    REQUIRE(pump([&] { return !server_received.empty(); }));
-    CHECK(server_received.front().data == std::vector<std::byte>{std::byte{1}});
+    REQUIRE(session.client->send(input, net::Delivery::Reliable));
+    REQUIRE(session.pump([&] { return !session.server_received.empty(); }));
+    CHECK(session.server_received.front().data == std::vector<std::byte>{std::byte{1}});
     player.set(Position{7.0f, 8.0f});
 
-    REQUIRE(pump([&] {
-        const u64 local = client.mirror().local_id(player.id());
+    REQUIRE(session.pump([&] {
+        const u64 local = session.client->mirror().local_id(player.id());
         if (local == 0) {
             return false;
         }
         const auto* position = client_world.entity(local).get<Position>();
         return position != nullptr && position->x == 7.0f && position->y == 8.0f;
     }));
-    CHECK(client.snapshots_applied() > 0);
+    CHECK(session.client->snapshots_applied() > 0);
+    // Der Client bestätigt: Der Server schickt Deltas.
+    REQUIRE(session.pump(
+        [&] { return session.server->stats(session.server->clients().front()).acked_tick > 0; }));
 
     const std::array reply{std::byte{2}, std::byte{3}};
-    REQUIRE(server.send(server.clients().front(), reply, net::Delivery::Reliable));
-    REQUIRE(pump([&] { return !client_received.empty(); }));
-    CHECK(client_received.front().data == std::vector<std::byte>{std::byte{2}, std::byte{3}});
+    REQUIRE(
+        session.server->send(session.server->clients().front(), reply, net::Delivery::Reliable));
+    REQUIRE(session.pump([&] { return !session.client_received.empty(); }));
+    CHECK(session.client_received.front().data ==
+          std::vector<std::byte>{std::byte{2}, std::byte{3}});
 
-    client.disconnect();
-    CHECK(client.state() == replication::ClientState::Disconnected);
+    session.client->disconnect();
+    CHECK(session.client->state() == replication::ClientState::Disconnected);
     CHECK(client_world.entity_count() == 0);
-    REQUIRE(pump([&] { return server.clients().empty(); }));
+    session.server->poll(session.server_received);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (!session.server->clients().empty() && std::chrono::steady_clock::now() < deadline) {
+        session.server->poll(session.server_received);
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    }
+    CHECK(session.server->clients().empty());
+}
+
+TEST_CASE("Client heals to the server world despite lag and loss", "[replication][net]") {
+    // Beide Seiten im selben Prozess: je 10 % beim Senden und Empfangen sind zusammen 19 %
+    // Verlust pro Richtung, die Verzögerung zählt doppelt (100 ms hin, 100 ms zurück).
+    const SimulatedNetwork network{{.lag_ms = 100, .loss_percent = 10.0f}};
+    const auto types = make_types();
+    const replication::Schema schema{types};
+    world::World server_world{types};
+    world::World client_world{types};
+    std::vector<world::Entity> boxes;
+    for (int i = 0; i < 40; ++i) {
+        boxes.push_back(server_world.create(std::format("Kiste {}", i)));
+        boxes.back().set(at(i * 2.0)).set(Health{i});
+    }
+    Session session{schema, schema, server_world, client_world};
+    REQUIRE(session.pump([&] { return session.client->state() == replication::ClientState::Ready; },
+                         [] {}, std::chrono::seconds{10}));
+
+    // Zwei Sekunden lang ändert sich alles, Entities kommen und gehen.
+    int frame = 0;
+    const auto move = [&] {
+        world::update_transforms(server_world);
+        ++frame;
+        for (usize i = 0; i < boxes.size(); ++i) {
+            boxes[i].set(at(static_cast<f64>(i) * 2.0 + frame * 0.1));
+        }
+        if (frame % 10 == 0) {
+            boxes.front().destroy();
+            boxes.erase(boxes.begin());
+            boxes.push_back(server_world.create(std::format("Neu {}", frame)));
+            boxes.back().set(at(0.0)).set(Health{frame});
+        }
+        world::update_transforms(server_world);
+    };
+    session.pump([] { return false; }, move, std::chrono::seconds{2});
+
+    // Danach steht alles still; der Client muss genau den Stand des Servers erreichen.
+    replication::SnapshotEncoder reference{server_world, schema};
+    reference.capture(1);
+    const replication::View expected = reference.captured();
+    REQUIRE(session.pump([&] { return same_view(session.client->mirror().view(), expected); },
+                         [] {}, std::chrono::seconds{10}));
+    CHECK(session.client->mirror().entity_count() == boxes.size());
+    for (const world::Entity& box : boxes) {
+        const world::Entity mirrored =
+            client_world.entity(session.client->mirror().local_id(box.id()));
+        REQUIRE(mirrored.alive());
+        CHECK(mirrored.get<Health>()->value == box.get<Health>()->value);
+        CHECK(std::abs(mirrored.get<world::Transform>()->position.x -
+                       box.get<world::Transform>()->position.x) <= 0.0005);
+    }
+    CHECK(net::Transport::simulated().lag_ms == 100);
 }
 
 TEST_CASE("Client disconnects when the server replicates other components", "[replication][net]") {
     const auto types = make_types();
-    const auto components = replicated_components(types);
-    const std::array<const reflect::TypeInfo*, 1> other{&types.get<Position>()};
+    const auto other_types = make_types(true);
+    const replication::Schema schema{types};
+    const replication::Schema other{other_types};
     world::World server_world{types};
-    world::World client_world{types};
-
-    auto server_transport = net::Transport::create();
-    auto client_transport = net::Transport::create();
-    REQUIRE(server_transport);
-    REQUIRE(client_transport);
-    const auto port = (*server_transport)->listen(0);
-    REQUIRE(port);
-
-    replication::Server server{**server_transport, server_world, components};
-    replication::Client client{**client_transport, client_world, other};
-    REQUIRE(client.connect(std::format("127.0.0.1:{}", *port)));
+    world::World client_world{other_types};
+    Session session{schema, other, server_world, client_world};
 
     std::vector<replication::Received> received;
     bool failed = false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
     while (!failed && std::chrono::steady_clock::now() < deadline) {
-        server.poll(received);
-        failed = !client.poll(received);
+        session.server->poll(received);
+        failed = !session.client->poll(received);
         std::this_thread::sleep_for(std::chrono::milliseconds{2});
     }
     CHECK(failed);
-    CHECK(client.state() == replication::ClientState::Disconnected);
+    CHECK(session.client->state() == replication::ClientState::Disconnected);
 }
 
 TEST_CASE("Player actions survive encoding and reject a different map", "[replication]") {
@@ -285,4 +724,16 @@ TEST_CASE("Possess names the figure of a client", "[replication]") {
     CHECK_FALSE(replication::decode_possess(std::span{message.data(), 4}).has_value());
     const std::array<std::byte, 1> unknown{std::byte{42}};
     CHECK_FALSE(replication::game_message(unknown).has_value());
+}
+
+TEST_CASE("View message carries yaw and pitch", "[replication]") {
+    const auto message = replication::encode_view(1.25f, -0.5f);
+    CHECK(replication::game_message(message) == replication::GameMessage::View);
+    const auto view = replication::decode_view(message);
+    REQUIRE(view.has_value());
+    CHECK(view->yaw == 1.25f);
+    CHECK(view->pitch == -0.5f);
+    CHECK_FALSE(replication::decode_view(std::span{message.data(), 5}).has_value());
+    const auto broken = replication::encode_view(std::nanf(""), 0.0f);
+    CHECK_FALSE(replication::decode_view(broken).has_value());
 }
