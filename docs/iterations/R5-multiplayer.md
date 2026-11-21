@@ -1,7 +1,7 @@
 # R5: Multiplayer
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 läuft)
+- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 abgeschlossen)
 - **Pull Requests:** #59 (Plan), Iterationen siehe Review
 
 R5 ist der fünfte und letzte Reifegrad der Konstruktion vor dem Review und der Evaluation der
@@ -194,4 +194,4 @@ Folgt nach der letzten Iteration. Bisher:
 
 | Iteration | Pull Requests | Ergebnis |
 | --- | --- | --- |
-| [R5.1](R5.1-server-mit-spielwelt.md) Server mit Spielwelt | PR dieser Iteration | `app::GameWorld` für alle Apps, Server mit Spielplatz, Skripten und einer Figur pro Client, Jolt aufgeteilt und unter ThreadSanitizer |
+| [R5.1](R5.1-server-mit-spielwelt.md) Server mit Spielwelt | #59 (Plan), #60 | `app::GameWorld` für alle Apps, Server mit Spielplatz, Skripten und einer Figur pro Client, Jolt aufgeteilt und unter ThreadSanitizer |
