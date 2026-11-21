@@ -38,8 +38,6 @@ using serialize::BinaryWriter;
 
 constexpr u8 flag_new = 1;
 constexpr u8 flag_parent = 2;
-// Größe des Kopfes eines Schnappschusses (Art, Tick, Basis).
-constexpr usize header_size = 9;
 
 void write_varint(BinaryWriter& writer, u64 value) {
     while (value >= 0x80) {
@@ -298,8 +296,9 @@ void write_entry(BinaryWriter& writer, const Schema& schema, const EntityRecord*
         const i32 old_slot = old != nullptr ? old->slot(component) : -1;
         u64 mask = 0;
         for (u32 part = 0; part < parts; ++part) {
-            if (old_slot < 0 || !same_part(*old, old->first_part[old_slot] + part, record,
-                                           record.first_part[slot] + part)) {
+            if (old_slot < 0 ||
+                !same_part(*old, old->first_part[static_cast<usize>(old_slot)] + part, record,
+                           record.first_part[slot] + part)) {
                 mask |= u64{1} << part;
             }
         }
@@ -407,7 +406,7 @@ void write_entry(BinaryWriter& writer, const Schema& schema, const EntityRecord*
             it->parts[part] = payload.subspan(begin, size);
             it->present[part] = true;
         }
-        if ((mask >> count) != 0) {
+        if (count < 64 && (mask >> count) != 0) {
             return std::unexpected("Maske nennt Teile, die die Komponente nicht hat");
         }
     }
