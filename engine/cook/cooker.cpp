@@ -24,6 +24,7 @@ import ngine.asset;
 import ngine.filesystem;
 import ngine.jobs;
 import ngine.profile;
+import ngine.world;
 
 namespace ngine::cook {
 
@@ -157,18 +158,50 @@ asset::ModelCooker model_cooker(CookSettings settings) {
 
 namespace {
 
-// Ein Modell für cook_all() und BackgroundCook.
+// Ein Modell oder eine Textur des Terrains für cook_all() und BackgroundCook.
 struct CookItem {
     asset::AssetId id = 0;
     std::string path;
     std::string file;
+    // Einzeltextur statt Modell (TD-51) und ihr Farbraum.
+    bool texture = false;
+    bool srgb = false;
 };
 
-std::vector<CookItem> models_of(const asset::AssetDatabase& database) {
+// Alle Modelle, danach jede Textur, die eine Materialtabelle des Terrains nennt (Grundfarbe sRGB,
+// Normalen linear, wie der Renderer sie lädt). So findet der Server sie gekocht im Cache (TD-51).
+std::vector<CookItem> items_of(const asset::AssetDatabase& database) {
     std::vector<CookItem> items;
     for (const asset::AssetInfo& info : database.assets()) {
         if (info.type == asset::AssetType::Model) {
             items.push_back({info.id, info.path, info.file});
+        }
+    }
+    std::vector<std::pair<asset::AssetId, bool>> textures;
+    const auto add_texture = [&](u64 id, bool srgb) {
+        if (id == 0 || std::ranges::find(textures, std::pair{id, srgb}) != textures.end()) {
+            return;
+        }
+        const asset::AssetInfo* info = database.find(id);
+        if (info == nullptr) {
+            log::warn("Kochen: Textur {:016x} der Materialtabelle fehlt", id);
+            return;
+        }
+        textures.emplace_back(id, srgb);
+        items.push_back({info->id, info->path, info->file, true, srgb});
+    };
+    for (const asset::AssetInfo& info : database.assets()) {
+        if (info.type != asset::AssetType::TerrainMaterials) {
+            continue;
+        }
+        auto table = world::load_terrain_materials_file(info.file);
+        if (!table) {
+            log::warn("Kochen: {}: {}", info.path, table.error());
+            continue;
+        }
+        for (const world::TerrainMaterial& material : table->materials) {
+            add_texture(material.albedo, true);
+            add_texture(material.normal, false);
         }
     }
     return items;
@@ -176,9 +209,35 @@ std::vector<CookItem> models_of(const asset::AssetDatabase& database) {
 
 enum class CookOutcome : u8 { cooked, current, failed };
 
-// Kocht ein Modell in den Cache; bei einem Fehler steht er in error.
+// Kocht eine Textur des Terrains in den Cache (TD-51).
+CookOutcome cook_texture_item(const CookItem& item, const asset::AssetCache& cache,
+                              const CookSettings& settings, bool force, std::string& error) {
+    if (!force) {
+        if (auto cached = cache.load_texture(item.id, item.srgb); cached && *cached) {
+            return CookOutcome::current;
+        }
+    }
+    auto cooked = cook_image(item.file, item.srgb, settings);
+    if (cooked) {
+        if (auto stored = cache.store_texture(item.id, item.srgb, *cooked); !stored) {
+            cooked = std::unexpected(std::move(stored.error()));
+        }
+    }
+    if (!cooked) {
+        error = std::format("{}: {}", item.path, cooked.error());
+        log::error("Kochen: {}", error);
+        return CookOutcome::failed;
+    }
+    log::info("Gekocht: {} ({})", item.path, item.srgb ? "sRGB" : "linear");
+    return CookOutcome::cooked;
+}
+
+// Kocht ein Modell oder eine Textur in den Cache; bei einem Fehler steht er in error.
 CookOutcome cook_one(const CookItem& item, const asset::AssetCache& cache,
                      const CookSettings& settings, bool force, std::string& error) {
+    if (item.texture) {
+        return cook_texture_item(item, cache, settings, force, error);
+    }
     if (!force && cache.model_current(item.id)) {
         return CookOutcome::current;
     }
@@ -208,7 +267,7 @@ CookReport cook_all(const asset::AssetDatabase& database, const asset::AssetCach
     NGINE_PROFILE_ZONE("cook::cook_all");
     const auto start = std::chrono::steady_clock::now();
     CookReport report;
-    for (const CookItem& item : models_of(database)) {
+    for (const CookItem& item : items_of(database)) {
         std::string error;
         switch (cook_one(item, cache, settings, force, error)) {
         case CookOutcome::cooked: ++report.cooked; break;
@@ -244,7 +303,7 @@ BackgroundCook::BackgroundCook(jobs::JobSystem& jobs, const asset::AssetDatabase
                                const asset::AssetCache& cache, CookSettings settings, bool force)
     : state_{std::make_shared<State>()}, jobs_{&jobs} {
     State& state = *state_;
-    state.items = models_of(database);
+    state.items = items_of(database);
     state.cache = &cache;
     state.force = force;
     state.start = std::chrono::steady_clock::now();

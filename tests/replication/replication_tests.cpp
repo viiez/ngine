@@ -11,6 +11,7 @@
 #include <vector>
 
 import ngine.core;
+import ngine.input;
 import ngine.net;
 import ngine.reflect;
 import ngine.replication;
@@ -244,4 +245,44 @@ TEST_CASE("Client disconnects when the server replicates other components", "[re
     }
     CHECK(failed);
     CHECK(client.state() == replication::ClientState::Disconnected);
+}
+
+TEST_CASE("Player actions survive encoding and reject a different map", "[replication]") {
+    const input::ActionMap map = input::ActionMap::standard();
+    std::vector<input::ActionValue> values(map.actions().size());
+    values[0] = {.x = 0.25f, .y = -1.0f, .down = true};
+    values[4] = {.x = 1.0f, .down = true, .pressed = true};
+    values[5] = {.released = true};
+    const std::vector<std::byte> message = replication::encode_actions(map.hash(), values);
+    CHECK(replication::game_message(message) == replication::GameMessage::Actions);
+    const auto decoded = replication::decode_actions(message, map.hash());
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->size() == values.size());
+    for (usize i = 0; i < values.size(); ++i) {
+        CHECK((*decoded)[i].x == values[i].x);
+        CHECK((*decoded)[i].y == values[i].y);
+        CHECK((*decoded)[i].down == values[i].down);
+        CHECK((*decoded)[i].pressed == values[i].pressed);
+        CHECK((*decoded)[i].released == values[i].released);
+    }
+
+    // Andere Belegung (Aktion umbenannt): abgelehnt.
+    input::ActionMap other = map;
+    REQUIRE(other.add({.name = "tanzen"}).has_value());
+    CHECK(other.hash() != map.hash());
+    CHECK_FALSE(replication::decode_actions(message, other.hash()).has_value());
+    // Abgeschnitten: abgelehnt.
+    const std::span<const std::byte> cut{message.data(), message.size() - 1};
+    CHECK_FALSE(replication::decode_actions(cut, map.hash()).has_value());
+}
+
+TEST_CASE("Possess names the figure of a client", "[replication]") {
+    const auto message = replication::encode_possess(0x0123456789abcdefULL);
+    CHECK(replication::game_message(message) == replication::GameMessage::Possess);
+    const auto entity = replication::decode_possess(message);
+    REQUIRE(entity.has_value());
+    CHECK(*entity == 0x0123456789abcdefULL);
+    CHECK_FALSE(replication::decode_possess(std::span{message.data(), 4}).has_value());
+    const std::array<std::byte, 1> unknown{std::byte{42}};
+    CHECK_FALSE(replication::game_message(unknown).has_value());
 }

@@ -59,3 +59,4 @@ betroffene Code einreichen.
 | [0048](0048-prefab-removals-nested-instances.md) | Prefabs mit entfernten Knoten und Komponenten und verschachtelten Instanzen, Prefab-Format Version 2 | angenommen |
 | [0049](0049-audio-own-mixer-miniaudio.md) | Audio mit eigenem Mixer im Thread des Geräts über miniaudio (nur Gerät und Dekodieren), Befehle ohne Sperren, Ströme in eigenem Thread, Räumlichkeit im Hauptthread | angenommen |
 | [0050](0050-animation-gpu-skinning.md) | Animation mit Automaten als `.animgraph`, `AnimationSystem` in Jobs ohne Schreiben in die Welt, `PoseMode` je Animator, lineares Skinning im Compute-Pass in Bereiche des `GeometryBuffer` | angenommen |
+| [0051](0051-game-world-dedicated-server.md) | Ein Zusammenbau der Simulation ohne GPU (`app::GameWorld`) für Sandbox, Editor, `--headless` und Server; Eingabe pro Figur auch für Skripte; Server im festen Takt von einem Schritt pro Bild | angenommen |

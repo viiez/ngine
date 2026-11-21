@@ -18,9 +18,10 @@ module;
 #include <unordered_map>
 #include <vector>
 
-// Durchstich D3: dedizierter Server und Client über GameNetworkingSockets. Der Server bewegt
-// Kugeln auf Kreisbahnen und je Client eine Spielfigur, die der Client über Eingaben steuert; die
-// Positionen kommen als Schnappschüsse beim Client an.
+// Durchstich D3: Server und Client über GameNetworkingSockets im selben Prozess (--net-demo). Der
+// Server bewegt Kugeln auf Kreisbahnen und je Client eine Spielfigur, die der Client über Eingaben
+// steuert; die Positionen kommen als Schnappschüsse beim Client an. Den dedizierten Server mit
+// Spielwelt (--server, --client) gibt es seit R5.1 in game_server.cppm.
 export module sandbox.net_demo;
 
 import ngine.core;
@@ -57,7 +58,6 @@ struct Input {
     i8 z = 0;
 };
 
-constexpr u16 default_port = 27020;
 // Schnappschüsse mit 30 Hz, jeden zweiten Frame.
 constexpr u64 snapshot_interval = 2;
 constexpr u32 orbit_count = 32;
@@ -327,104 +327,6 @@ export int run_net_demo(u64 frames) {
         return 1;
     }
     log::info("Server und Client stimmen überein");
-    return 0;
-}
-
-// Dedizierter Server ohne Fenster und GPU. Ohne frames läuft er, bis man ihn beendet.
-export int run_server(std::optional<u64> frames, std::optional<u16> port) {
-    Types types;
-    world::World world{types.registry};
-    auto transport = make_transport();
-    if (!transport) {
-        return 1;
-    }
-    const auto bound = transport->listen(port.value_or(default_port));
-    if (!bound) {
-        log::error("{}", bound.error());
-        return 1;
-    }
-    replication::Server server{*transport, world, types.replicated};
-    ServerGame game{world};
-    std::vector<replication::Received> received;
-    FrameClock clock;
-    f64 dt = 1.0 / 60.0;
-    for (u64 frame = 0; !frames || frame < *frames; ++frame) {
-        received.clear();
-        server.poll(received);
-        game.sync_players(server.clients());
-        for (const auto& message : received) {
-            game.handle(message);
-        }
-        (void)game.update(dt);
-        if (frame % snapshot_interval == 0) {
-            server.send_snapshot();
-        }
-        if (frame % 300 == 299) {
-            log::info(
-                "Server: {} Client(s), {} Entities, Schnappschuss {} Bytes, fester Schritt {}",
-                server.clients().size(), world.entity_count(), server.last_snapshot_size(),
-                game.tick());
-            for (const net::ConnectionId client : server.clients()) {
-                log_stats(*transport, client, std::format("Client {}", client));
-            }
-        }
-        dt = clock.wait();
-    }
-    return 0;
-}
-
-// Client ohne Fenster: verbindet, schickt Eingaben und meldet, was ankommt. Fehlschlag, wenn
-// bis zum Ende keine Schnappschüsse kamen.
-export int run_client(const std::string& address, u64 frames) {
-    Types types;
-    world::World world{types.registry};
-    auto transport = make_transport();
-    if (!transport) {
-        return 1;
-    }
-    replication::Client client{*transport, world, types.replicated};
-    const std::string target = address.find(':') == std::string::npos
-                                   ? std::format("{}:{}", address, default_port)
-                                   : address;
-    if (auto result = client.connect(target); !result) {
-        log::error("{}", result.error());
-        return 1;
-    }
-    log::info("Verbinde zu {}", target);
-    std::vector<replication::Received> received;
-    FrameClock clock;
-    for (u64 frame = 0; frame < frames; ++frame) {
-        received.clear();
-        if (auto result = client.poll(received); !result) {
-            log::error("{}", result.error());
-            return 1;
-        }
-        if (client.state() == replication::ClientState::Disconnected) {
-            log::error("Keine Verbindung zum Server");
-            return 1;
-        }
-        if (client.state() == replication::ClientState::Ready) {
-            client.send(encode_input(scripted_input(frame)), net::Delivery::Unreliable);
-        }
-        if (frame % 60 == 59 && client.state() == replication::ClientState::Ready) {
-            log::info("Client: {} Entities gespiegelt, Tick {}", client.mirror().entity_count(),
-                      client.mirror().last_tick());
-        }
-        clock.wait();
-    }
-    if (client.snapshots_applied() == 0) {
-        log::error("Keine Schnappschüsse empfangen");
-        return 1;
-    }
-    log_stats(*transport, client.connection(), "Client");
-    log::info("{} Schnappschüsse angewendet", client.snapshots_applied());
-    client.disconnect();
-    // Kurz weiterpollen, damit die Trennung beim Server ankommt.
-    std::vector<replication::Received> ignored;
-    for (int i = 0; i < 10; ++i) {
-        (void)client.poll(ignored);
-        std::this_thread::sleep_for(std::chrono::milliseconds{5});
-    }
     return 0;
 }
 

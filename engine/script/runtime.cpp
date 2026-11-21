@@ -466,6 +466,14 @@ void ScriptRuntime::bind_input(const input::ActionState* actions) {
     bind_script_input(actions);
 }
 
+void ScriptRuntime::bind_input(u64 entity, const input::ActionState* actions) {
+    if (entity == 0) {
+        clear_script_entity_input();
+    } else {
+        bind_script_input(entity, actions);
+    }
+}
+
 void ScriptRuntime::bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus) {
     bind_script_physics(physics);
     bind_script_events(bus);

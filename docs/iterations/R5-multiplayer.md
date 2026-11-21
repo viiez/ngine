@@ -1,8 +1,8 @@
 # R5: Multiplayer
 
 - **Phase:** Konstruktion
-- **Status:** geplant (Plan in Abstimmung)
-- **Pull Requests:** #59 (Plan)
+- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 läuft)
+- **Pull Requests:** #59 (Plan), Iterationen siehe Review
 
 R5 ist der fünfte und letzte Reifegrad der Konstruktion vor dem Review und der Evaluation der
 Engine. Wie R1 bis R4 ist er zu groß für eine Iteration; wir teilen ihn in fünf Iterationen, jede
@@ -184,3 +184,14 @@ Danach dasselbe mit einem Listen-Server, den der PC im Editor startet.
    Alternative: als eigene kleine Iteration zwischen R5.2 und R5.3.
 9. **Ziel 8 Spieler** pro Server mit einem Budget von 64 KB/s pro Client (Koop wie Valheim mit bis
    zu 10). Mehr Spieler sind kein Ziel von R5.
+
+**Ergebnis der Abstimmung** (viiez, mit dem Merge des Plans am 19.11.2026): Alle neun Punkte
+passen wie vorgeschlagen; TD-46 hat damit die Frist R6.
+
+## Review
+
+Folgt nach der letzten Iteration. Bisher:
+
+| Iteration | Pull Requests | Ergebnis |
+| --- | --- | --- |
+| [R5.1](R5.1-server-mit-spielwelt.md) Server mit Spielwelt | PR dieser Iteration | `app::GameWorld` für alle Apps, Server mit Spielplatz, Skripten und einer Figur pro Client, Jolt aufgeteilt und unter ThreadSanitizer |

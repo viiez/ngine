@@ -1,6 +1,7 @@
 module;
 
-// Jolt nur hier (ADR 0045). Jolt.h zuerst: Es setzt die Schalter, die alle anderen Header brauchen.
+// Jolt nur in den Dateien jolt*.cpp und jolt.cppm (ADR 0045). Jolt.h zuerst: Es setzt die Schalter,
+// die alle anderen Header brauchen.
 #include <Jolt/Jolt.h>
 
 #include <Jolt/Core/Factory.h>
@@ -53,6 +54,8 @@ module;
 #include <utility>
 #include <vector>
 
+// Körper abgleichen, Schritt, Rückschrieb und Kontakte (PhysicsWorld::Impl) und die
+// öffentliche Schnittstelle von PhysicsWorld; Gemeinsames in der internen Partition jolt.cppm.
 module ngine.physics;
 
 import ngine.core;
@@ -60,1939 +63,575 @@ import ngine.math;
 import ngine.jobs;
 import ngine.profile;
 import ngine.world;
+import :jolt;
 
 namespace ngine::physics {
 
-namespace {
-
-// ---------------------------------------------------------------------------------------------
-// Laufzeit von Jolt: einmal pro Prozess (Allokator, Fabrik, Typen).
-
-void trace(const char* format, ...) {
-    va_list arguments;
-    va_start(arguments, format);
-    char buffer[1024];
-    (void)std::vsnprintf(buffer, sizeof(buffer), format, arguments);
-    va_end(arguments);
-    log::warn("Jolt: {}", buffer);
+PhysicsWorld::Impl::Impl(world::World& w, jobs::JobSystem& j, PhysicsSettings s)
+    : world{&w}, jobs{&j}, settings{s} {
+    ensure_runtime();
+    temp = std::make_unique<JPH::TempAllocatorImpl>(static_cast<JPH::uint>(settings.temp_memory));
+    job_adapter = std::make_unique<JobAdapter>(j, JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
+    create_system();
+    transform_id = w.component<world::Transform>();
+    body_id = w.component<RigidBody>();
+    collider_id = w.component<Collider>();
+    interpolated_id = w.component<world::Interpolated>();
+    terrain_state_id = w.component<world::TerrainState>();
+    character_id = w.component<CharacterController>();
+    motion_id = w.component<CharacterMotion>();
+    world_transform_id = w.component<world::WorldTransform>();
 }
 
-#ifdef JPH_ENABLE_ASSERTS
-bool assert_failed(const char* expression, const char* message, const char* file, JPH::uint line) {
-    log::error("Jolt: Annahme verletzt: {} ({}) in {}:{}", expression,
-               message != nullptr ? message : "", file, line);
-    return true;
-}
-#endif
-
-// Sucht die Definitionen, in denen sich Bibliothek und Adapter unterscheiden: Die Bibliothek
-// vergleicht nur die ganze Kennung, also probieren wir jedes Merkmal einzeln und paarweise.
-std::string version_mismatch() {
-    constexpr std::array<const char*, 11> names{"JPH_DOUBLE_PRECISION",
-                                                "JPH_CROSS_PLATFORM_DETERMINISTIC",
-                                                "JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
-                                                "JPH_PROFILE_ENABLED",
-                                                "JPH_EXTERNAL_PROFILE",
-                                                "JPH_DEBUG_RENDERER",
-                                                "JPH_DISABLE_TEMP_ALLOCATOR",
-                                                "JPH_DISABLE_CUSTOM_ALLOCATOR",
-                                                "JPH_OBJECT_LAYER_BITS",
-                                                "JPH_ENABLE_ASSERTS",
-                                                "JPH_OBJECT_STREAM"};
-    using JPH::uint64; // JPH_VERSION_ID nennt den Typ ohne Namensraum.
-    const uint64 own = JPH_VERSION_ID;
-    const auto bit = [](usize index) { return JPH::uint64{1} << (24 + index); };
-    const auto name = [&](usize index) {
-        return std::format("{} im Adapter {}", names[index],
-                           (own & bit(index)) != 0 ? "an" : "aus");
-    };
-    for (usize i = 0; i < names.size(); ++i) {
-        if (JPH::VerifyJoltVersionIDInternal(own ^ bit(i))) {
-            return std::format("abweichend: {}", name(i));
-        }
-    }
-    for (usize i = 0; i < names.size(); ++i) {
-        for (usize j = i + 1; j < names.size(); ++j) {
-            if (JPH::VerifyJoltVersionIDInternal(own ^ bit(i) ^ bit(j))) {
-                return std::format("abweichend: {}, {}", name(i), name(j));
-            }
-        }
-    }
-    return std::format("Kennung des Adapters {:#x}, andere Version oder mehr als zwei Merkmale",
-                       own);
+PhysicsWorld::Impl::~Impl() {
+    jobs->wait(terrain_jobs);
+    remove_all();
+    job_adapter->drain();
 }
 
-class JoltRuntime {
-public:
-    JoltRuntime() {
-        JPH::RegisterDefaultAllocator();
-        JPH::Trace = &trace;
-#ifdef JPH_ENABLE_ASSERTS
-        JPH::AssertFailed = &assert_failed;
-#endif
-        // Bricht ab, wenn Bibliothek und Adapter mit anderen Schaltern gebaut sind (z. B. ohne
-        // doppelte Genauigkeit), und nennt die abweichenden Definitionen.
-        if (!JPH::VerifyJoltVersionID()) {
-            log::fatal("Jolt: Bibliothek und Adapter passen nicht zusammen ({})",
-                       version_mismatch());
-        }
-        factory_ = std::make_unique<JPH::Factory>();
-        JPH::Factory::sInstance = factory_.get();
-        JPH::RegisterTypes();
+// Neue, leere Jolt-Welt. Jolt ist nur bitgleich, wenn auch der innere Zustand gleich ist
+// (Kennungen der Körper, Zwischenspeicher der Kontakte); nach dem Verwerfen aller Körper
+// beginnt deshalb eine frische Welt.
+void PhysicsWorld::Impl::create_system() {
+    system = std::make_unique<JPH::PhysicsSystem>();
+    system->Init(settings.max_bodies, 0, settings.max_body_pairs, settings.max_contact_constraints,
+                 broad_layers, object_vs_broad, object_pairs);
+    system->SetGravity(to_jolt(settings.gravity));
+    system->SetContactListener(&contacts);
+    for (usize i = 0; i < surfaces.size(); ++i) {
+        surfaces[i] = new TerrainSurface{static_cast<voxel::Material>(i)};
     }
-    ~JoltRuntime() {
-        JPH::UnregisterTypes();
-        JPH::Factory::sInstance = nullptr;
-    }
-    JoltRuntime(const JoltRuntime&) = delete;
-    JoltRuntime& operator=(const JoltRuntime&) = delete;
-
-private:
-    std::unique_ptr<JPH::Factory> factory_;
-};
-
-void ensure_runtime() {
-    static JoltRuntime runtime;
+    set_terrain_materials(world::standard_terrain_materials());
+    contacts.surfaces = &surface_values;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Job-System: Jolts Jobs laufen als Jobs von ngine.jobs, damit nicht zwei Thread-Pools um die
-// Kerne streiten. Auf Barrieren wartet Jolt selbst und rechnet dabei bereite Jobs mit.
-//
-// Unter ThreadSanitizer rechnet Jolt nur im wartenden Thread: Die Bibliothek aus vcpkg ist nicht
-// instrumentiert, ThreadSanitizer sähe ihre Synchronisation nicht und meldete Wettläufe, die es
-// nicht gibt (TD-47).
-#if defined(__SANITIZE_THREAD__)
-constexpr bool jolt_on_workers = false;
-#elif defined(__has_feature)
-#if __has_feature(thread_sanitizer)
-constexpr bool jolt_on_workers = false;
-#else
-constexpr bool jolt_on_workers = true;
-#endif
-#else
-constexpr bool jolt_on_workers = true;
-#endif
-
-class JobAdapter final : public JPH::JobSystemWithBarrier {
-public:
-    JobAdapter(jobs::JobSystem& jobs, JPH::uint max_jobs, JPH::uint max_barriers)
-        : JobSystemWithBarrier{max_barriers}, jobs_{&jobs} {
-        free_list_.Init(max_jobs, max_jobs);
-    }
-    ~JobAdapter() override {
-        drain();
-    }
-    JobAdapter(const JobAdapter&) = delete;
-    JobAdapter& operator=(const JobAdapter&) = delete;
-
-    int GetMaxConcurrency() const override {
-        return jolt_on_workers ? static_cast<int>(jobs_->worker_count()) + 1 : 1;
-    }
-
-    JobHandle CreateJob(const char* name, JPH::ColorArg color, const JobFunction& function,
-                        JPH::uint32 dependencies) override {
-        JPH::uint32 index = AvailableJobs::cInvalidObjectIndex;
-        for (;;) {
-            index = free_list_.ConstructObject(name, color, this, function, dependencies);
-            if (index != AvailableJobs::cInvalidObjectIndex) {
-                break;
-            }
-            std::this_thread::yield();
-        }
-        Job* job = &free_list_.Get(index);
-        // Der Griff hält eine Referenz; der Job kann gleich nach dem Einreihen fertig sein.
-        JobHandle handle{job};
-        if (dependencies == 0) {
-            QueueJob(job);
-        }
-        return handle;
-    }
-
-    // Wartet, bis alle eingereihten Jobs von ngine.jobs gelaufen sind. Jobs, die Jolt beim Warten
-    // auf eine Barriere schon selbst gerechnet hat, sind dann leere Aufrufe; danach hält kein Job
-    // von ngine.jobs mehr einen Zeiger in diesen Adapter.
-    void drain() {
-        jobs_->wait(pending_);
-    }
-
-protected:
-    void QueueJob(Job* job) override {
-        if constexpr (!jolt_on_workers) {
-            // Die Barriere rechnet den Job, sobald jemand auf sie wartet.
-            return;
-        }
-        job->AddRef();
-        jobs_->run(
-            [job] {
-                (void)job->Execute();
-                job->Release();
-            },
-            &pending_);
-    }
-    void QueueJobs(Job** jobs, JPH::uint count) override {
-        for (JPH::uint i = 0; i < count; ++i) {
-            QueueJob(jobs[i]);
-        }
-    }
-    void FreeJob(Job* job) override {
-        free_list_.DestructObject(job);
-    }
-
-private:
-    using AvailableJobs = JPH::FixedSizeFreeList<Job>;
-    jobs::JobSystem* jobs_;
-    AvailableJobs free_list_;
-    jobs::Counter pending_;
-};
-
-// ---------------------------------------------------------------------------------------------
-// Ebenen: Objektebenen sind die PhysicsLayer; die Breitenphase kennt nur unbewegt und bewegt.
-
-constexpr JPH::BroadPhaseLayer broad_static{0};
-constexpr JPH::BroadPhaseLayer broad_moving{1};
-constexpr JPH::uint broad_count = 2;
-
-JPH::ObjectLayer object_layer(PhysicsLayer layer) noexcept {
-    return static_cast<JPH::ObjectLayer>(layer);
-}
-PhysicsLayer physics_layer(JPH::ObjectLayer layer) noexcept {
-    return static_cast<PhysicsLayer>(layer);
+JPH::BodyInterface& PhysicsWorld::Impl::body_interface() noexcept {
+    return system->GetBodyInterfaceNoLock();
 }
 
-class BroadPhaseLayers final : public JPH::BroadPhaseLayerInterface {
-public:
-    JPH::uint GetNumBroadPhaseLayers() const override {
-        return broad_count;
+void PhysicsWorld::Impl::warn_once(u64 entity, std::string_view message) {
+    if (!warned[entity]) {
+        warned[entity] = true;
+        log::warn("Physik: Entity {}: {}", entity, message);
     }
-    JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-        return physics_layer(layer) == PhysicsLayer::Static ? broad_static : broad_moving;
-    }
-#if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
-    const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override {
-        return layer == broad_static ? "Static" : "Moving";
-    }
-#endif
-};
-
-class ObjectVsBroadPhase final : public JPH::ObjectVsBroadPhaseLayerFilter {
-public:
-    bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broad) const override {
-        const PhysicsLayer own = physics_layer(layer);
-        if (broad == broad_static) {
-            return layers_collide(own, PhysicsLayer::Static);
-        }
-        return own != PhysicsLayer::Static;
-    }
-};
-
-class ObjectPairs final : public JPH::ObjectLayerPairFilter {
-public:
-    bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
-        return layers_collide(physics_layer(a), physics_layer(b));
-    }
-};
-
-// Filter der Abfragen.
-class QueryBroadFilter final : public JPH::BroadPhaseLayerFilter {
-public:
-    explicit QueryBroadFilter(u32 layers) noexcept : layers_{layers} {}
-    bool ShouldCollide(JPH::BroadPhaseLayer broad) const override {
-        if (broad == broad_static) {
-            return (layers_ & layer_bit(PhysicsLayer::Static)) != 0;
-        }
-        return (layers_ & ~layer_bit(PhysicsLayer::Static)) != 0;
-    }
-
-private:
-    u32 layers_;
-};
-
-class QueryObjectFilter final : public JPH::ObjectLayerFilter {
-public:
-    explicit QueryObjectFilter(u32 layers) noexcept : layers_{layers} {}
-    bool ShouldCollide(JPH::ObjectLayer layer) const override {
-        return (layers_ & (u32{1} << layer)) != 0;
-    }
-
-private:
-    u32 layers_;
-};
-
-class QueryBodyFilter final : public JPH::BodyFilter {
-public:
-    QueryBodyFilter(u64 ignore, bool sensors) noexcept : ignore_{ignore}, sensors_{sensors} {}
-    bool ShouldCollideLocked(const JPH::Body& body) const override {
-        if (ignore_ != 0 && body.GetUserData() == ignore_) {
-            return false;
-        }
-        return sensors_ || !body.IsSensor();
-    }
-
-private:
-    u64 ignore_;
-    bool sensors_;
-};
-
-// ---------------------------------------------------------------------------------------------
-// Materialien des Terrains (R4.3): Jedes Dreieck einer Chunk-Form trägt die Nummer seines
-// Voxel-Materials; Reibung und Rückprall kommen aus der Materialtabelle (world::TerrainMaterials).
-
-class TerrainSurface final : public JPH::PhysicsMaterial {
-public:
-    explicit TerrainSurface(voxel::Material material) : material{material} {}
-    [[nodiscard]] const char* GetDebugName() const override {
-        return "Terrain";
-    }
-    voxel::Material material;
-};
-
-struct SurfaceValues {
-    f32 friction = 0.7f;
-    f32 restitution = 0.0f;
-};
-using SurfaceTable = std::array<SurfaceValues, world::max_terrain_materials>;
-
-// Nummer des Voxel-Materials an einer Stelle einer Form, wenn sie zum Terrain gehört.
-std::optional<voxel::Material> terrain_material(const JPH::Shape& shape, JPH::SubShapeID id) {
-    const auto* surface = dynamic_cast<const TerrainSurface*>(shape.GetMaterial(id));
-    if (surface == nullptr) {
-        return std::nullopt;
-    }
-    return surface->material;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Kontakte: Jolt meldet sie aus mehreren Threads; gesammelt und nach dem Schritt sortiert.
-
-struct ContactRecord {
-    JPH::uint32 body1 = 0;
-    JPH::uint32 body2 = 0;
-    bool added = true;
-    JPH::RVec3 point;
-    JPH::Vec3 normal;
-};
-
-class ContactCollector final : public JPH::ContactListener {
-public:
-    // Tabelle der Oberflächen; ändert sich nur zwischen den Schritten.
-    const SurfaceTable* surfaces = nullptr;
-
-    void OnContactAdded(const JPH::Body& body1, const JPH::Body& body2,
-                        const JPH::ContactManifold& manifold,
-                        JPH::ContactSettings& settings) override {
-        apply_surface(body1, body2, manifold, settings);
-        const JPH::RVec3 point = manifold.GetWorldSpaceContactPointOn1(0);
-        const std::scoped_lock lock{mutex_};
-        records_.push_back(ContactRecord{.body1 = body1.GetID().GetIndexAndSequenceNumber(),
-                                         .body2 = body2.GetID().GetIndexAndSequenceNumber(),
-                                         .added = true,
-                                         .point = point,
-                                         .normal = manifold.mWorldSpaceNormal});
+// Weltlage einer Entity (Position, Drehung, Skalierung).
+math::Decomposed PhysicsWorld::Impl::world_pose(u64 entity, const world::Transform& transform,
+                                                bool& has_parent) {
+    has_parent = world->parent(entity) != 0;
+    if (!has_parent) {
+        return math::Decomposed{.translation = transform.position,
+                                .rotation = transform.rotation,
+                                .scale = transform.scale};
     }
-    void OnContactPersisted(const JPH::Body& body1, const JPH::Body& body2,
-                            const JPH::ContactManifold& manifold,
-                            JPH::ContactSettings& settings) override {
-        apply_surface(body1, body2, manifold, settings);
+    return math::decompose(world::world_affine(*world, entity));
+}
+
+JPH::Ref<JPH::Shape> PhysicsWorld::Impl::model_shape(u64 entity, const Collider& collider,
+                                                     ShapeType type, math::Vec3 scale) {
+    const ShapeKey key{.model = collider.model,
+                       .mesh = collider.mesh,
+                       .type = type,
+                       .scale_x = std::bit_cast<u32>(scale.x),
+                       .scale_y = std::bit_cast<u32>(scale.y),
+                       .scale_z = std::bit_cast<u32>(scale.z)};
+    if (const auto found = shape_cache.find(key); found != shape_cache.end()) {
+        return found->second;
     }
-    void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
-        const std::scoped_lock lock{mutex_};
-        records_.push_back(ContactRecord{.body1 = pair.GetBody1ID().GetIndexAndSequenceNumber(),
-                                         .body2 = pair.GetBody2ID().GetIndexAndSequenceNumber(),
-                                         .added = false,
-                                         .point = JPH::RVec3::sZero(),
-                                         .normal = JPH::Vec3::sZero()});
-    }
-
-    std::vector<ContactRecord> take() {
-        const std::scoped_lock lock{mutex_};
-        return std::exchange(records_, {});
-    }
-
-private:
-    // Berührt ein Körper das Terrain, gelten Reibung und Rückprall des Materials unter ihm (wie
-    // Jolt sie sonst aus den Körpern mischt: Wurzel des Produkts bzw. das Größere).
-    void apply_surface(const JPH::Body& body1, const JPH::Body& body2,
-                       const JPH::ContactManifold& manifold, JPH::ContactSettings& settings) const {
-        if (surfaces == nullptr) {
-            return;
-        }
-        const auto mix = [&](const JPH::Body& terrain, JPH::SubShapeID id, const JPH::Body& other) {
-            const auto material = terrain_material(*terrain.GetShape(), id);
-            if (!material) {
-                return false;
-            }
-            const SurfaceValues& surface = (*surfaces)[*material];
-            settings.mCombinedFriction = std::sqrt(surface.friction * other.GetFriction());
-            settings.mCombinedRestitution = std::max(surface.restitution, other.GetRestitution());
-            return true;
-        };
-        if (!mix(body1, manifold.mSubShapeID1, body2)) {
-            (void)mix(body2, manifold.mSubShapeID2, body1);
-        }
-    }
-
-    std::mutex mutex_;
-    std::vector<ContactRecord> records_;
-};
-
-// ---------------------------------------------------------------------------------------------
-// Umrechnung.
-
-JPH::RVec3 to_jolt(math::DVec3 v) noexcept {
-    return JPH::RVec3{v.x, v.y, v.z};
-}
-JPH::Vec3 to_jolt(math::Vec3 v) noexcept {
-    return JPH::Vec3{v.x, v.y, v.z};
-}
-JPH::Quat to_jolt(math::Quat q) noexcept {
-    return JPH::Quat{q.x, q.y, q.z, q.w};
-}
-math::DVec3 from_jolt(JPH::RVec3Arg v) noexcept {
-    return math::DVec3{static_cast<f64>(v.GetX()), static_cast<f64>(v.GetY()),
-                       static_cast<f64>(v.GetZ())};
-}
-math::Vec3 from_jolt(JPH::Vec3Arg v) noexcept {
-    return math::Vec3{v.GetX(), v.GetY(), v.GetZ()};
-}
-math::Quat from_jolt(JPH::QuatArg q) noexcept {
-    return math::Quat{q.GetX(), q.GetY(), q.GetZ(), q.GetW()};
-}
-
-bool same(const math::Vec3& a, const math::Vec3& b) noexcept {
-    return a.x == b.x && a.y == b.y && a.z == b.z;
-}
-bool same(const world::Transform& a, const world::Transform& b) noexcept {
-    return a.position.x == b.position.x && a.position.y == b.position.y &&
-           a.position.z == b.position.z && a.rotation.x == b.rotation.x &&
-           a.rotation.y == b.rotation.y && a.rotation.z == b.rotation.z &&
-           a.rotation.w == b.rotation.w && same(a.scale, b.scale);
-}
-
-// Alles an RigidBody außer den Geschwindigkeiten: Ändert es sich, entsteht der Körper neu.
-bool same_settings(const RigidBody& a, const RigidBody& b) noexcept {
-    return a.motion == b.motion && a.layer == b.layer && a.mass == b.mass &&
-           a.friction == b.friction && a.restitution == b.restitution &&
-           a.linear_damping == b.linear_damping && a.angular_damping == b.angular_damping &&
-           a.gravity_factor == b.gravity_factor && a.allow_sleep == b.allow_sleep;
-}
-bool same_collider(const Collider& a, const Collider& b) noexcept {
-    return a.shape == b.shape && a.radius == b.radius && same(a.half_extents, b.half_extents) &&
-           a.half_height == b.half_height && same(a.offset, b.offset) && a.model == b.model &&
-           a.mesh == b.mesh && a.sensor == b.sensor;
-}
-
-f32 max_abs(f32 a, f32 b) noexcept {
-    return std::max(std::abs(a), std::abs(b));
-}
-
-JPH::Ref<JPH::Shape> created(JPH::ShapeSettings::ShapeResult result, std::string_view what) {
-    if (result.HasError()) {
-        log::warn("Physik: Form {} lässt sich nicht bauen: {}", what,
-                  std::string_view{result.GetError().c_str()});
+    if (!shape_source || collider.model == 0) {
+        warn_once(entity, "Form aus einem Modell ohne Modell oder ohne ShapeSource");
         return nullptr;
     }
-    return result.Get();
-}
-
-// Grundformen (ohne Modell), skaliert.
-JPH::Ref<JPH::Shape> primitive_shape(ShapeType type, f32 radius, math::Vec3 half_extents,
-                                     f32 half_height, math::Vec3 scale) {
-    constexpr f32 min_size = 0.001f;
-    switch (type) {
-    case ShapeType::Sphere: {
-        const f32 r = std::max(
-            radius * std::max({std::abs(scale.x), std::abs(scale.y), std::abs(scale.z)}), min_size);
-        JPH::SphereShapeSettings settings{r};
-        return created(settings.Create(), "Kugel");
+    std::optional<TriangleMesh> mesh = shape_source(collider.model, collider.mesh);
+    if (!mesh) {
+        // Noch nicht geladen: Der nächste Abgleich versucht es wieder.
+        return nullptr;
     }
-    case ShapeType::Box: {
-        const JPH::Vec3 half{std::max(half_extents.x * std::abs(scale.x), min_size),
-                             std::max(half_extents.y * std::abs(scale.y), min_size),
-                             std::max(half_extents.z * std::abs(scale.z), min_size)};
-        // Die abgerundeten Kanten dürfen nicht größer als der Quader sein.
-        const f32 convex = std::min(JPH::cDefaultConvexRadius, half.ReduceMin() * 0.5f);
-        JPH::BoxShapeSettings settings{half, convex};
-        return created(settings.Create(), "Quader");
-    }
-    case ShapeType::Capsule: {
-        const f32 r = std::max(radius * max_abs(scale.x, scale.z), min_size);
-        const f32 h = half_height * std::abs(scale.y);
-        if (h <= 0.0f) {
-            JPH::SphereShapeSettings settings{r};
-            return created(settings.Create(), "Kapsel");
-        }
-        JPH::CapsuleShapeSettings settings{h, r};
-        return created(settings.Create(), "Kapsel");
-    }
-    case ShapeType::ConvexHull:
-    case ShapeType::Mesh: break;
-    }
-    return nullptr;
-}
-
-// Eintrag der Physik-Welt für eine Entity mit Körper.
-struct BodyRecord {
-    JPH::BodyID id;
-    // Werte beim Anlegen bzw. zuletzt geschrieben; Abweichungen in der Welt sind Änderungen von
-    // außen.
-    RigidBody body;
-    Collider collider;
-    world::Transform transform;
-    // Lage der Physik ist die Weltlage; mit Elternteil wird umgerechnet.
-    bool has_parent = false;
-};
-
-struct ShapeKey {
-    u64 model = 0;
-    u32 mesh = 0;
-    ShapeType type = ShapeType::ConvexHull;
-    u32 scale_x = 0;
-    u32 scale_y = 0;
-    u32 scale_z = 0;
-    friend bool operator<(const ShapeKey& a, const ShapeKey& b) noexcept {
-        return std::tie(a.model, a.mesh, a.type, a.scale_x, a.scale_y, a.scale_z) <
-               std::tie(b.model, b.mesh, b.type, b.scale_x, b.scale_y, b.scale_z);
-    }
-};
-
-// ---------------------------------------------------------------------------------------------
-// Kollision des Terrains (R4.3): eine Form pro Chunk der Stufe 0 aus dem Netz, das der Mesher
-// ohnehin baut.
-
-// Eine Form im Bau. Der Job schreibt shape und setzt done; der Hauptthread liest erst danach.
-struct TerrainBuild {
-    u64 version = 0;
-    // Eingaben des Jobs; er verbraucht sie.
-    JPH::VertexList vertices;
-    JPH::IndexedTriangleList input;
-    JPH::PhysicsMaterialList materials;
-    std::atomic<bool> done{false};
     JPH::Ref<JPH::Shape> shape;
-    u32 triangles = 0;
-    f64 ms = 0.0;
-};
-
-struct TerrainChunk {
-    JPH::BodyID body;
-    // Fassung des Netzes, aus der die eingesetzte Form stammt (0: keine).
-    u64 version = 0;
-    u32 triangles = 0;
-    usize bytes = 0;
-    std::shared_ptr<TerrainBuild> build;
-    // Schritte, seit nichts die Form mehr braucht.
-    u32 unused = 0;
-};
-
-struct TerrainRecord {
-    // TerrainData::id; ändert er sich, entsteht das Terrain neu und alle Formen fallen weg.
-    u64 data_id = 0;
-    math::DVec3 base{0.0, 0.0, 0.0};
-    std::map<voxel::ChunkCoord, TerrainChunk> chunks;
-};
-
-// Eine Spielfigur (R4.3, PHYS-03).
-struct CharacterRecord {
-    JPH::Ref<JPH::CharacterVirtual> character;
-    JPH::RefConst<JPH::Shape> standing;
-    JPH::RefConst<JPH::Shape> crouching;
-    CharacterController settings;
-    // Zuletzt geschrieben; eine Abweichung ist eine Änderung von außen (Teleport).
-    world::Transform transform;
-    bool has_parent = false;
-    bool crouched = false;
-    bool supported = false;
-    bool frozen = false;
-    // Höchster Punkt seit dem Verlassen des Bodens (für CharacterLanded).
-    f64 fall_top = 0.0;
-    // Weg am Boden seit dem letzten Schritt.
-    f64 step_distance = 0.0;
-};
-
-bool same_character(const CharacterController& a, const CharacterController& b) noexcept {
-    return a.radius == b.radius && a.height == b.height && a.crouch_height == b.crouch_height &&
-           a.max_slope == b.max_slope && a.step_height == b.step_height &&
-           a.jump_height == b.jump_height && a.walk_speed == b.walk_speed &&
-           a.run_speed == b.run_speed && a.crouch_speed == b.crouch_speed &&
-           a.ground_acceleration == b.ground_acceleration &&
-           a.air_acceleration == b.air_acceleration && a.gravity_factor == b.gravity_factor &&
-           a.mass == b.mass && a.push_strength == b.push_strength && a.step_length == b.step_length;
-}
-
-// Aufrechte Kapsel mit dem Fußpunkt im Ursprung.
-JPH::RefConst<JPH::Shape> character_shape(f32 radius, f32 height) {
-    const f32 r = std::max(radius, 0.01f);
-    const f32 h = std::max(height, 2.0f * r);
-    const f32 half_cylinder = 0.5f * h - r;
-    JPH::Ref<JPH::Shape> capsule;
-    if (half_cylinder <= 0.001f) {
-        capsule = created(JPH::SphereShapeSettings{r}.Create(), "Figur");
+    if (type == ShapeType::ConvexHull) {
+        JPH::Array<JPH::Vec3> points;
+        points.reserve(mesh->positions.size());
+        for (const math::Vec3& p : mesh->positions) {
+            points.push_back(JPH::Vec3{p.x * scale.x, p.y * scale.y, p.z * scale.z});
+        }
+        JPH::ConvexHullShapeSettings hull{points};
+        shape = created(hull.Create(), "Hülle");
     } else {
-        capsule = created(JPH::CapsuleShapeSettings{half_cylinder, r}.Create(), "Figur");
-    }
-    if (capsule == nullptr) {
-        return nullptr;
-    }
-    JPH::RotatedTranslatedShapeSettings moved{JPH::Vec3{0.0f, 0.5f * h, 0.0f},
-                                              JPH::Quat::sIdentity(), capsule};
-    return created(moved.Create(), "Figur");
-}
-
-// Figuren laufen nicht gegen Sensoren.
-class CharacterBodyFilter final : public JPH::BodyFilter {
-public:
-    bool ShouldCollideLocked(const JPH::Body& body) const override {
-        return !body.IsSensor();
-    }
-};
-
-// Baut die Form eines Chunks aus seinem Netz (Positionen in Metern relativ zur Ecke) mit einem
-// Material pro Dreieck (Index in materials). nullptr bei einem Netz ohne brauchbare Dreiecke.
-JPH::Ref<JPH::Shape> terrain_shape(JPH::VertexList vertices, JPH::IndexedTriangleList triangles,
-                                   JPH::PhysicsMaterialList materials) {
-    if (triangles.empty()) {
-        return nullptr;
-    }
-    JPH::MeshShapeSettings settings{std::move(vertices), std::move(triangles),
-                                    std::move(materials)};
-    JPH::ShapeSettings::ShapeResult result = settings.Create();
-    if (result.HasError()) {
-        return nullptr;
-    }
-    return result.Get();
-}
-
-} // namespace
-
-// -------------------------------------------------------------------------------------------------
-
-struct PhysicsWorld::Impl {
-    world::World* world;
-    jobs::JobSystem* jobs;
-    PhysicsSettings settings;
-    std::unique_ptr<JPH::TempAllocatorImpl> temp;
-    std::unique_ptr<JobAdapter> job_adapter;
-    BroadPhaseLayers broad_layers;
-    ObjectVsBroadPhase object_vs_broad;
-    ObjectPairs object_pairs;
-    ContactCollector contacts;
-    std::unique_ptr<JPH::PhysicsSystem> system;
-    // Ein Material pro Voxel-Material und ihre Werte aus der Tabelle (R4.3).
-    std::array<JPH::Ref<TerrainSurface>, world::max_terrain_materials> surfaces;
-    SurfaceTable surface_values{};
-
-    world::ComponentId transform_id{};
-    world::ComponentId body_id{};
-    world::ComponentId collider_id{};
-    world::ComponentId interpolated_id{};
-
-    // Nach Kennung sortiert: Abgleich und Rückschrieb laufen immer in derselben Reihenfolge.
-    std::map<u64, BodyRecord> bodies;
-    // Kennung des Körpers (Index und Folgenummer) zu Entity, für Kontakte.
-    std::unordered_map<JPH::uint32, u64> entity_of_body;
-    std::map<ShapeKey, JPH::Ref<JPH::Shape>> shape_cache;
-    ShapeSource shape_source;
-    // Paare in Berührung (a < b). Schlafen beide ein, meldet Jolt den Kontakt als gelöst; das Paar
-    // bleibt dann als ruhend (true) stehen, bis einer aufwacht und die Berührung prüfbar ist.
-    std::map<std::pair<u64, u64>, bool> touching;
-    events::EventBus* bus = nullptr;
-    StepStats stats;
-    // Kollision der Terrains nach Entity des Terrains.
-    std::map<u64, TerrainRecord> terrains;
-    // Körper der Chunks zu Entity des Terrains (für Abfragen; Kontakte melden sie nicht).
-    std::unordered_map<JPH::uint32, u64> terrain_of_body;
-    // Laufende Jobs, die Formen bauen.
-    jobs::Counter terrain_jobs;
-    // Eingefrorene Körper (ohne Form des Terrains unter sich), nach Kennung.
-    std::map<u64, bool> frozen;
-    // Spielfiguren nach Kennung.
-    std::map<u64, CharacterRecord> characters;
-    world::ComponentId character_id{};
-    world::ComponentId motion_id{};
-    std::vector<CharacterLanded> landed_events;
-    std::vector<CharacterStep> step_events;
-    world::ComponentId terrain_state_id{};
-    world::ComponentId world_transform_id{};
-    // Einmal pro Entity warnen statt in jedem Schritt.
-    std::unordered_map<u64, bool> warned;
-
-    Impl(world::World& w, jobs::JobSystem& j, PhysicsSettings s)
-        : world{&w}, jobs{&j}, settings{s} {
-        ensure_runtime();
-        temp =
-            std::make_unique<JPH::TempAllocatorImpl>(static_cast<JPH::uint>(settings.temp_memory));
-        job_adapter =
-            std::make_unique<JobAdapter>(j, JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
-        create_system();
-        transform_id = w.component<world::Transform>();
-        body_id = w.component<RigidBody>();
-        collider_id = w.component<Collider>();
-        interpolated_id = w.component<world::Interpolated>();
-        terrain_state_id = w.component<world::TerrainState>();
-        character_id = w.component<CharacterController>();
-        motion_id = w.component<CharacterMotion>();
-        world_transform_id = w.component<world::WorldTransform>();
-    }
-
-    ~Impl() {
-        jobs->wait(terrain_jobs);
-        remove_all();
-        job_adapter->drain();
-    }
-
-    // Neue, leere Jolt-Welt. Jolt ist nur bitgleich, wenn auch der innere Zustand gleich ist
-    // (Kennungen der Körper, Zwischenspeicher der Kontakte); nach dem Verwerfen aller Körper
-    // beginnt deshalb eine frische Welt.
-    void create_system() {
-        system = std::make_unique<JPH::PhysicsSystem>();
-        system->Init(settings.max_bodies, 0, settings.max_body_pairs,
-                     settings.max_contact_constraints, broad_layers, object_vs_broad, object_pairs);
-        system->SetGravity(to_jolt(settings.gravity));
-        system->SetContactListener(&contacts);
-        for (usize i = 0; i < surfaces.size(); ++i) {
-            surfaces[i] = new TerrainSurface{static_cast<voxel::Material>(i)};
-        }
-        set_terrain_materials(world::standard_terrain_materials());
-        contacts.surfaces = &surface_values;
-    }
-    Impl(const Impl&) = delete;
-    Impl& operator=(const Impl&) = delete;
-
-    JPH::BodyInterface& body_interface() noexcept {
-        return system->GetBodyInterfaceNoLock();
-    }
-
-    void warn_once(u64 entity, std::string_view message) {
-        if (!warned[entity]) {
-            warned[entity] = true;
-            log::warn("Physik: Entity {}: {}", entity, message);
-        }
-    }
-
-    // Weltlage einer Entity (Position, Drehung, Skalierung).
-    math::Decomposed world_pose(u64 entity, const world::Transform& transform, bool& has_parent) {
-        has_parent = world->parent(entity) != 0;
-        if (!has_parent) {
-            return math::Decomposed{.translation = transform.position,
-                                    .rotation = transform.rotation,
-                                    .scale = transform.scale};
-        }
-        return math::decompose(world::world_affine(*world, entity));
-    }
-
-    JPH::Ref<JPH::Shape> model_shape(u64 entity, const Collider& collider, ShapeType type,
-                                     math::Vec3 scale) {
-        const ShapeKey key{.model = collider.model,
-                           .mesh = collider.mesh,
-                           .type = type,
-                           .scale_x = std::bit_cast<u32>(scale.x),
-                           .scale_y = std::bit_cast<u32>(scale.y),
-                           .scale_z = std::bit_cast<u32>(scale.z)};
-        if (const auto found = shape_cache.find(key); found != shape_cache.end()) {
-            return found->second;
-        }
-        if (!shape_source || collider.model == 0) {
-            warn_once(entity, "Form aus einem Modell ohne Modell oder ohne ShapeSource");
-            return nullptr;
-        }
-        std::optional<TriangleMesh> mesh = shape_source(collider.model, collider.mesh);
-        if (!mesh) {
-            // Noch nicht geladen: Der nächste Abgleich versucht es wieder.
-            return nullptr;
-        }
-        JPH::Ref<JPH::Shape> shape;
-        if (type == ShapeType::ConvexHull) {
-            JPH::Array<JPH::Vec3> points;
-            points.reserve(mesh->positions.size());
-            for (const math::Vec3& p : mesh->positions) {
-                points.push_back(JPH::Vec3{p.x * scale.x, p.y * scale.y, p.z * scale.z});
-            }
-            JPH::ConvexHullShapeSettings hull{points};
-            shape = created(hull.Create(), "Hülle");
-        } else {
-            JPH::VertexList vertices;
-            vertices.reserve(mesh->positions.size());
-            for (const math::Vec3& p : mesh->positions) {
-                vertices.push_back(JPH::Float3{p.x * scale.x, p.y * scale.y, p.z * scale.z});
-            }
-            JPH::IndexedTriangleList triangles;
-            triangles.reserve(mesh->indices.size() / 3);
-            const auto count = static_cast<u32>(mesh->positions.size());
-            for (usize i = 0; i + 2 < mesh->indices.size(); i += 3) {
-                const u32 a = mesh->indices[i];
-                const u32 b = mesh->indices[i + 1];
-                const u32 c = mesh->indices[i + 2];
-                if (a < count && b < count && c < count) {
-                    triangles.push_back(JPH::IndexedTriangle{a, b, c, 0});
-                }
-            }
-            // Spiegelnde Skalierung dreht den Umlaufsinn um.
-            if (scale.x * scale.y * scale.z < 0.0f) {
-                for (JPH::IndexedTriangle& triangle : triangles) {
-                    std::swap(triangle.mIdx[1], triangle.mIdx[2]);
-                }
-            }
-            JPH::MeshShapeSettings mesh_settings{std::move(vertices), std::move(triangles)};
-            shape = created(mesh_settings.Create(), "Netz");
-        }
-        if (shape != nullptr) {
-            shape_cache.emplace(key, shape);
-        }
-        return shape;
-    }
-
-    JPH::Ref<JPH::Shape> make_shape(u64 entity, const RigidBody& body, const Collider& collider,
-                                    math::Vec3 scale) {
-        JPH::Ref<JPH::Shape> shape;
-        ShapeType type = collider.shape;
-        if (type == ShapeType::Mesh && body.motion == MotionType::Dynamic) {
-            // Jolt rechnet Dreiecksnetze nur unbewegt oder kinematisch.
-            warn_once(entity, "dynamischer Körper mit Dreiecksnetz, nutzt die konvexe Hülle");
-            type = ShapeType::ConvexHull;
-        }
-        if (type == ShapeType::ConvexHull || type == ShapeType::Mesh) {
-            shape = model_shape(entity, collider, type, scale);
-        } else {
-            shape = primitive_shape(type, collider.radius, collider.half_extents,
-                                    collider.half_height, scale);
-        }
-        if (shape == nullptr) {
-            return nullptr;
-        }
-        if (!same(collider.offset, math::Vec3{0.0f, 0.0f, 0.0f})) {
-            const JPH::Vec3 offset{collider.offset.x * scale.x, collider.offset.y * scale.y,
-                                   collider.offset.z * scale.z};
-            JPH::RotatedTranslatedShapeSettings moved{offset, JPH::Quat::sIdentity(), shape};
-            shape = created(moved.Create(), "Versatz");
-        }
-        return shape;
-    }
-
-    // Legt den Körper an; false, wenn die Form (noch) fehlt.
-    bool create_body(u64 entity, const RigidBody& body, const Collider& collider,
-                     const world::Transform& transform) {
-        bool has_parent = false;
-        const math::Decomposed pose = world_pose(entity, transform, has_parent);
-        JPH::Ref<JPH::Shape> shape = make_shape(entity, body, collider, pose.scale);
-        if (shape == nullptr) {
-            return false;
-        }
-        const bool sensor = collider.sensor || body.layer == PhysicsLayer::Sensor;
-        PhysicsLayer layer = body.layer;
-        if (sensor) {
-            layer = PhysicsLayer::Sensor;
-        } else if (body.motion == MotionType::Static) {
-            layer = PhysicsLayer::Static;
-        } else if (layer == PhysicsLayer::Static) {
-            layer = PhysicsLayer::Moving;
-        }
-        const JPH::EMotionType motion = body.motion == MotionType::Static ? JPH::EMotionType::Static
-                                        : body.motion == MotionType::Kinematic
-                                            ? JPH::EMotionType::Kinematic
-                                            : JPH::EMotionType::Dynamic;
-        JPH::BodyCreationSettings creation{shape.GetPtr(), to_jolt(pose.translation),
-                                           to_jolt(math::normalize(pose.rotation)), motion,
-                                           object_layer(layer)};
-        creation.mUserData = entity;
-        creation.mIsSensor = sensor;
-        creation.mFriction = body.friction;
-        creation.mRestitution = body.restitution;
-        creation.mLinearDamping = body.linear_damping;
-        creation.mAngularDamping = body.angular_damping;
-        creation.mGravityFactor = body.gravity_factor;
-        creation.mAllowSleeping = body.allow_sleep;
-        if (body.motion != MotionType::Static) {
-            creation.mLinearVelocity = to_jolt(body.linear_velocity);
-            creation.mAngularVelocity = to_jolt(body.angular_velocity);
-        }
-        if (sensor && body.motion != MotionType::Dynamic) {
-            // Unbewegte Sensoren sollen auch ruhende und kinematische Körper sehen.
-            creation.mCollideKinematicVsNonDynamic = true;
-        }
-        if (body.mass > 0.0f && body.motion == MotionType::Dynamic) {
-            creation.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            creation.mMassPropertiesOverride.mMass = body.mass;
-        }
-        JPH::Body* created_body = body_interface().CreateBody(creation);
-        if (created_body == nullptr) {
-            warn_once(entity, "kein Platz mehr für Körper (PhysicsSettings::max_bodies)");
-            return false;
-        }
-        const JPH::BodyID id = created_body->GetID();
-        const bool active = body.motion != MotionType::Static;
-        body_interface().AddBody(id, active ? JPH::EActivation::Activate
-                                            : JPH::EActivation::DontActivate);
-        bodies[entity] = BodyRecord{.id = id,
-                                    .body = body,
-                                    .collider = collider,
-                                    .transform = transform,
-                                    .has_parent = has_parent};
-        entity_of_body[id.GetIndexAndSequenceNumber()] = entity;
-        return true;
-    }
-
-    void destroy_body(std::map<u64, BodyRecord>::iterator it, std::vector<ContactEnded>& ended,
-                      std::vector<TriggerLeft>& left) {
-        const u64 entity = it->first;
-        const JPH::BodyID id = it->second.id;
-        body_interface().RemoveBody(id);
-        body_interface().DestroyBody(id);
-        entity_of_body.erase(id.GetIndexAndSequenceNumber());
-        frozen.erase(entity);
-        // Laufende Kontakte des Körpers enden mit ihm.
-        for (auto pair = touching.begin(); pair != touching.end();) {
-            if (pair->first.first == entity || pair->first.second == entity) {
-                emit_end(pair->first.first, pair->first.second, ended, left);
-                pair = touching.erase(pair);
-            } else {
-                ++pair;
-            }
-        }
-        bodies.erase(it);
-    }
-
-    [[nodiscard]] bool is_sensor_entity(u64 entity) const {
-        const auto found = bodies.find(entity);
-        if (found == bodies.end()) {
-            return false;
-        }
-        return found->second.collider.sensor || found->second.body.layer == PhysicsLayer::Sensor;
-    }
-
-    void emit_end(u64 a, u64 b, std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
-        if (is_sensor_entity(a)) {
-            left.push_back(TriggerLeft{.sensor = a, .other = b});
-        } else if (is_sensor_entity(b)) {
-            left.push_back(TriggerLeft{.sensor = b, .other = a});
-        } else {
-            ended.push_back(ContactEnded{.a = a, .b = b});
-        }
-    }
-
-    void remove_all() {
-        std::vector<ContactEnded> ended;
-        std::vector<TriggerLeft> left;
-        while (!bodies.empty()) {
-            destroy_body(bodies.begin(), ended, left);
-        }
-        while (!characters.empty()) {
-            destroy_character(characters.begin(), ended, left);
-        }
-        for (auto& [entity, terrain] : terrains) {
-            for (auto& [coord, chunk] : terrain.chunks) {
-                remove_chunk_body(chunk);
-            }
-        }
-        terrains.clear();
-        frozen.clear();
-        touching.clear();
-        (void)contacts.take();
-    }
-
-    void clear() {
-        jobs->wait(terrain_jobs);
-        remove_all();
-        create_system();
-        shape_cache.clear();
-        warned.clear();
-    }
-
-    void sync(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left, f32 dt) {
-        NGINE_PROFILE_ZONE("PhysicsWorld::sync");
-        std::vector<u64> current;
-        world->each<const RigidBody, const Collider, const world::Transform>(
-            [&](world::Entity entity, const RigidBody&, const Collider&, const world::Transform&) {
-                // Eine Spielfigur ist ihr eigener Körper.
-                if (!world->has(entity.id(), character_id)) {
-                    current.push_back(entity.id());
-                }
-            });
-        std::ranges::sort(current);
-
-        // Weggefallene Körper zuerst, in der Reihenfolge der Kennungen.
-        for (auto it = bodies.begin(); it != bodies.end();) {
-            if (!std::ranges::binary_search(current, it->first)) {
-                auto next = std::next(it);
-                destroy_body(it, ended, left);
-                it = next;
-            } else {
-                ++it;
-            }
-        }
-
-        // Interpolation für bewegliche Körper: Strukturänderung vor allen Zeigern in die Welt.
-        for (const u64 entity : current) {
-            if (bodies.contains(entity) || world->has(entity, interpolated_id)) {
-                continue;
-            }
-            const auto* body = static_cast<const RigidBody*>(world->get(entity, body_id));
-            if (body->motion != MotionType::Static) {
-                (void)world->ensure(entity, interpolated_id);
-                world->modified(entity, interpolated_id);
-            }
-        }
-
-        usize added = 0;
-        for (const u64 entity : current) {
-            const auto* body = static_cast<const RigidBody*>(world->get(entity, body_id));
-            const auto* collider = static_cast<const Collider*>(world->get(entity, collider_id));
-            const auto* transform =
-                static_cast<const world::Transform*>(world->get(entity, transform_id));
-            auto found = bodies.find(entity);
-            if (found != bodies.end()) {
-                BodyRecord& record = found->second;
-                const bool rebuild = !same_settings(record.body, *body) ||
-                                     !same_collider(record.collider, *collider) ||
-                                     !same(record.transform.scale, transform->scale);
-                if (rebuild) {
-                    destroy_body(found, ended, left);
-                } else {
-                    update_body(entity, record, *body, *transform, dt);
-                    continue;
-                }
-            }
-            if (create_body(entity, *body, *collider, *transform)) {
-                ++added;
-            }
-        }
-        if (added > 64) {
-            // Viele neue Körper auf einmal: Breitenphase neu ordnen, sonst sind die ersten Schritte
-            // langsam.
-            system->OptimizeBroadPhase();
-        }
-    }
-
-    // Änderungen von außen an einem bestehenden Körper.
-    void update_body(u64 entity, BodyRecord& record, const RigidBody& body,
-                     const world::Transform& transform, f32 dt) {
-        JPH::BodyInterface& bodies_interface = body_interface();
-        const bool moved = !same(record.transform, transform);
-        if (body.motion == MotionType::Kinematic) {
-            // Kinematische Körper fahren zu ihrem Transform; steht er, kommen sie zur Ruhe.
-            if (moved || bodies_interface.IsActive(record.id)) {
-                bool has_parent = false;
-                const math::Decomposed pose = world_pose(entity, transform, has_parent);
-                bodies_interface.MoveKinematic(record.id, to_jolt(pose.translation),
-                                               to_jolt(math::normalize(pose.rotation)), dt);
-            }
-            record.transform = transform;
-            return;
-        }
-        if (moved) {
-            bool has_parent = false;
-            const math::Decomposed pose = world_pose(entity, transform, has_parent);
-            bodies_interface.SetPositionAndRotation(
-                record.id, to_jolt(pose.translation), to_jolt(math::normalize(pose.rotation)),
-                body.motion == MotionType::Static ? JPH::EActivation::DontActivate
-                                                  : JPH::EActivation::Activate);
-            record.transform = transform;
-        }
-        if (body.motion == MotionType::Dynamic && frozen.contains(entity)) {
-            // Eingefroren: Die Geschwindigkeit gilt beim Auftauen.
-            record.body.linear_velocity = body.linear_velocity;
-            record.body.angular_velocity = body.angular_velocity;
-            return;
-        }
-        if (body.motion == MotionType::Dynamic &&
-            (!same(record.body.linear_velocity, body.linear_velocity) ||
-             !same(record.body.angular_velocity, body.angular_velocity))) {
-            bodies_interface.SetLinearAndAngularVelocity(record.id, to_jolt(body.linear_velocity),
-                                                         to_jolt(body.angular_velocity));
-            if (!same(body.linear_velocity, math::Vec3{}) ||
-                !same(body.angular_velocity, math::Vec3{})) {
-                bodies_interface.ActivateBody(record.id);
-            }
-            record.body.linear_velocity = body.linear_velocity;
-            record.body.angular_velocity = body.angular_velocity;
-        }
-    }
-
-    void write_back() {
-        NGINE_PROFILE_ZONE("PhysicsWorld::write_back");
-        JPH::BodyInterface& bodies_interface = body_interface();
-        u32 active = 0;
-        for (auto& [entity, record] : bodies) {
-            if (record.body.motion != MotionType::Dynamic || frozen.contains(entity)) {
-                continue;
-            }
-            const bool awake = bodies_interface.IsActive(record.id);
-            auto* body = static_cast<RigidBody*>(world->get_mut(entity, body_id));
-            if (!awake) {
-                // Eingeschlafen: Jolt hat die Geschwindigkeit auf null gesetzt.
-                if (!same(record.body.linear_velocity, math::Vec3{}) ||
-                    !same(record.body.angular_velocity, math::Vec3{})) {
-                    record.body.linear_velocity = {};
-                    record.body.angular_velocity = {};
-                    body->linear_velocity = {};
-                    body->angular_velocity = {};
-                }
-                continue;
-            }
-            ++active;
-            JPH::RVec3 position;
-            JPH::Quat rotation;
-            bodies_interface.GetPositionAndRotation(record.id, position, rotation);
-            JPH::Vec3 linear;
-            JPH::Vec3 angular;
-            bodies_interface.GetLinearAndAngularVelocity(record.id, linear, angular);
-            body->linear_velocity = from_jolt(linear);
-            body->angular_velocity = from_jolt(angular);
-            record.body.linear_velocity = body->linear_velocity;
-            record.body.angular_velocity = body->angular_velocity;
-
-            auto* transform = static_cast<world::Transform*>(world->get_mut(entity, transform_id));
-            if (!record.has_parent) {
-                transform->position = from_jolt(position);
-                transform->rotation = from_jolt(rotation);
-            } else {
-                // Lokale Lage aus der Weltlage und der des Elternteils.
-                const u64 parent = world->parent(entity);
-                const math::Affine global = math::Affine::from(
-                    from_jolt(position), from_jolt(rotation), {1.0f, 1.0f, 1.0f});
-                const math::Decomposed local =
-                    math::decompose(math::inverse(world::world_affine(*world, parent)) * global);
-                transform->position = local.translation;
-                transform->rotation = local.rotation;
-            }
-            world->modified(entity, transform_id);
-            record.transform = *transform;
-        }
-        stats.active_bodies = active;
-    }
-
-    void publish(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
-        NGINE_PROFILE_ZONE("PhysicsWorld::contacts");
-        // Jolt meldet Kontakte pro Teilform und in wechselnder Reihenfolge. Pro Paar zählt nur, ob
-        // die beiden Körper nach dem Schritt in Berührung sind; als Punkt gilt der kleinste
-        // gemeldete, damit das Ergebnis nicht von der Reihenfolge der Threads abhängt.
-        struct Change {
-            bool has_point = false;
-            math::DVec3 point;
-            math::Vec3 normal;
-        };
-        std::map<std::pair<u64, u64>, Change> changes;
-        for (const ContactRecord& record : contacts.take()) {
-            const auto first = entity_of_body.find(record.body1);
-            const auto second = entity_of_body.find(record.body2);
-            if (first == entity_of_body.end() || second == entity_of_body.end()) {
-                continue;
-            }
-            u64 a = first->second;
-            u64 b = second->second;
-            // Jolts Normale zeigt von Körper 1 nach 2; gemeldet wird sie von a nach b.
-            math::Vec3 normal = from_jolt(record.normal);
-            if (b < a) {
-                std::swap(a, b);
-                normal = -normal;
-            }
-            Change& change = changes[{a, b}];
-            if (record.added) {
-                const math::DVec3 point = from_jolt(record.point);
-                if (!change.has_point ||
-                    std::tie(point.x, point.y, point.z) <
-                        std::tie(change.point.x, change.point.y, change.point.z)) {
-                    change.point = point;
-                    change.normal = normal;
-                    change.has_point = true;
-                }
-            }
-        }
-
-        JPH::BodyInterface& bodies_interface = body_interface();
-        const auto body_of = [&](u64 entity) { return body_id_of(entity); };
-        const auto in_contact = [&](u64 a, u64 b) {
-            return system->WereBodiesInContact(body_of(a), body_of(b));
-        };
-        const auto asleep = [&](u64 a, u64 b) {
-            return !bodies_interface.IsActive(body_of(a)) && !bodies_interface.IsActive(body_of(b));
-        };
-
-        std::vector<ContactBegan> began;
-        std::vector<TriggerEntered> entered;
-        for (const auto& [pair, change] : changes) {
-            const auto found = touching.find(pair);
-            if (in_contact(pair.first, pair.second)) {
-                if (found == touching.end()) {
-                    if (is_sensor_entity(pair.first)) {
-                        entered.push_back(
-                            TriggerEntered{.sensor = pair.first, .other = pair.second});
-                    } else if (is_sensor_entity(pair.second)) {
-                        entered.push_back(
-                            TriggerEntered{.sensor = pair.second, .other = pair.first});
-                    } else {
-                        began.push_back(ContactBegan{.a = pair.first,
-                                                     .b = pair.second,
-                                                     .point = change.point,
-                                                     .normal = change.normal});
-                    }
-                }
-                touching[pair] = false;
-            } else if (found != touching.end()) {
-                if (asleep(pair.first, pair.second)) {
-                    // Eingeschlafen, nicht getrennt.
-                    found->second = true;
-                } else {
-                    emit_end(pair.first, pair.second, ended, left);
-                    touching.erase(found);
-                }
-            }
-        }
-        // Ruhende Paare, von denen einer aufgewacht ist, ohne dass Jolt etwas meldet: Sind sie
-        // noch in Berührung, laufen sie weiter, sonst endet der Kontakt.
-        for (auto it = touching.begin(); it != touching.end();) {
-            if (it->second && !asleep(it->first.first, it->first.second)) {
-                if (in_contact(it->first.first, it->first.second)) {
-                    it->second = false;
-                } else {
-                    emit_end(it->first.first, it->first.second, ended, left);
-                    it = touching.erase(it);
-                    continue;
-                }
-            }
-            ++it;
-        }
-        stats.contacts = static_cast<u32>(touching.size());
-        if (bus == nullptr) {
-            return;
-        }
-        for (const ContactEnded& event : ended) {
-            bus->publish(event);
-        }
-        for (const TriggerLeft& event : left) {
-            bus->publish(event);
-        }
-        for (const ContactBegan& event : began) {
-            bus->publish(event);
-        }
-        for (const TriggerEntered& event : entered) {
-            bus->publish(event);
-        }
-        for (const CharacterLanded& event : landed_events) {
-            bus->publish(event);
-        }
-        for (const CharacterStep& event : step_events) {
-            bus->publish(event);
-        }
-    }
-
-    // --- Spielfiguren (R4.3) ---------------------------------------------------------------------
-
-    [[nodiscard]] JPH::BodyID body_id_of(u64 entity) const {
-        if (const auto found = bodies.find(entity); found != bodies.end()) {
-            return found->second.id;
-        }
-        if (const auto found = characters.find(entity); found != characters.end()) {
-            return found->second.character->GetInnerBodyID();
-        }
-        return {};
-    }
-
-    void destroy_character(std::map<u64, CharacterRecord>::iterator it,
-                           std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
-        const u64 entity = it->first;
-        entity_of_body.erase(it->second.character->GetInnerBodyID().GetIndexAndSequenceNumber());
-        for (auto pair = touching.begin(); pair != touching.end();) {
-            if (pair->first.first == entity || pair->first.second == entity) {
-                emit_end(pair->first.first, pair->first.second, ended, left);
-                pair = touching.erase(pair);
-            } else {
-                ++pair;
-            }
-        }
-        // Der Destruktor nimmt den inneren Körper aus der Welt.
-        characters.erase(it);
-    }
-
-    bool create_character(u64 entity, const CharacterController& controller,
-                          const world::Transform& transform) {
-        bool has_parent = false;
-        const math::Decomposed pose = world_pose(entity, transform, has_parent);
-        CharacterRecord record;
-        record.standing = character_shape(controller.radius, controller.height);
-        record.crouching = character_shape(controller.radius,
-                                           std::min(controller.crouch_height, controller.height));
-        if (record.standing == nullptr || record.crouching == nullptr) {
-            warn_once(entity, "Spielfigur ohne gültige Form");
-            return false;
-        }
-        JPH::Ref<JPH::CharacterVirtualSettings> character_settings =
-            new JPH::CharacterVirtualSettings();
-        character_settings->mID = JPH::CharacterID{static_cast<JPH::uint32>(entity)};
-        character_settings->mShape = record.standing;
-        character_settings->mMaxSlopeAngle = controller.max_slope;
-        // Nur Berührungen unterhalb der unteren Halbkugel tragen die Figur.
-        character_settings->mSupportingVolume =
-            JPH::Plane{JPH::Vec3::sAxisY(), -std::max(controller.radius, 0.01f)};
-        character_settings->mMass = controller.mass;
-        character_settings->mMaxStrength = controller.push_strength;
-        character_settings->mEnhancedInternalEdgeRemoval = true;
-        character_settings->mInnerBodyShape = record.standing;
-        character_settings->mInnerBodyLayer = object_layer(PhysicsLayer::Character);
-        record.character = new JPH::CharacterVirtual(character_settings, to_jolt(pose.translation),
-                                                     JPH::Quat::sIdentity(), entity, system.get());
-        record.settings = controller;
-        record.transform = transform;
-        record.has_parent = has_parent;
-        record.fall_top = pose.translation.y;
-        entity_of_body[record.character->GetInnerBodyID().GetIndexAndSequenceNumber()] = entity;
-        characters[entity] = std::move(record);
-        return true;
-    }
-
-    // Legt Figuren an, entfernt und ändert sie (vor dem Schritt, nach den Körpern).
-    void sync_characters(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
-        std::vector<u64> current;
-        world->each<const CharacterController, const world::Transform>(
-            [&](world::Entity entity, const CharacterController&, const world::Transform&) {
-                current.push_back(entity.id());
-            });
-        std::ranges::sort(current);
-        for (auto it = characters.begin(); it != characters.end();) {
-            if (!std::ranges::binary_search(current, it->first)) {
-                auto next = std::next(it);
-                destroy_character(it, ended, left);
-                it = next;
-            } else {
-                ++it;
-            }
-        }
-        // Strukturänderungen vor allen Zeigern in die Welt.
-        for (const u64 entity : current) {
-            if (!world->has(entity, motion_id)) {
-                (void)world->ensure(entity, motion_id);
-                world->modified(entity, motion_id);
-            }
-            if (!world->has(entity, interpolated_id)) {
-                (void)world->ensure(entity, interpolated_id);
-                world->modified(entity, interpolated_id);
-            }
-        }
-        for (const u64 entity : current) {
-            const auto* controller =
-                static_cast<const CharacterController*>(world->get(entity, character_id));
-            const auto* transform =
-                static_cast<const world::Transform*>(world->get(entity, transform_id));
-            auto found = characters.find(entity);
-            if (found != characters.end()) {
-                if (!same_character(found->second.settings, *controller)) {
-                    destroy_character(found, ended, left);
-                } else {
-                    CharacterRecord& record = found->second;
-                    // Nur die Lage zählt: Die Steuerung dreht die Figur jedes Bild um die
-                    // Hochachse, das ist kein Versetzen.
-                    const world::Transform& before = record.transform;
-                    const bool moved = before.position.x != transform->position.x ||
-                                       before.position.y != transform->position.y ||
-                                       before.position.z != transform->position.z;
-                    record.transform = *transform;
-                    if (moved) {
-                        // Von außen versetzt: Die Figur springt an die neue Lage.
-                        bool has_parent = false;
-                        const math::Decomposed pose = world_pose(entity, *transform, has_parent);
-                        record.character->SetPosition(to_jolt(pose.translation));
-                        record.character->SetLinearVelocity(JPH::Vec3::sZero());
-                        record.has_parent = has_parent;
-                        record.fall_top = pose.translation.y;
-                    }
-                    continue;
-                }
-            }
-            (void)create_character(entity, *controller, *transform);
-        }
-    }
-
-    // Bewegt alle Figuren um dt (vor dem Schritt der Körper, damit Kisten den Schub im selben
-    // Schritt spüren).
-    void update_characters(f32 dt) {
-        NGINE_PROFILE_ZONE("PhysicsWorld::characters");
-        landed_events.clear();
-        step_events.clear();
-        const JPH::Vec3 gravity = system->GetGravity();
-        const CharacterBodyFilter body_filter;
-        const JPH::ShapeFilter shape_filter;
-        const JPH::BroadPhaseLayerFilter& broad =
-            system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
-        const JPH::ObjectLayerFilter& object =
-            system->GetDefaultLayerFilter(object_layer(PhysicsLayer::Character));
-        for (auto& [entity, record] : characters) {
-            auto* motion = static_cast<CharacterMotion*>(world->get_mut(entity, motion_id));
-            JPH::CharacterVirtual& character = *record.character;
-            const CharacterController& c = record.settings;
-
-            // Ohne Form des Terrains unter sich bleibt die Figur stehen.
-            record.frozen = !terrains.empty() && missing_ground(from_jolt(character.GetPosition()));
-            if (record.frozen) {
-                character.SetLinearVelocity(JPH::Vec3::sZero());
-                motion->velocity = {};
-                motion->jump = false;
-                continue;
-            }
-
-            // Ducken: Aufstehen nur, wenn über der Figur Platz ist.
-            if (motion->crouch != record.crouched) {
-                const JPH::Shape* target =
-                    motion->crouch ? record.crouching.GetPtr() : record.standing.GetPtr();
-                if (character.SetShape(target, 1.5f * 0.02f, broad, object, body_filter,
-                                       shape_filter, *temp)) {
-                    record.crouched = motion->crouch;
-                }
-            }
-
-            const JPH::Vec3 g = gravity * c.gravity_factor;
-            const JPH::Vec3 current = character.GetLinearVelocity();
-            const JPH::CharacterBase::EGroundState state = character.GetGroundState();
-            const bool on_ground = state == JPH::CharacterBase::EGroundState::OnGround;
-
-            // Wunschgeschwindigkeit auf der Ebene.
-            JPH::Vec3 wish{motion->move.x, 0.0f, motion->move.z};
-            if (wish.LengthSq() > 1.0f) {
-                wish = wish.Normalized();
-            }
-            const f32 speed = record.crouched ? c.crouch_speed
-                              : motion->run   ? c.run_speed
-                                              : c.walk_speed;
-            wish *= speed;
-            if (state == JPH::CharacterBase::EGroundState::OnSteepGround) {
-                wish = character.CancelVelocityTowardsSteepSlopes(wish);
-            }
-            const JPH::Vec3 ground_velocity =
-                on_ground ? character.GetGroundVelocity() : JPH::Vec3::sZero();
-            JPH::Vec3 horizontal{current.GetX() - ground_velocity.GetX(), 0.0f,
-                                 current.GetZ() - ground_velocity.GetZ()};
-            const f32 acceleration = on_ground ? c.ground_acceleration : c.air_acceleration;
-            const JPH::Vec3 change = wish - horizontal;
-            const f32 max_change = acceleration * dt;
-            if (change.Length() <= max_change) {
-                horizontal = wish;
-            } else {
-                horizontal += change.Normalized() * max_change;
-            }
-
-            f32 vertical = current.GetY();
-            if (on_ground) {
-                vertical = ground_velocity.GetY();
-                if (motion->jump && c.jump_height > 0.0f) {
-                    vertical += std::sqrt(2.0f * g.Length() * c.jump_height);
-                }
-            }
-            vertical += g.GetY() * dt;
-            motion->jump = false;
-            character.SetLinearVelocity(JPH::Vec3{horizontal.GetX() + ground_velocity.GetX(),
-                                                  vertical,
-                                                  horizontal.GetZ() + ground_velocity.GetZ()});
-
-            const JPH::RVec3 before = character.GetPosition();
-            const f32 before_vertical = character.GetLinearVelocity().GetY();
-            JPH::CharacterVirtual::ExtendedUpdateSettings update;
-            update.mWalkStairsStepUp = JPH::Vec3{0.0f, c.step_height, 0.0f};
-            update.mStickToFloorStepDown = JPH::Vec3{0.0f, -std::max(c.step_height, 0.1f), 0.0f};
-            character.ExtendedUpdate(dt, g, update, broad, object, body_filter, shape_filter,
-                                     *temp);
-
-            const JPH::RVec3 after = character.GetPosition();
-            const JPH::CharacterBase::EGroundState now = character.GetGroundState();
-            const bool supported = now == JPH::CharacterBase::EGroundState::OnGround;
-            motion->velocity = from_jolt(character.GetLinearVelocity());
-            motion->ground = supported ? GroundState::Ground
-                             : now == JPH::CharacterBase::EGroundState::OnSteepGround
-                                 ? GroundState::Steep
-                                 : GroundState::Air;
-            motion->ground_normal = character.IsSupported() ? from_jolt(character.GetGroundNormal())
-                                                            : math::Vec3{0.0f, 1.0f, 0.0f};
-            motion->ground_entity =
-                character.IsSupported() ? entity_of(character.GetGroundBodyID()) : 0;
-            motion->ground_material = 0;
-            if (character.IsSupported()) {
-                if (const auto* surface =
-                        dynamic_cast<const TerrainSurface*>(character.GetGroundMaterial())) {
-                    motion->ground_material = surface->material;
-                }
-            }
-            motion->crouched = record.crouched;
-
-            const f64 y = static_cast<f64>(after.GetY());
-            if (!supported) {
-                record.fall_top = record.supported ? y : std::max(record.fall_top, y);
-                record.step_distance = 0.0;
-            } else {
-                if (!record.supported) {
-                    landed_events.push_back(CharacterLanded{
-                        .entity = entity,
-                        .height = static_cast<f32>(std::max(record.fall_top - y, 0.0)),
-                        .speed = std::max(-before_vertical, 0.0f),
-                        .material = motion->ground_material});
-                }
-                const f64 dx = static_cast<f64>(after.GetX() - before.GetX());
-                const f64 dz = static_cast<f64>(after.GetZ() - before.GetZ());
-                record.step_distance += std::sqrt(dx * dx + dz * dz);
-                if (record.step_distance >= static_cast<f64>(c.step_length)) {
-                    record.step_distance -= static_cast<f64>(c.step_length);
-                    step_events.push_back(CharacterStep{.entity = entity,
-                                                        .position = from_jolt(after),
-                                                        .material = motion->ground_material,
-                                                        .run = motion->run});
-                }
-                record.fall_top = y;
-            }
-            record.supported = supported;
-
-            // Fußpunkt zurück in Transform (lokal, wenn die Figur ein Elternteil hat).
-            auto* transform = static_cast<world::Transform*>(world->get_mut(entity, transform_id));
-            const math::DVec3 position = from_jolt(after);
-            if (!record.has_parent) {
-                transform->position = position;
-            } else {
-                const u64 parent = world->parent(entity);
-                const math::Affine global =
-                    math::Affine::from(position, transform->rotation, {1.0f, 1.0f, 1.0f});
-                transform->position =
-                    math::decompose(math::inverse(world::world_affine(*world, parent)) * global)
-                        .translation;
-            }
-            world->modified(entity, transform_id);
-            record.transform = *transform;
-        }
-    }
-
-    // --- Kollision des Terrains (R4.3) -----------------------------------------------------------
-
-    void remove_chunk_body(TerrainChunk& chunk) {
-        if (chunk.body.IsInvalid()) {
-            return;
-        }
-        terrain_of_body.erase(chunk.body.GetIndexAndSequenceNumber());
-        body_interface().RemoveBody(chunk.body);
-        body_interface().DestroyBody(chunk.body);
-        chunk.body = {};
-    }
-
-    // Lage aller Dinge, die Formen brauchen: dynamische Körper und Beobachter (Spielfiguren
-    // folgen mit ihnen).
-    std::vector<math::DVec3> terrain_anchors() {
-        std::vector<math::DVec3> anchors;
-        JPH::BodyInterface& bodies_interface = body_interface();
-        for (const auto& [entity, record] : bodies) {
-            if (record.body.motion == MotionType::Dynamic) {
-                anchors.push_back(from_jolt(bodies_interface.GetPosition(record.id)));
-            }
-        }
-        for (const auto& [entity, record] : characters) {
-            anchors.push_back(from_jolt(record.character->GetPosition()));
-        }
-        world->each<const world::TerrainObserver, const world::WorldTransform>(
-            [&](world::Entity, const world::TerrainObserver& observer,
-                const world::WorldTransform& transform) {
-                if (observer.active) {
-                    anchors.push_back(transform.position());
-                }
-            });
-        return anchors;
-    }
-
-    // Chunks der Stufe 0 eines Terrains, die eine Form brauchen: mit Netz und im Radius um einen
-    // Anker. Sortiert.
-    std::vector<voxel::ChunkCoord> needed_chunks(const world::TerrainData& data, math::DVec3 base,
-                                                 std::span<const math::DVec3> anchors) const {
-        const f64 radius = static_cast<f64>(std::max(settings.terrain_radius, 0.0f));
-        const auto reach = static_cast<i32>(std::ceil(radius / voxel::chunk_size));
-        std::unordered_set<voxel::ChunkCoord, voxel::ChunkCoordHash> centers;
-        for (const math::DVec3& anchor : anchors) {
-            const math::DVec3 local = (anchor - base) * (1.0 / voxel::voxel_size);
-            centers.insert(voxel::chunk_of(static_cast<i64>(std::floor(local.x)),
-                                           static_cast<i64>(std::floor(local.y)),
-                                           static_cast<i64>(std::floor(local.z))));
-        }
-        std::unordered_set<voxel::ChunkCoord, voxel::ChunkCoordHash> needed;
-        for (const voxel::ChunkCoord center : centers) {
-            for (i32 dz = -reach; dz <= reach; ++dz) {
-                for (i32 dy = -reach; dy <= reach; ++dy) {
-                    for (i32 dx = -reach; dx <= reach; ++dx) {
-                        const voxel::ChunkCoord coord{center.x + dx, center.y + dy, center.z + dz,
-                                                      0};
-                        if (needed.contains(coord) || !data.meshes.contains(coord)) {
-                            continue;
-                        }
-                        needed.insert(coord);
-                    }
-                }
-            }
-        }
-        // Genauer: nur Chunks, deren Würfel näher als radius an einem Anker liegt. Die Mitten der
-        // Würfel reichen als Maß; reach deckt die Nachbarn ab.
-        std::vector<voxel::ChunkCoord> result;
-        result.reserve(needed.size());
-        const f64 half = voxel::chunk_size * 0.5;
-        const f64 limit = radius + half * 1.7320508;
-        for (const voxel::ChunkCoord coord : needed) {
-            const math::DVec3 center =
-                base + voxel::chunk_position(coord) + math::DVec3{half, half, half};
-            for (const math::DVec3& anchor : anchors) {
-                const math::DVec3 d = center - anchor;
-                if (d.x * d.x + d.y * d.y + d.z * d.z <= limit * limit) {
-                    result.push_back(coord);
-                    break;
-                }
-            }
-        }
-        std::sort(result.begin(), result.end());
-        return result;
-    }
-
-    // Startet einen Job, der die Form aus dem Netz baut.
-    void start_build(TerrainChunk& chunk, const world::ChunkMesh& mesh) {
-        auto build = std::make_shared<TerrainBuild>();
-        build->version = mesh.version;
         JPH::VertexList vertices;
-        vertices.reserve(mesh.mesh.vertices.size());
-        const auto scale = static_cast<f32>(voxel::voxel_size);
-        for (const voxel::Vertex& v : mesh.mesh.vertices) {
-            vertices.push_back(JPH::Float3{v.px * scale, v.py * scale, v.pz * scale});
-        }
-        // Material eines Dreiecks: der Platz der Palette mit dem größten Gewicht an seinen drei
-        // Ecken (höchstens acht Plätze, Jolt erlaubt 32 Materialien pro Form).
-        const voxel::Mesh& source = mesh.mesh;
-        const u32 slots = std::max(source.palette_count, 1u);
-        JPH::PhysicsMaterialList materials;
-        for (u32 slot = 0; slot < slots; ++slot) {
-            materials.push_back(
-                JPH::RefConst<JPH::PhysicsMaterial>{surfaces[source.palette[slot]]});
+        vertices.reserve(mesh->positions.size());
+        for (const math::Vec3& p : mesh->positions) {
+            vertices.push_back(JPH::Float3{p.x * scale.x, p.y * scale.y, p.z * scale.z});
         }
         JPH::IndexedTriangleList triangles;
-        triangles.reserve(source.indices.size() / 3);
-        for (usize i = 0; i + 2 < source.indices.size(); i += 3) {
-            const u32 a = source.indices[i];
-            const u32 b = source.indices[i + 1];
-            const u32 c = source.indices[i + 2];
-            u32 best = 0;
-            u32 best_weight = 0;
-            for (u32 slot = 0; slot < source.palette_count; ++slot) {
-                const u32 weight = source.vertices[a].weight(slot) +
-                                   source.vertices[b].weight(slot) +
-                                   source.vertices[c].weight(slot);
-                if (weight > best_weight) {
-                    best = slot;
-                    best_weight = weight;
-                }
+        triangles.reserve(mesh->indices.size() / 3);
+        const auto count = static_cast<u32>(mesh->positions.size());
+        for (usize i = 0; i + 2 < mesh->indices.size(); i += 3) {
+            const u32 a = mesh->indices[i];
+            const u32 b = mesh->indices[i + 1];
+            const u32 c = mesh->indices[i + 2];
+            if (a < count && b < count && c < count) {
+                triangles.push_back(JPH::IndexedTriangle{a, b, c, 0});
             }
-            triangles.push_back(JPH::IndexedTriangle{a, b, c, best});
         }
-        build->vertices = std::move(vertices);
-        build->input = std::move(triangles);
-        build->materials = std::move(materials);
-        chunk.build = build;
-        auto work = [build] {
-            const auto start = std::chrono::steady_clock::now();
-            build->triangles = static_cast<u32>(build->input.size());
-            build->shape = terrain_shape(std::move(build->vertices), std::move(build->input),
-                                         std::move(build->materials));
-            build->ms =
-                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
-                    .count();
-            build->done.store(true, std::memory_order_release);
-        };
-        if constexpr (jolt_on_workers) {
-            jobs->run(std::move(work), &terrain_jobs);
-        } else {
-            // Unter ThreadSanitizer baut Jolt nur im Hauptthread (TD-47).
-            work();
+        // Spiegelnde Skalierung dreht den Umlaufsinn um.
+        if (scale.x * scale.y * scale.z < 0.0f) {
+            for (JPH::IndexedTriangle& triangle : triangles) {
+                std::swap(triangle.mIdx[1], triangle.mIdx[2]);
+            }
         }
+        JPH::MeshShapeSettings mesh_settings{std::move(vertices), std::move(triangles)};
+        shape = created(mesh_settings.Create(), "Netz");
     }
-
-    // Setzt eine fertige Form ein; liefert, ob sich die Kollision geändert hat.
-    bool finish_build(u64 terrain_entity, const TerrainRecord& terrain, voxel::ChunkCoord coord,
-                      TerrainChunk& chunk, f64& build_ms, u32& built) {
-        std::shared_ptr<TerrainBuild> build = std::move(chunk.build);
-        chunk.build.reset();
-        built += 1;
-        build_ms += build->ms;
-        JPH::BodyInterface& bodies_interface = body_interface();
-        if (build->shape == nullptr) {
-            // Netz ohne Dreiecke: keine Form.
-            remove_chunk_body(chunk);
-            chunk.version = build->version;
-            chunk.triangles = 0;
-            chunk.bytes = 0;
-            return true;
-        }
-        chunk.version = build->version;
-        chunk.triangles = build->triangles;
-        chunk.bytes = build->shape->GetStats().mSizeBytes;
-        if (chunk.body.IsInvalid()) {
-            JPH::BodyCreationSettings creation{build->shape.GetPtr(),
-                                               to_jolt(terrain.base + voxel::chunk_position(coord)),
-                                               JPH::Quat::sIdentity(), JPH::EMotionType::Static,
-                                               object_layer(PhysicsLayer::Static)};
-            creation.mUserData = terrain_entity;
-            JPH::Body* body = bodies_interface.CreateBody(creation);
-            if (body == nullptr) {
-                warn_once(terrain_entity, "kein Platz mehr für Formen des Terrains");
-                return false;
-            }
-            chunk.body = body->GetID();
-            bodies_interface.AddBody(chunk.body, JPH::EActivation::DontActivate);
-            terrain_of_body[chunk.body.GetIndexAndSequenceNumber()] = terrain_entity;
-        } else {
-            bodies_interface.SetShape(chunk.body, build->shape.GetPtr(), false,
-                                      JPH::EActivation::DontActivate);
-        }
-        // Körper in der Nähe wecken: Liegt eine Kiste auf weggegrabenem Boden, fällt sie.
-        const math::DVec3 corner = terrain.base + voxel::chunk_position(coord);
-        constexpr f64 margin = 1.0;
-        const auto low = math::to_f32(corner - math::DVec3{margin, margin, margin});
-        const auto high = math::to_f32(corner + math::DVec3{voxel::chunk_size + margin,
-                                                            voxel::chunk_size + margin,
-                                                            voxel::chunk_size + margin});
-        const QueryBroadFilter broad{all_layers};
-        const QueryObjectFilter object{all_layers};
-        bodies_interface.ActivateBodiesInAABox(
-            JPH::AABox{JPH::Vec3{low.x, low.y, low.z}, JPH::Vec3{high.x, high.y, high.z}}, broad,
-            object);
-        return true;
+    if (shape != nullptr) {
+        shape_cache.emplace(key, shape);
     }
+    return shape;
+}
 
-    // Hält die Formen aller Terrains aktuell.
-    void sync_terrains() {
-        NGINE_PROFILE_ZONE("PhysicsWorld::sync_terrains");
-        struct Live {
-            u64 entity;
-            std::shared_ptr<world::TerrainData> data;
-            math::DVec3 base;
-        };
-        std::vector<Live> live;
-        world->each<const world::TerrainState, const world::WorldTransform>(
-            [&](world::Entity entity, const world::TerrainState& state,
-                const world::WorldTransform& transform) {
-                if (state.data) {
-                    live.push_back(Live{entity.id(), state.data, transform.position()});
-                }
-            });
-        std::ranges::sort(live, {}, &Live::entity);
-
-        // Weggefallene Terrains.
-        for (auto it = terrains.begin(); it != terrains.end();) {
-            const bool alive =
-                std::ranges::any_of(live, [&](const Live& l) { return l.entity == it->first; });
-            if (!alive) {
-                for (auto& [coord, chunk] : it->second.chunks) {
-                    remove_chunk_body(chunk);
-                }
-                it = terrains.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        if (live.empty()) {
-            stats.terrain_chunks = 0;
-            stats.terrain_building = 0;
-            stats.terrain_built = 0;
-            stats.terrain_bytes = 0;
-            return;
-        }
-
-        const std::vector<math::DVec3> anchors = terrain_anchors();
-        f64 build_ms = 0.0;
-        u32 built = 0;
-        for (const Live& l : live) {
-            TerrainRecord& terrain = terrains[l.entity];
-            if (terrain.data_id != l.data->id) {
-                for (auto& [coord, chunk] : terrain.chunks) {
-                    remove_chunk_body(chunk);
-                }
-                terrain.chunks.clear();
-                terrain.data_id = l.data->id;
-                terrain.base = l.base;
-            }
-            if (!(terrain.base == l.base)) {
-                // Das Terrain wurde verschoben: alle Formen mit.
-                terrain.base = l.base;
-                for (auto& [coord, chunk] : terrain.chunks) {
-                    if (!chunk.body.IsInvalid()) {
-                        body_interface().SetPosition(chunk.body,
-                                                     to_jolt(l.base + voxel::chunk_position(coord)),
-                                                     JPH::EActivation::DontActivate);
-                    }
-                }
-            }
-            const std::vector<voxel::ChunkCoord> needed = needed_chunks(*l.data, l.base, anchors);
-            for (const voxel::ChunkCoord coord : needed) {
-                TerrainChunk& chunk = terrain.chunks[coord];
-                chunk.unused = 0;
-                const world::ChunkMesh& mesh = l.data->meshes.at(coord);
-                const bool current = chunk.version == mesh.version;
-                const bool building = chunk.build && chunk.build->version == mesh.version;
-                if (!current && !building) {
-                    start_build(chunk, mesh);
-                }
-            }
-            // Formen ohne Bedarf oder ohne Netz fallen nach einer Weile weg.
-            for (auto it = terrain.chunks.begin(); it != terrain.chunks.end();) {
-                TerrainChunk& chunk = it->second;
-                const bool has_mesh = l.data->meshes.contains(it->first);
-                if (!std::binary_search(needed.begin(), needed.end(), it->first)) {
-                    ++chunk.unused;
-                }
-                if (!has_mesh || chunk.unused > settings.terrain_keep_steps) {
-                    if (!chunk.build) {
-                        remove_chunk_body(chunk);
-                        it = terrain.chunks.erase(it);
-                        continue;
-                    }
-                }
-                ++it;
-            }
-        }
-
-        if (settings.wait_for_terrain) {
-            jobs->wait(terrain_jobs);
-        }
-        // Fertige Formen einsetzen, in der Reihenfolge der Terrains und Chunks.
-        u32 building = 0;
-        u32 chunks_with_shape = 0;
-        usize bytes = 0;
-        for (auto& [entity, terrain] : terrains) {
-            for (auto it = terrain.chunks.begin(); it != terrain.chunks.end();) {
-                TerrainChunk& chunk = it->second;
-                if (chunk.build && chunk.build->done.load(std::memory_order_acquire)) {
-                    (void)finish_build(entity, terrain, it->first, chunk, build_ms, built);
-                    if (chunk.body.IsInvalid() && chunk.unused > settings.terrain_keep_steps) {
-                        it = terrain.chunks.erase(it);
-                        continue;
-                    }
-                }
-                if (chunk.build) {
-                    ++building;
-                }
-                if (!chunk.body.IsInvalid()) {
-                    ++chunks_with_shape;
-                    bytes += chunk.bytes;
-                }
-                ++it;
-            }
-        }
-        stats.terrain_chunks = chunks_with_shape;
-        stats.terrain_building = building;
-        stats.terrain_built = built;
-        if (built > 0) {
-            stats.terrain_build_ms = build_ms / static_cast<f64>(built);
-        }
-        stats.terrain_bytes = bytes;
+JPH::Ref<JPH::Shape> PhysicsWorld::Impl::make_shape(u64 entity, const RigidBody& body,
+                                                    const Collider& collider, math::Vec3 scale) {
+    JPH::Ref<JPH::Shape> shape;
+    ShapeType type = collider.shape;
+    if (type == ShapeType::Mesh && body.motion == MotionType::Dynamic) {
+        // Jolt rechnet Dreiecksnetze nur unbewegt oder kinematisch.
+        warn_once(entity, "dynamischer Körper mit Dreiecksnetz, nutzt die konvexe Hülle");
+        type = ShapeType::ConvexHull;
     }
+    if (type == ShapeType::ConvexHull || type == ShapeType::Mesh) {
+        shape = model_shape(entity, collider, type, scale);
+    } else {
+        shape = primitive_shape(type, collider.radius, collider.half_extents, collider.half_height,
+                                scale);
+    }
+    if (shape == nullptr) {
+        return nullptr;
+    }
+    if (!same(collider.offset, math::Vec3{0.0f, 0.0f, 0.0f})) {
+        const JPH::Vec3 offset{collider.offset.x * scale.x, collider.offset.y * scale.y,
+                               collider.offset.z * scale.z};
+        JPH::RotatedTranslatedShapeSettings moved{offset, JPH::Quat::sIdentity(), shape};
+        shape = created(moved.Create(), "Versatz");
+    }
+    return shape;
+}
 
-    // Ob unter einer Lage die Kollision des Terrains fehlt: Der Chunk der Stufe 0 an der Lage
-    // oder einer der beiden darunter hat ein Netz, aber noch keine Form dazu, oder ein endloses
-    // Terrain hat dort noch gar keine Chunks der Stufe 0 geladen.
-    [[nodiscard]] bool missing_ground(math::DVec3 position) const {
-        for (const auto& [entity, terrain] : terrains) {
-            const world::Entity handle = world->entity(entity);
-            const auto* state =
-                static_cast<const world::TerrainState*>(world->get(entity, terrain_state_id));
-            if (state == nullptr || !state->data || !handle) {
-                continue;
-            }
-            const world::TerrainData& data = *state->data;
-            const math::DVec3 local = (position - terrain.base) * (1.0 / voxel::voxel_size);
-            const voxel::ChunkCoord at = voxel::chunk_of(static_cast<i64>(std::floor(local.x)),
-                                                         static_cast<i64>(std::floor(local.y)),
-                                                         static_cast<i64>(std::floor(local.z)));
-            bool loaded = false;
-            for (i32 dy = 0; dy <= 2; ++dy) {
-                const voxel::ChunkCoord coord{at.x, at.y - dy, at.z, 0};
-                if (data.chunks.find(coord) != nullptr) {
-                    loaded = true;
-                }
-                const auto mesh = data.meshes.find(coord);
-                if (mesh == data.meshes.end()) {
-                    continue;
-                }
-                loaded = true;
-                const auto chunk = terrain.chunks.find(coord);
-                if (chunk == terrain.chunks.end() || chunk->second.version == 0) {
-                    return true;
-                }
-            }
-            if (!loaded && data.streamer) {
-                return true;
-            }
-        }
+// Legt den Körper an; false, wenn die Form (noch) fehlt.
+bool PhysicsWorld::Impl::create_body(u64 entity, const RigidBody& body, const Collider& collider,
+                                     const world::Transform& transform) {
+    bool has_parent = false;
+    const math::Decomposed pose = world_pose(entity, transform, has_parent);
+    JPH::Ref<JPH::Shape> shape = make_shape(entity, body, collider, pose.scale);
+    if (shape == nullptr) {
         return false;
     }
+    const bool sensor = collider.sensor || body.layer == PhysicsLayer::Sensor;
+    PhysicsLayer layer = body.layer;
+    if (sensor) {
+        layer = PhysicsLayer::Sensor;
+    } else if (body.motion == MotionType::Static) {
+        layer = PhysicsLayer::Static;
+    } else if (layer == PhysicsLayer::Static) {
+        layer = PhysicsLayer::Moving;
+    }
+    const JPH::EMotionType motion = body.motion == MotionType::Static ? JPH::EMotionType::Static
+                                    : body.motion == MotionType::Kinematic
+                                        ? JPH::EMotionType::Kinematic
+                                        : JPH::EMotionType::Dynamic;
+    JPH::BodyCreationSettings creation{shape.GetPtr(), to_jolt(pose.translation),
+                                       to_jolt(math::normalize(pose.rotation)), motion,
+                                       object_layer(layer)};
+    creation.mUserData = entity;
+    creation.mIsSensor = sensor;
+    creation.mFriction = body.friction;
+    creation.mRestitution = body.restitution;
+    creation.mLinearDamping = body.linear_damping;
+    creation.mAngularDamping = body.angular_damping;
+    creation.mGravityFactor = body.gravity_factor;
+    creation.mAllowSleeping = body.allow_sleep;
+    if (body.motion != MotionType::Static) {
+        creation.mLinearVelocity = to_jolt(body.linear_velocity);
+        creation.mAngularVelocity = to_jolt(body.angular_velocity);
+    }
+    if (sensor && body.motion != MotionType::Dynamic) {
+        // Unbewegte Sensoren sollen auch ruhende und kinematische Körper sehen.
+        creation.mCollideKinematicVsNonDynamic = true;
+    }
+    if (body.mass > 0.0f && body.motion == MotionType::Dynamic) {
+        creation.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+        creation.mMassPropertiesOverride.mMass = body.mass;
+    }
+    JPH::Body* created_body = body_interface().CreateBody(creation);
+    if (created_body == nullptr) {
+        warn_once(entity, "kein Platz mehr für Körper (PhysicsSettings::max_bodies)");
+        return false;
+    }
+    const JPH::BodyID id = created_body->GetID();
+    const bool active = body.motion != MotionType::Static;
+    body_interface().AddBody(id,
+                             active ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+    bodies[entity] = BodyRecord{.id = id,
+                                .body = body,
+                                .collider = collider,
+                                .transform = transform,
+                                .has_parent = has_parent};
+    entity_of_body[id.GetIndexAndSequenceNumber()] = entity;
+    return true;
+}
 
-    // Friert dynamische Körper ohne Boden ein und taut sie auf, sobald er da ist.
-    void update_frozen() {
-        NGINE_PROFILE_ZONE("PhysicsWorld::update_frozen");
-        JPH::BodyInterface& bodies_interface = body_interface();
-        for (auto& [entity, record] : bodies) {
-            if (record.body.motion != MotionType::Dynamic) {
+void PhysicsWorld::Impl::destroy_body(std::map<u64, BodyRecord>::iterator it,
+                                      std::vector<ContactEnded>& ended,
+                                      std::vector<TriggerLeft>& left) {
+    const u64 entity = it->first;
+    const JPH::BodyID id = it->second.id;
+    body_interface().RemoveBody(id);
+    body_interface().DestroyBody(id);
+    entity_of_body.erase(id.GetIndexAndSequenceNumber());
+    frozen.erase(entity);
+    // Laufende Kontakte des Körpers enden mit ihm.
+    for (auto pair = touching.begin(); pair != touching.end();) {
+        if (pair->first.first == entity || pair->first.second == entity) {
+            emit_end(pair->first.first, pair->first.second, ended, left);
+            pair = touching.erase(pair);
+        } else {
+            ++pair;
+        }
+    }
+    bodies.erase(it);
+}
+
+bool PhysicsWorld::Impl::is_sensor_entity(u64 entity) const {
+    const auto found = bodies.find(entity);
+    if (found == bodies.end()) {
+        return false;
+    }
+    return found->second.collider.sensor || found->second.body.layer == PhysicsLayer::Sensor;
+}
+
+void PhysicsWorld::Impl::emit_end(u64 a, u64 b, std::vector<ContactEnded>& ended,
+                                  std::vector<TriggerLeft>& left) {
+    if (is_sensor_entity(a)) {
+        left.push_back(TriggerLeft{.sensor = a, .other = b});
+    } else if (is_sensor_entity(b)) {
+        left.push_back(TriggerLeft{.sensor = b, .other = a});
+    } else {
+        ended.push_back(ContactEnded{.a = a, .b = b});
+    }
+}
+
+void PhysicsWorld::Impl::remove_all() {
+    std::vector<ContactEnded> ended;
+    std::vector<TriggerLeft> left;
+    while (!bodies.empty()) {
+        destroy_body(bodies.begin(), ended, left);
+    }
+    while (!characters.empty()) {
+        destroy_character(characters.begin(), ended, left);
+    }
+    for (auto& [entity, terrain] : terrains) {
+        for (auto& [coord, chunk] : terrain.chunks) {
+            remove_chunk_body(chunk);
+        }
+    }
+    terrains.clear();
+    frozen.clear();
+    touching.clear();
+    (void)contacts.take();
+}
+
+void PhysicsWorld::Impl::clear() {
+    jobs->wait(terrain_jobs);
+    remove_all();
+    create_system();
+    shape_cache.clear();
+    warned.clear();
+}
+
+void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left,
+                              f32 dt) {
+    NGINE_PROFILE_ZONE("PhysicsWorld::sync");
+    std::vector<u64> current;
+    world->each<const RigidBody, const Collider, const world::Transform>(
+        [&](world::Entity entity, const RigidBody&, const Collider&, const world::Transform&) {
+            // Eine Spielfigur ist ihr eigener Körper.
+            if (!world->has(entity.id(), character_id)) {
+                current.push_back(entity.id());
+            }
+        });
+    std::ranges::sort(current);
+
+    // Weggefallene Körper zuerst, in der Reihenfolge der Kennungen.
+    for (auto it = bodies.begin(); it != bodies.end();) {
+        if (!std::ranges::binary_search(current, it->first)) {
+            auto next = std::next(it);
+            destroy_body(it, ended, left);
+            it = next;
+        } else {
+            ++it;
+        }
+    }
+
+    // Interpolation für bewegliche Körper: Strukturänderung vor allen Zeigern in die Welt.
+    for (const u64 entity : current) {
+        if (bodies.contains(entity) || world->has(entity, interpolated_id)) {
+            continue;
+        }
+        const auto* body = static_cast<const RigidBody*>(world->get(entity, body_id));
+        if (body->motion != MotionType::Static) {
+            (void)world->ensure(entity, interpolated_id);
+            world->modified(entity, interpolated_id);
+        }
+    }
+
+    usize added = 0;
+    for (const u64 entity : current) {
+        const auto* body = static_cast<const RigidBody*>(world->get(entity, body_id));
+        const auto* collider = static_cast<const Collider*>(world->get(entity, collider_id));
+        const auto* transform =
+            static_cast<const world::Transform*>(world->get(entity, transform_id));
+        auto found = bodies.find(entity);
+        if (found != bodies.end()) {
+            BodyRecord& record = found->second;
+            const bool rebuild = !same_settings(record.body, *body) ||
+                                 !same_collider(record.collider, *collider) ||
+                                 !same(record.transform.scale, transform->scale);
+            if (rebuild) {
+                destroy_body(found, ended, left);
+            } else {
+                update_body(entity, record, *body, *transform, dt);
                 continue;
             }
-            const bool is_frozen = frozen.contains(entity);
-            if (!is_frozen && !bodies_interface.IsActive(record.id)) {
-                // Schlafende Körper bleiben liegen, bis jemand sie weckt.
+        }
+        if (create_body(entity, *body, *collider, *transform)) {
+            ++added;
+        }
+    }
+    if (added > 64) {
+        // Viele neue Körper auf einmal: Breitenphase neu ordnen, sonst sind die ersten Schritte
+        // langsam.
+        system->OptimizeBroadPhase();
+    }
+}
+
+// Änderungen von außen an einem bestehenden Körper.
+void PhysicsWorld::Impl::update_body(u64 entity, BodyRecord& record, const RigidBody& body,
+                                     const world::Transform& transform, f32 dt) {
+    JPH::BodyInterface& bodies_interface = body_interface();
+    const bool moved = !same(record.transform, transform);
+    if (body.motion == MotionType::Kinematic) {
+        // Kinematische Körper fahren zu ihrem Transform; steht er, kommen sie zur Ruhe.
+        if (moved || bodies_interface.IsActive(record.id)) {
+            bool has_parent = false;
+            const math::Decomposed pose = world_pose(entity, transform, has_parent);
+            bodies_interface.MoveKinematic(record.id, to_jolt(pose.translation),
+                                           to_jolt(math::normalize(pose.rotation)), dt);
+        }
+        record.transform = transform;
+        return;
+    }
+    if (moved) {
+        bool has_parent = false;
+        const math::Decomposed pose = world_pose(entity, transform, has_parent);
+        bodies_interface.SetPositionAndRotation(
+            record.id, to_jolt(pose.translation), to_jolt(math::normalize(pose.rotation)),
+            body.motion == MotionType::Static ? JPH::EActivation::DontActivate
+                                              : JPH::EActivation::Activate);
+        record.transform = transform;
+    }
+    if (body.motion == MotionType::Dynamic && frozen.contains(entity)) {
+        // Eingefroren: Die Geschwindigkeit gilt beim Auftauen.
+        record.body.linear_velocity = body.linear_velocity;
+        record.body.angular_velocity = body.angular_velocity;
+        return;
+    }
+    if (body.motion == MotionType::Dynamic &&
+        (!same(record.body.linear_velocity, body.linear_velocity) ||
+         !same(record.body.angular_velocity, body.angular_velocity))) {
+        bodies_interface.SetLinearAndAngularVelocity(record.id, to_jolt(body.linear_velocity),
+                                                     to_jolt(body.angular_velocity));
+        if (!same(body.linear_velocity, math::Vec3{}) ||
+            !same(body.angular_velocity, math::Vec3{})) {
+            bodies_interface.ActivateBody(record.id);
+        }
+        record.body.linear_velocity = body.linear_velocity;
+        record.body.angular_velocity = body.angular_velocity;
+    }
+}
+
+void PhysicsWorld::Impl::write_back() {
+    NGINE_PROFILE_ZONE("PhysicsWorld::write_back");
+    JPH::BodyInterface& bodies_interface = body_interface();
+    u32 active = 0;
+    for (auto& [entity, record] : bodies) {
+        if (record.body.motion != MotionType::Dynamic || frozen.contains(entity)) {
+            continue;
+        }
+        const bool awake = bodies_interface.IsActive(record.id);
+        auto* body = static_cast<RigidBody*>(world->get_mut(entity, body_id));
+        if (!awake) {
+            // Eingeschlafen: Jolt hat die Geschwindigkeit auf null gesetzt.
+            if (!same(record.body.linear_velocity, math::Vec3{}) ||
+                !same(record.body.angular_velocity, math::Vec3{})) {
+                record.body.linear_velocity = {};
+                record.body.angular_velocity = {};
+                body->linear_velocity = {};
+                body->angular_velocity = {};
+            }
+            continue;
+        }
+        ++active;
+        JPH::RVec3 position;
+        JPH::Quat rotation;
+        bodies_interface.GetPositionAndRotation(record.id, position, rotation);
+        JPH::Vec3 linear;
+        JPH::Vec3 angular;
+        bodies_interface.GetLinearAndAngularVelocity(record.id, linear, angular);
+        body->linear_velocity = from_jolt(linear);
+        body->angular_velocity = from_jolt(angular);
+        record.body.linear_velocity = body->linear_velocity;
+        record.body.angular_velocity = body->angular_velocity;
+
+        auto* transform = static_cast<world::Transform*>(world->get_mut(entity, transform_id));
+        if (!record.has_parent) {
+            transform->position = from_jolt(position);
+            transform->rotation = from_jolt(rotation);
+        } else {
+            // Lokale Lage aus der Weltlage und der des Elternteils.
+            const u64 parent = world->parent(entity);
+            const math::Affine global =
+                math::Affine::from(from_jolt(position), from_jolt(rotation), {1.0f, 1.0f, 1.0f});
+            const math::Decomposed local =
+                math::decompose(math::inverse(world::world_affine(*world, parent)) * global);
+            transform->position = local.translation;
+            transform->rotation = local.rotation;
+        }
+        world->modified(entity, transform_id);
+        record.transform = *transform;
+    }
+    stats.active_bodies = active;
+}
+
+void PhysicsWorld::Impl::publish(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left) {
+    NGINE_PROFILE_ZONE("PhysicsWorld::contacts");
+    // Jolt meldet Kontakte pro Teilform und in wechselnder Reihenfolge. Pro Paar zählt nur, ob
+    // die beiden Körper nach dem Schritt in Berührung sind; als Punkt gilt der kleinste
+    // gemeldete, damit das Ergebnis nicht von der Reihenfolge der Threads abhängt.
+    struct Change {
+        bool has_point = false;
+        math::DVec3 point;
+        math::Vec3 normal;
+    };
+    std::map<std::pair<u64, u64>, Change> changes;
+    for (const ContactRecord& record : contacts.take()) {
+        const auto first = entity_of_body.find(record.body1);
+        const auto second = entity_of_body.find(record.body2);
+        if (first == entity_of_body.end() || second == entity_of_body.end()) {
+            continue;
+        }
+        u64 a = first->second;
+        u64 b = second->second;
+        // Jolts Normale zeigt von Körper 1 nach 2; gemeldet wird sie von a nach b.
+        math::Vec3 normal = from_jolt(record.normal);
+        if (b < a) {
+            std::swap(a, b);
+            normal = -normal;
+        }
+        Change& change = changes[{a, b}];
+        if (record.added) {
+            const math::DVec3 point = from_jolt(record.point);
+            if (!change.has_point || std::tie(point.x, point.y, point.z) <
+                                         std::tie(change.point.x, change.point.y, change.point.z)) {
+                change.point = point;
+                change.normal = normal;
+                change.has_point = true;
+            }
+        }
+    }
+
+    JPH::BodyInterface& bodies_interface = body_interface();
+    const auto body_of = [&](u64 entity) { return body_id_of(entity); };
+    const auto in_contact = [&](u64 a, u64 b) {
+        return system->WereBodiesInContact(body_of(a), body_of(b));
+    };
+    const auto asleep = [&](u64 a, u64 b) {
+        return !bodies_interface.IsActive(body_of(a)) && !bodies_interface.IsActive(body_of(b));
+    };
+
+    std::vector<ContactBegan> began;
+    std::vector<TriggerEntered> entered;
+    for (const auto& [pair, change] : changes) {
+        const auto found = touching.find(pair);
+        if (in_contact(pair.first, pair.second)) {
+            if (found == touching.end()) {
+                if (is_sensor_entity(pair.first)) {
+                    entered.push_back(TriggerEntered{.sensor = pair.first, .other = pair.second});
+                } else if (is_sensor_entity(pair.second)) {
+                    entered.push_back(TriggerEntered{.sensor = pair.second, .other = pair.first});
+                } else {
+                    began.push_back(ContactBegan{.a = pair.first,
+                                                 .b = pair.second,
+                                                 .point = change.point,
+                                                 .normal = change.normal});
+                }
+            }
+            touching[pair] = false;
+        } else if (found != touching.end()) {
+            if (asleep(pair.first, pair.second)) {
+                // Eingeschlafen, nicht getrennt.
+                found->second = true;
+            } else {
+                emit_end(pair.first, pair.second, ended, left);
+                touching.erase(found);
+            }
+        }
+    }
+    // Ruhende Paare, von denen einer aufgewacht ist, ohne dass Jolt etwas meldet: Sind sie
+    // noch in Berührung, laufen sie weiter, sonst endet der Kontakt.
+    for (auto it = touching.begin(); it != touching.end();) {
+        if (it->second && !asleep(it->first.first, it->first.second)) {
+            if (in_contact(it->first.first, it->first.second)) {
+                it->second = false;
+            } else {
+                emit_end(it->first.first, it->first.second, ended, left);
+                it = touching.erase(it);
                 continue;
             }
-            const bool missing = !terrains.empty() &&
-                                 missing_ground(from_jolt(bodies_interface.GetPosition(record.id)));
-            if (missing && !is_frozen) {
-                bodies_interface.SetMotionType(record.id, JPH::EMotionType::Kinematic,
-                                               JPH::EActivation::DontActivate);
-                bodies_interface.SetLinearAndAngularVelocity(record.id, JPH::Vec3::sZero(),
-                                                             JPH::Vec3::sZero());
-                frozen[entity] = true;
-            } else if (!missing && is_frozen) {
-                bodies_interface.SetMotionType(record.id, JPH::EMotionType::Dynamic,
-                                               JPH::EActivation::Activate);
-                bodies_interface.SetLinearAndAngularVelocity(record.id,
-                                                             to_jolt(record.body.linear_velocity),
-                                                             to_jolt(record.body.angular_velocity));
-                frozen.erase(entity);
-            }
         }
-        stats.frozen_bodies = static_cast<u32>(frozen.size());
+        ++it;
     }
+    stats.contacts = static_cast<u32>(touching.size());
+    if (bus == nullptr) {
+        return;
+    }
+    for (const ContactEnded& event : ended) {
+        bus->publish(event);
+    }
+    for (const TriggerLeft& event : left) {
+        bus->publish(event);
+    }
+    for (const ContactBegan& event : began) {
+        bus->publish(event);
+    }
+    for (const TriggerEntered& event : entered) {
+        bus->publish(event);
+    }
+    for (const CharacterLanded& event : landed_events) {
+        bus->publish(event);
+    }
+    for (const CharacterStep& event : step_events) {
+        bus->publish(event);
+    }
+}
 
-    JPH::Ref<JPH::Shape> query_shape(const QueryShape& shape) const {
-        return primitive_shape(shape.shape, shape.radius, shape.half_extents, shape.half_height,
-                               {1.0f, 1.0f, 1.0f});
+void PhysicsWorld::Impl::set_terrain_materials(const world::TerrainMaterials& table) {
+    for (usize i = 0; i < surface_values.size(); ++i) {
+        const world::TerrainMaterial* material = table.find(static_cast<u32>(i));
+        surface_values[i] = material != nullptr
+                                ? SurfaceValues{.friction = material->friction,
+                                                .restitution = material->restitution}
+                                : SurfaceValues{};
     }
-
-    void set_terrain_materials(const world::TerrainMaterials& table) {
-        for (usize i = 0; i < surface_values.size(); ++i) {
-            const world::TerrainMaterial* material = table.find(static_cast<u32>(i));
-            surface_values[i] = material != nullptr
-                                    ? SurfaceValues{.friction = material->friction,
-                                                    .restitution = material->restitution}
-                                    : SurfaceValues{};
-        }
-    }
-
-    [[nodiscard]] u64 entity_of(JPH::BodyID id) const {
-        const JPH::uint32 key = id.GetIndexAndSequenceNumber();
-        if (const auto found = entity_of_body.find(key); found != entity_of_body.end()) {
-            return found->second;
-        }
-        const auto terrain = terrain_of_body.find(key);
-        return terrain != terrain_of_body.end() ? terrain->second : 0;
-    }
-
-    RayHit ray_hit(const JPH::RRayCast& ray, const JPH::RayCastResult& result,
-                   f32 max_distance) const {
-        RayHit hit;
-        hit.entity = entity_of(result.mBodyID);
-        const JPH::RVec3 point = ray.GetPointOnRay(result.mFraction);
-        hit.point = from_jolt(point);
-        hit.distance = result.mFraction * max_distance;
-        const JPH::BodyLockRead lock{system->GetBodyLockInterfaceNoLock(), result.mBodyID};
-        if (lock.Succeeded()) {
-            hit.normal =
-                from_jolt(lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, point));
-            if (const auto material =
-                    terrain_material(*lock.GetBody().GetShape(), result.mSubShapeID2)) {
-                hit.material = *material;
-            }
-        }
-        return hit;
-    }
-};
+}
 
 // -------------------------------------------------------------------------------------------------
 
@@ -2075,108 +714,6 @@ void PhysicsWorld::step(f32 dt) {
 
 void PhysicsWorld::clear() {
     impl_->clear();
-}
-
-std::optional<RayHit> PhysicsWorld::raycast(math::DVec3 origin, math::Vec3 direction,
-                                            f32 max_distance, QueryFilter filter) const {
-    if (math::length_squared(direction) == 0.0f || max_distance <= 0.0f) {
-        return std::nullopt;
-    }
-    const JPH::RRayCast ray{to_jolt(origin), to_jolt(math::normalize(direction) * max_distance)};
-    JPH::RayCastResult result;
-    const QueryBroadFilter broad{filter.layers};
-    const QueryObjectFilter object{filter.layers};
-    const QueryBodyFilter body{filter.ignore, filter.sensors};
-    if (!impl_->system->GetNarrowPhaseQuery().CastRay(ray, result, broad, object, body)) {
-        return std::nullopt;
-    }
-    return impl_->ray_hit(ray, result, max_distance);
-}
-
-std::vector<RayHit> PhysicsWorld::raycast_all(math::DVec3 origin, math::Vec3 direction,
-                                              f32 max_distance, QueryFilter filter) const {
-    std::vector<RayHit> hits;
-    if (math::length_squared(direction) == 0.0f || max_distance <= 0.0f) {
-        return hits;
-    }
-    const JPH::RRayCast ray{to_jolt(origin), to_jolt(math::normalize(direction) * max_distance)};
-    JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
-    const QueryBroadFilter broad{filter.layers};
-    const QueryObjectFilter object{filter.layers};
-    const QueryBodyFilter body{filter.ignore, filter.sensors};
-    impl_->system->GetNarrowPhaseQuery().CastRay(ray, JPH::RayCastSettings{}, collector, broad,
-                                                 object, body);
-    collector.Sort();
-    hits.reserve(collector.mHits.size());
-    for (const JPH::RayCastResult& result : collector.mHits) {
-        hits.push_back(impl_->ray_hit(ray, result, max_distance));
-    }
-    return hits;
-}
-
-std::optional<ShapeHit> PhysicsWorld::shape_cast(const QueryShape& shape, math::DVec3 origin,
-                                                 math::Quat rotation, math::Vec3 direction,
-                                                 f32 max_distance, QueryFilter filter) const {
-    if (math::length_squared(direction) == 0.0f || max_distance <= 0.0f) {
-        return std::nullopt;
-    }
-    const JPH::Ref<JPH::Shape> cast_shape = impl_->query_shape(shape);
-    if (cast_shape == nullptr) {
-        return std::nullopt;
-    }
-    const JPH::Vec3 movement = to_jolt(math::normalize(direction) * max_distance);
-    const JPH::RShapeCast cast = JPH::RShapeCast::sFromWorldTransform(
-        cast_shape.GetPtr(), JPH::Vec3::sOne(),
-        JPH::RMat44::sRotationTranslation(to_jolt(math::normalize(rotation)), to_jolt(origin)),
-        movement);
-    JPH::ShapeCastSettings settings;
-    settings.mReturnDeepestPoint = true;
-    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-    const QueryBroadFilter broad{filter.layers};
-    const QueryObjectFilter object{filter.layers};
-    const QueryBodyFilter body{filter.ignore, filter.sensors};
-    impl_->system->GetNarrowPhaseQuery().CastShape(cast, settings, to_jolt(origin), collector,
-                                                   broad, object, body);
-    if (!collector.HadHit()) {
-        return std::nullopt;
-    }
-    const JPH::ShapeCastResult& result = collector.mHit;
-    ShapeHit hit;
-    hit.entity = impl_->entity_of(result.mBodyID2);
-    hit.point = from_jolt(to_jolt(origin) + result.mContactPointOn2);
-    const JPH::Vec3 axis = result.mPenetrationAxis;
-    hit.normal =
-        axis.LengthSq() > 0.0f ? from_jolt(-axis.Normalized()) : -math::normalize(direction);
-    hit.distance = result.mFraction * max_distance;
-    return hit;
-}
-
-std::vector<u64> PhysicsWorld::overlap(const QueryShape& shape, math::DVec3 position,
-                                       math::Quat rotation, QueryFilter filter) const {
-    std::vector<u64> result;
-    const JPH::Ref<JPH::Shape> query = impl_->query_shape(shape);
-    if (query == nullptr) {
-        return result;
-    }
-    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
-    const QueryBroadFilter broad{filter.layers};
-    const QueryObjectFilter object{filter.layers};
-    const QueryBodyFilter body{filter.ignore, filter.sensors};
-    const JPH::RMat44 transform =
-        JPH::RMat44::sRotationTranslation(to_jolt(math::normalize(rotation)), to_jolt(position));
-    impl_->system->GetNarrowPhaseQuery().CollideShape(
-        query.GetPtr(), JPH::Vec3::sOne(), transform.PreTranslated(query->GetCenterOfMass()),
-        JPH::CollideShapeSettings{}, to_jolt(position), collector, broad, object, body);
-    for (const JPH::CollideShapeResult& hit : collector.mHits) {
-        const u64 entity = impl_->entity_of(hit.mBodyID2);
-        if (entity != 0) {
-            result.push_back(entity);
-        }
-    }
-    std::ranges::sort(result);
-    const auto [first, last] = std::ranges::unique(result);
-    result.erase(first, last);
-    return result;
 }
 
 bool PhysicsWorld::has_body(u64 entity) const noexcept {

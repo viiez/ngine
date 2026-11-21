@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <string>
+#include <vector>
 
 import ngine.core;
 import ngine.input;
@@ -165,4 +166,31 @@ TEST_CASE("New map keeps held keys", "[input]") {
     frame(state, 0.016f);
     CHECK(state.down("jump"));
     CHECK_FALSE(state.down("move"));
+}
+
+TEST_CASE("Action values from outside replace devices and collect edges", "[input]") {
+    // Wie die Eingabe eines Spielers über das Netz (R5.1): Werte eines Bildes übernehmen.
+    input::ActionState client{input::ActionMap::standard()};
+    input::ActionState server{input::ActionMap::standard()};
+    frame(client, 0.016f, ev::KeyPressed{platform::Key::W}, ev::KeyPressed{platform::Key::Space});
+    server.apply(client.values());
+    CHECK(server.pressed("jump"));
+    CHECK_THAT(server.value("move").y, WithinAbs(client.value("move").y, 1e-6));
+    CHECK(server.fixed("jump").pressed);
+
+    // Kein fester Schritt dazwischen: Die Flanke bleibt für fixed(), im Bild ist sie weg.
+    frame(client, 0.016f, ev::KeyReleased{platform::Key::Space});
+    server.apply(client.values());
+    CHECK_FALSE(server.pressed("jump"));
+    CHECK(server.released("jump"));
+    CHECK(server.fixed("jump").pressed);
+    server.end_fixed_step();
+    CHECK_FALSE(server.fixed("jump").pressed);
+
+    // Zu wenige Werte: Der Rest ist leer. Die erste Aktion der Belegung ist move (W gehalten).
+    const std::vector<input::ActionValue> one{client.values().front()};
+    server.apply(one);
+    CHECK(server.down("move"));
+    CHECK_FALSE(server.released("jump"));
+    CHECK(server.values().size() == client.values().size());
 }

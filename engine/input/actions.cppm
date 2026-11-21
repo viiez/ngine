@@ -4,6 +4,7 @@ module;
 #include <bitset>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -89,6 +90,10 @@ public:
     }
     // Index der Aktion oder nullopt.
     [[nodiscard]] std::optional<usize> find(std::string_view name) const noexcept;
+    // Prüfsumme über Namen und Arten der Aktionen in ihrer Reihenfolge (FNV-1a). Gleiche Summe:
+    // Werte lassen sich Index für Index übertragen, z. B. vom Client zum Server (R5.1); die
+    // Quellen zählen nicht, jeder Spieler darf seine eigene Belegung haben.
+    [[nodiscard]] u32 hash() const noexcept;
 
     // Vorverarbeitete Quelle: Art des Geräts und Nummer der Taste oder Achse.
     enum class Device : u8 { Key, MouseButton, MouseAxis, GamepadButton, GamepadAxis };
@@ -167,6 +172,16 @@ public:
     [[nodiscard]] const ActionValue& fixed(std::string_view action) const noexcept;
     // Nach jedem festen Schritt (Simulation::set_after_fixed_step()).
     void end_fixed_step();
+
+    // Werte aller Aktionen im Bild, in der Reihenfolge der Belegung (ActionMap::actions()).
+    [[nodiscard]] std::span<const ActionValue> values() const noexcept {
+        return values_;
+    }
+    // Übernimmt die Werte eines Bildes von außen statt aus Geräten, z. B. die Eingabe eines
+    // Spielers über das Netz (R5.1). values steht in der Reihenfolge der Belegung; fehlende
+    // Aktionen sind leer, überzählige zählen nicht. Flanken sammeln sich für fixed() wie nach
+    // end_frame().
+    void apply(std::span<const ActionValue> values);
 
     // Zahl der angesteckten Gamepads.
     [[nodiscard]] usize gamepad_count() const noexcept {

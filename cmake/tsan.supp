@@ -1,0 +1,8 @@
+# Unterdrückungen für ThreadSanitizer (Preset linux-clang-tsan, R5.1).
+#
+# Jolt prüft in Debug-Builds (JPH_ENABLE_ASSERTS) bei jedem Sperren, welcher Thread die Sperre hält:
+# JPH::Mutex::try_lock() liest mLockedThreadID vor dem Sperren, unlock() schreibt es noch unter der
+# Sperre. Das Lesen gehört nur zu einer Zusicherung und ändert nichts an der Synchronisation; seit
+# Jolt mit ThreadSanitizer gebaut wird (TD-47), meldet ThreadSanitizer es als Wettlauf.
+race:JPH::Mutex::try_lock
+race:JPH::SharedMutex::try_lock

@@ -78,6 +78,9 @@ public:
     // Aktionen für NGine.Input und Physik für NGine.Physics; nullptr löst sie. Mit bus erreichen
     // Kontakte, Auslöser, Landungen und Schritte die Skripte (vor dem nächsten FixedUpdate).
     void bind_input(const input::ActionState* actions);
+    // Eigene Aktionen für die Skripte einer Entity, z. B. die Figur eines Spielers auf dem Server
+    // (R5.1); sie gehen den allgemeinen vor. nullptr löst sie, entity 0 löst alle.
+    void bind_input(u64 entity, const input::ActionState* actions);
     void bind_physics(const physics::PhysicsWorld* physics, events::EventBus* bus = nullptr);
     // Audio für NGine.Audio und die Materialtabelle für Schritte (R4.5); nullptr löst sie.
     void bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,

@@ -80,15 +80,16 @@ struct CookReport {
     f64 seconds = 0.0;
 };
 
-// Kocht alle Modelle der Datenbank, deren gekochte Datei fehlt oder veraltet ist (mit force alle),
-// nacheinander; die Kodierung der Bilder nutzt dabei alle Kerne.
+// Kocht alle Modelle der Datenbank und alle Texturen, die eine Materialtabelle des Terrains nennt
+// (TD-51), deren gekochte Datei fehlt oder veraltet ist (mit force alle), nacheinander; die
+// Kodierung der Bilder nutzt dabei alle Kerne.
 [[nodiscard]] CookReport cook_all(const asset::AssetDatabase& database,
                                   const asset::AssetCache& cache, const CookSettings& settings = {},
                                   bool force = false);
 
 // Stand eines Kochens im Hintergrund.
 struct CookProgress {
-    // Modelle insgesamt und davon fertig (gekocht, aktuell oder fehlgeschlagen).
+    // Modelle und Texturen insgesamt und davon fertig (gekocht, aktuell oder fehlgeschlagen).
     usize total = 0;
     usize finished = 0;
     usize failed = 0;

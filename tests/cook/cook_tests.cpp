@@ -17,6 +17,7 @@ import ngine.jobs;
 import ngine.math;
 import ngine.asset;
 import ngine.cook;
+import ngine.world;
 
 using namespace ngine;
 using Catch::Matchers::WithinAbs;
@@ -271,6 +272,37 @@ TEST_CASE("Cooking everything in the background reports progress", "[cook]") {
         cooking.cancel();
     }
     CHECK(cache.model_current(database->find_path("kiste.gltf")->id));
+}
+
+TEST_CASE("Cooking everything includes the textures of terrain material tables", "[cook]") {
+    const TempDir dir;
+    copy(filesystem::join(NGINE_ASSET_SOURCE_DIR "/modelle", "kiste.png"), dir.file("kiste.png"));
+    auto database = asset::AssetDatabase::open(dir.path());
+    REQUIRE(database);
+    const asset::AssetId png = database->find_path("kiste.png")->id;
+    world::TerrainMaterials table = world::standard_terrain_materials();
+    table.materials[1].albedo = png;
+    table.materials[2].albedo = png;
+    table.materials[2].normal = png;
+    REQUIRE(world::save_terrain_materials_file(table, dir.file("standard.terrain-materials")));
+    REQUIRE(database->refresh());
+    const asset::AssetCache cache{asset::default_cache_dir(database->root())};
+    const cook::CookSettings settings{.textures = {.uastc_level = 0}};
+
+    // Dieselbe Textur zweimal als Grundfarbe zählt einmal, als Normalen ein zweites Mal (linear).
+    const cook::CookReport first = cook::cook_all(*database, cache, settings);
+    CHECK(first.cooked == 2);
+    CHECK(first.failed == 0);
+    auto color = cache.load_texture(png, true);
+    REQUIRE(color);
+    CHECK(color->has_value());
+    auto normal = cache.load_texture(png, false);
+    REQUIRE(normal);
+    CHECK(normal->has_value());
+
+    const cook::CookReport second = cook::cook_all(*database, cache, settings);
+    CHECK(second.cooked == 0);
+    CHECK(second.current == 2);
 }
 
 TEST_CASE("Cooking a single texture stores KTX2, BC7 and a stamp in the cache", "[cook]") {

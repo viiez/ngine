@@ -29,14 +29,15 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R3.3](R3.3-streaming-und-lod.md) | Konstruktion | Streaming und LOD | abgeschlossen |
 | [R3.4](R3.4-deltas-und-voxel-werkzeuge.md) | Konstruktion | Deltas und Voxel-Werkzeuge | abgeschlossen |
 | [R3.5](R3.5-gpu-getriebenes-zeichnen.md) | Konstruktion | GPU-getriebenes Zeichnen | abgeschlossen |
-| [R4](R4-gameplay-systeme.md) | Konstruktion | Reifegrad Gameplay-Systeme (R4.1 bis R4.6) | im Review |
+| [R4](R4-gameplay-systeme.md) | Konstruktion | Reifegrad Gameplay-Systeme (R4.1 bis R4.6) | abgeschlossen |
 | [R4.1](R4.1-spielschleife-und-eingabe.md) | Konstruktion | Spielschleife und Eingabe | abgeschlossen |
 | [R4.2](R4.2-physik-mit-jolt.md) | Konstruktion | Physik mit Jolt | abgeschlossen |
 | [R4.3](R4.3-terrain-kollision-und-spielfigur.md) | Konstruktion | Terrain-Kollision und Spielfigur | abgeschlossen |
 | [R4.4](R4.4-csharp-scripting.md) | Konstruktion | C#-Scripting | abgeschlossen |
 | [R4.5](R4.5-audio.md) | Konstruktion | Audio | abgeschlossen |
 | [R4.6](R4.6-animation.md) | Konstruktion | Animation | abgeschlossen |
-| [R5](R5-multiplayer.md) | Konstruktion | Reifegrad Multiplayer (R5.1 bis R5.5) | geplant |
+| [R5](R5-multiplayer.md) | Konstruktion | Reifegrad Multiplayer (R5.1 bis R5.5) | in Arbeit |
+| [R5.1](R5.1-server-mit-spielwelt.md) | Konstruktion | Server mit Spielwelt | in Arbeit |
 
 ## Vorlage
 

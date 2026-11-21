@@ -22,6 +22,6 @@ target_sources(ngine_cook
 # meshoptimizer nur in meshlets_meshoptimizer.cpp.
 target_link_libraries(ngine_cook
     PUBLIC ngine::core ngine::asset ngine::jobs
-    PRIVATE ngine::math ngine::meshlet ngine::filesystem ngine::profile ngine_ktx
+    PRIVATE ngine::math ngine::meshlet ngine::filesystem ngine::profile ngine::world ngine_ktx
         mikktspace::mikktspace meshoptimizer::meshoptimizer)
 ngine_set_compiler_options(ngine_cook)

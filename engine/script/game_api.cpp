@@ -6,6 +6,7 @@ module;
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -28,6 +29,8 @@ namespace {
 
 struct Context {
     const input::ActionState* actions = nullptr;
+    // Aktionen einzelner Entities (R5.1: Figuren der Spieler auf dem Server); sonst actions.
+    std::unordered_map<u64, const input::ActionState*> entity_actions;
     bool fixed = false;
     const physics::PhysicsWorld* physics = nullptr;
     audio::AudioSystem* audio = nullptr;
@@ -83,14 +86,18 @@ void write(NativeHit& out, u64 entity, math::DVec3 point, math::Vec3 normal, f32
            .material = material};
 }
 
-i32 api_action(const u8* name, i32 length, NativeAction* out) {
+i32 api_action(u64 entity, const u8* name, i32 length, NativeAction* out) {
     const Context& c = context();
     *out = {};
-    if (c.actions == nullptr || !c.actions->map().find(text(name, length))) {
+    const input::ActionState* actions = c.actions;
+    if (const auto found = c.entity_actions.find(entity); found != c.entity_actions.end()) {
+        actions = found->second;
+    }
+    if (actions == nullptr || !actions->map().find(text(name, length))) {
         return 0;
     }
     const input::ActionValue& value =
-        c.fixed ? c.actions->fixed(text(name, length)) : c.actions->value(text(name, length));
+        c.fixed ? actions->fixed(text(name, length)) : actions->value(text(name, length));
     *out = {.x = value.x,
             .y = value.y,
             .down = static_cast<u8>(value.down),
@@ -311,6 +318,18 @@ void set_script_input_fixed(bool fixed) {
 
 void bind_script_input(const input::ActionState* actions) {
     context().actions = actions;
+}
+
+void bind_script_input(u64 entity, const input::ActionState* actions) {
+    if (actions != nullptr) {
+        context().entity_actions[entity] = actions;
+    } else {
+        context().entity_actions.erase(entity);
+    }
+}
+
+void clear_script_entity_input() {
+    context().entity_actions.clear();
 }
 
 void bind_script_physics(const physics::PhysicsWorld* physics) {
