@@ -448,7 +448,13 @@ void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<Trig
         if (create_body(entity, entry.body, entry.collider, *transform)) {
             ++added;
             if (entry.loose) {
-                loose_proxies.insert(bodies.at(entity).id.GetIndexAndSequenceNumber());
+                // Masse wie auf dem Server: angegeben oder aus der Form (Dichte von Wasser).
+                const JPH::BodyID id = bodies.at(entity).id;
+                f32 mass = entry.body.mass;
+                if (mass <= 0.0f) {
+                    mass = body_interface().GetShape(id)->GetMassProperties().mMass;
+                }
+                loose_proxies[id.GetIndexAndSequenceNumber()] = mass;
             }
         }
     }

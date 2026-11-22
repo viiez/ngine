@@ -211,7 +211,8 @@ bool PhysicsWorld::Impl::simulates_character(u64 entity) const {
 
 void PhysicsWorld::Impl::move_character(u64 entity, CharacterRecord& record, f32 dt, bool events) {
     const JPH::Vec3 gravity = system->GetGravity();
-    const CharacterBodyFilter body_filter{&loose_proxies};
+    const CharacterBodyFilter body_filter{&loose_proxies,
+                                          CharacterBodyFilter::light_share * record.settings.mass};
     const JPH::ShapeFilter shape_filter;
     const JPH::BroadPhaseLayerFilter& broad =
         system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
@@ -394,7 +395,8 @@ bool PhysicsWorld::set_character(u64 entity, const CharacterSnapshot& snapshot) 
     }
     CharacterRecord& record = found->second;
     JPH::CharacterVirtual& character = *record.character;
-    const CharacterBodyFilter body_filter{&impl.loose_proxies};
+    const CharacterBodyFilter body_filter{
+        &impl.loose_proxies, CharacterBodyFilter::light_share * record.settings.mass};
     const JPH::ShapeFilter shape_filter;
     const JPH::BroadPhaseLayerFilter& broad =
         impl.system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));

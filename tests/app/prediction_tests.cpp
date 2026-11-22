@@ -112,10 +112,11 @@ TEST_CASE("Remote physics moves only the predicted figure", "[app][physics]") {
     CHECK_FALSE(box.has<world::Interpolated>());
 }
 
-TEST_CASE("Moving proxies of dynamic bodies do not block the predicted figure", "[app][physics]") {
-    // Eine Wand, die auf dem Server dynamisch ist, vor der eigenen Figur: In Ruhe hält sie die
-    // Figur auf, bewegt (ihr Transform kommt vom Server und ändert sich) läuft die Figur durch.
-    const auto run = [](bool moving) {
+TEST_CASE("Moving light proxies do not block the predicted figure", "[app][physics]") {
+    // Eine Wand, die auf dem Server dynamisch ist, vor der eigenen Figur (70 kg): In Ruhe hält sie
+    // die Figur auf; bewegt (ihr Transform kommt vom Server und ändert sich) läuft die Figur durch,
+    // wenn die Wand leicht ist wie eine Kugel, und nicht, wenn sie schwer ist wie eine Kiste.
+    const auto run = [](f32 mass, bool moving) {
         app::GameWorld game{{.worker_count = 2}};
         game.physics().set_remote(true);
         add_ground(game.world());
@@ -123,7 +124,7 @@ TEST_CASE("Moving proxies of dynamic bodies do not block the predicted figure", 
         own.set(physics::Predicted{});
         world::Entity wall = game.world().create("Wand");
         wall.set(world::Transform{.position = {0.0, 1.0, -3.0}})
-            .set(physics::RigidBody{.mass = 20.0f})
+            .set(physics::RigidBody{.mass = mass})
             .set(physics::Collider{.shape = physics::ShapeType::Box,
                                    .half_extents = {3.0f, 1.0f, 0.2f}});
         for (int i = 0; i < 120; ++i) {
@@ -137,8 +138,9 @@ TEST_CASE("Moving proxies of dynamic bodies do not block the predicted figure", 
         }
         return own.get<world::Transform>()->position.z;
     };
-    CHECK(run(false) > -2.9);
-    CHECK(run(true) < -4.0);
+    CHECK(run(5.0f, false) > -2.9);
+    CHECK(run(5.0f, true) < -4.0);
+    CHECK(run(20.0f, true) > -2.9);
 }
 
 namespace {

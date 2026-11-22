@@ -143,6 +143,9 @@ struct Player {
     std::vector<input::ActionValue> latest;
     // Ob in diesem Bild ein Befehl galt (dann geht der Stand der Figur an den Client).
     bool processed = false;
+    // Schritte, seit die Figur zuletzt einen beweglichen Körper berührte, rückwärts gezählt
+    // (Einordnen von Korrekturen beim Client: Berührung in den letzten 15 Schritten).
+    u32 touch_steps = 0;
     u64 messages = 0;
     // Nachrichten, die nicht zu lesen waren, und Befehle mit Werten außerhalb der Grenzen.
     u64 rejected = 0;
@@ -248,6 +251,18 @@ public:
         }
     }
 
+    // Nach jedem Schritt: ob die Figuren gerade bewegliche Körper berühren.
+    void track_contacts() {
+        for (auto& [client, player] : players_) {
+            const auto snapshot = game_->physics().character_snapshot(player.figure);
+            if (snapshot && snapshot->touching) {
+                player.touch_steps = 15;
+            } else if (player.touch_steps > 0) {
+                --player.touch_steps;
+            }
+        }
+    }
+
     // Nach dem Schritt: jedem Spieler der Stand seiner Figur nach seinem letzten Befehl (R5.3).
     void send_owner_states() {
         for (auto& [client, player] : players_) {
@@ -265,7 +280,7 @@ public:
                 .velocity = snapshot->velocity,
                 .ground = static_cast<u8>(snapshot->ground),
                 .crouched = snapshot->crouched,
-                .touching = snapshot->touching};
+                .touching = player.touch_steps > 0};
             (void)server_->send(client, replication::encode_owner(state),
                                 net::Delivery::Unreliable);
         }
@@ -495,6 +510,7 @@ export int run_game_server(const GameServerOptions& options) {
         }
         game.steer_players();
         (void)game.update(1.0 / 60.0);
+        players.track_contacts();
         // Schnappschüsse mit 30 Hz, dazu jedem Spieler der Stand seiner Figur (R5.3).
         if (frame % 2 == 0) {
             players.update_focus();

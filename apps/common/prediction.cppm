@@ -69,11 +69,13 @@ export struct PredictionSettings {
 // vorher einen beweglichen Körper oder eine andere Figur berührte (Kisten, Kugeln: erwartet, weil
 // fremde Körper auf dem Client in der Vergangenheit stehen); sonst Air, wenn sie auf einer Seite in
 // der Luft war; sonst Free. Free sollte nahe null sein, sonst rechnen Client und Server
-// verschieden.
+// verschieden. Bis die Figur auf beiden Seiten zum ersten Mal steht (Laden der Welt, Fallen auf
+// den Boden), zählt jede Korrektur als loading und nicht pro Minute.
 export struct CorrectionCounts {
     u64 free = 0;
     u64 bodies = 0;
     u64 air = 0;
+    u64 loading = 0;
 };
 
 export struct PredictionReport {
@@ -151,6 +153,7 @@ public:
         predictor_.reset();
         outgoing_.clear();
         contacts_.clear();
+        settled_ = false;
         world::Entity entity = world.entity(local);
         if (local == 0 || !entity.has<physics::CharacterController>() ||
             !entity.has<world::Transform>() || !entity.has<PlayerInput>()) {
@@ -217,6 +220,12 @@ public:
         if (!own_alive()) {
             return;
         }
+        // Geladen ist, sobald die Figur auf Server und Client zum ersten Mal steht.
+        if (!settled_) {
+            const auto air = static_cast<u8>(physics::GroundState::Air);
+            const auto latest = predictor_.latest();
+            settled_ = owner.ground != air && latest && latest->ground != air;
+        }
         physics::PhysicsWorld& physics = game_->physics();
         const auto before = physics.character_snapshot(figure_);
         const replication::PredictedState server{.position = owner.position,
@@ -240,8 +249,10 @@ public:
         replay_ms_ =
             std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();
-        const Cause cause = classify(owner.command, server, mine);
-        corrections_.emplace_back(std::chrono::steady_clock::now(), cause);
+        const Cause cause = settled_ ? classify(owner.command, server, mine) : Cause::Loading;
+        if (cause != Cause::Loading) {
+            corrections_.emplace_back(std::chrono::steady_clock::now(), cause);
+        }
         count(causes_, cause);
         if (cause == Cause::Free && free_logged_ < 5 && mine) {
             ++free_logged_;
@@ -348,7 +359,7 @@ private:
                                            .touching = snapshot.touching};
     }
 
-    enum class Cause : u8 { Free, Bodies, Air };
+    enum class Cause : u8 { Free, Bodies, Air, Loading };
 
     static void count(CorrectionCounts& counts, Cause cause) {
         switch (cause) {
@@ -360,6 +371,9 @@ private:
             break;
         case Cause::Air:
             ++counts.air;
+            break;
+        case Cause::Loading:
+            ++counts.loading;
             break;
         }
     }
@@ -488,6 +502,7 @@ private:
     CorrectionCounts causes_;
     std::deque<std::pair<u32, bool>> contacts_;
     u32 free_logged_ = 0;
+    bool settled_ = false;
 };
 
 } // namespace app
