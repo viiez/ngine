@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cstddef>
 #include <expected>
 #include <format>
@@ -11,8 +12,9 @@ module;
 #include <vector>
 
 // Verbindung eines Clients zum Server mit Spielwelt (R5.2): Transport, Replikation in die eigene
-// Welt, welche Figur ihm gehört, Eingaben und Blick zum Server. Die Sandbox mit Fenster (--client),
-// der Client ohne Fenster (--client --headless) und die Bots (--bots) teilen das.
+// Welt, welche Figur ihm gehört, Befehle zum Server und der Stand der eigenen Figur zurück (R5.3).
+// Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client --headless) und die Bots
+// (--bots) teilen das.
 export module sandbox.net_client;
 
 import ngine.core;
@@ -60,27 +62,59 @@ public:
         if (auto result = client_.poll(received_); !result) {
             return result;
         }
+        owner_states_.clear();
         for (const replication::Received& message : received_) {
-            if (auto possessed = replication::decode_possess(message.data)) {
-                figure_ = *possessed;
-                log::info("Client: steuere Figur {} des Servers", figure_);
+            const auto kind = replication::game_message(message.data);
+            if (kind == replication::GameMessage::Possess) {
+                if (auto possessed = replication::decode_possess(message.data)) {
+                    figure_ = *possessed;
+                    log::info("Client: steuere Figur {} des Servers", figure_);
+                }
+            } else if (kind == replication::GameMessage::Owner) {
+                if (auto owner = replication::decode_owner(message.data)) {
+                    owner_states_.push_back(*owner);
+                }
             }
         }
         return {};
     }
 
-    // Aktionen dieses Bildes und, wenn der Client die Kamera selbst dreht, der Blick.
-    void send_input(u32 map_hash, std::span<const input::ActionValue> values,
-                    std::optional<replication::ViewAngles> view = std::nullopt) {
+    // Eine Nachricht des Spiels an den Server (Befehle, R5.3), unzuverlässig.
+    void send_game(std::span<const std::byte> data) {
+        if (ready()) {
+            (void)client_.send(data, net::Delivery::Unreliable);
+        }
+    }
+
+    // Befehl aus den Aktionen eines festen Schritts für Clients ohne Vorhersage (Bots): Der Blick
+    // folgt der Mausbewegung, die neuesten drei Befehle gehen an den Server.
+    void send_command(const input::ActionState& actions) {
         if (!ready()) {
             return;
         }
-        (void)client_.send(replication::encode_actions(map_hash, values),
-                           net::Delivery::Unreliable);
-        if (view) {
-            (void)client_.send(replication::encode_view(view->yaw, view->pitch),
-                               net::Delivery::Unreliable);
+        const input::ActionMap& map = actions.map();
+        replication::Command command{.number = next_command_++,
+                                     .yaw = 0.0f,
+                                     .pitch = 0.0f,
+                                     .actions = std::vector<input::ActionValue>(
+                                         actions.values().begin(), actions.values().end())};
+        if (const auto look = map.find("look"); look && *look < command.actions.size()) {
+            yaw_ -= command.actions[*look].x * 0.0025f;
+            pitch_ = std::clamp(pitch_ - command.actions[*look].y * 0.0025f, -1.55f, 1.55f);
+            command.actions[*look] = {};
         }
+        command.yaw = yaw_;
+        command.pitch = pitch_;
+        recent_.push_back(std::move(command));
+        while (recent_.size() > replication::commands_per_message) {
+            recent_.erase(recent_.begin());
+        }
+        send_game(replication::encode_commands(map.hash(), recent_));
+    }
+
+    // Stände der eigenen Figur, die in diesem Bild angekommen sind.
+    [[nodiscard]] std::span<const replication::OwnerState> owner_states() const noexcept {
+        return owner_states_;
     }
 
     void disconnect() {
@@ -137,6 +171,12 @@ private:
     std::vector<replication::Received> received_;
     std::string address_;
     u64 figure_ = 0;
+    std::vector<replication::OwnerState> owner_states_;
+    // Nur für send_command().
+    std::vector<replication::Command> recent_;
+    u32 next_command_ = 1;
+    f32 yaw_ = 0.0f;
+    f32 pitch_ = 0.0f;
 };
 
 } // namespace sandbox

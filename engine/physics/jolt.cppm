@@ -701,6 +701,7 @@ struct PhysicsWorld::Impl {
     std::map<u64, CharacterRecord> characters;
     world::ComponentId character_id{};
     world::ComponentId motion_id{};
+    world::ComponentId predicted_id{};
     std::vector<CharacterLanded> landed_events;
     std::vector<CharacterStep> step_events;
     world::ComponentId terrain_state_id{};
@@ -773,6 +774,10 @@ struct PhysicsWorld::Impl {
     // Bewegt alle Figuren um dt (vor dem Schritt der Körper, damit Kisten den Schub im selben
     // Schritt spüren).
     void update_characters(f32 dt);
+    // Ein Schritt einer Figur; events: Landen und Schritte melden (nicht beim Neurechnen, R5.3).
+    void move_character(u64 entity, CharacterRecord& record, f32 dt, bool events);
+    // Ob sich die Figur in dieser Physik bewegt (im Modus remote nur mit Predicted).
+    [[nodiscard]] bool simulates_character(u64 entity) const;
 
     // --- Kollision des Terrains (R4.3) -----------------------------------------------------------
 

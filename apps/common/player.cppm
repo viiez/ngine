@@ -3,6 +3,8 @@ module;
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <span>
+#include <string_view>
 
 // Spielfigur in Sandbox und Editor (R4.3): Steuerung aus den Aktionen, Kamera in Ich- und
 // Schulterperspektive und Graben mit dem Pinsel aus R3.4. Die Bewegung selbst rechnet die Physik
@@ -114,6 +116,24 @@ export PlayerControls player_controls(const input::ActionState& actions) {
                           .dig = actions.down("dig")};
 }
 
+// Dasselbe aus den Werten eines Befehls (R5.3) in der Reihenfolge der Belegung map. Ein Befehl hat
+// keine Mausbewegung, der Blick steht in ihm selbst.
+export PlayerControls player_controls(const input::ActionMap& map,
+                                      std::span<const input::ActionValue> values) {
+    const auto value = [&](std::string_view name) {
+        const auto index = map.find(name);
+        return index && *index < values.size() ? values[*index] : input::ActionValue{};
+    };
+    const input::ActionValue move = value("move");
+    return PlayerControls{.right = move.x,
+                          .forward = move.y,
+                          .run = value("fast").down,
+                          .crouch = value("crouch").down,
+                          .jump = value("jump").pressed,
+                          .switch_view = value("camera").pressed,
+                          .dig = value("dig").down};
+}
+
 // Erste Figur mit PlayerInput und CharacterController (kleinste Kennung), sonst eine leere Entity.
 export world::Entity find_player(world::World& world) {
     u64 best = 0;
@@ -135,6 +155,8 @@ export math::Quat view_rotation(const PlayerInput& player) {
     return yaw_rotation(player.yaw) * math::angle_axis(player.pitch, {1.0f, 0.0f, 0.0f});
 }
 
+export void apply_motion(world::Entity player, f32 yaw, const PlayerControls& controls);
+
 // Überträgt die Eingaben eines Bildes auf die Figur: Blick, Drehung um die Hochachse, Wünsche an
 // die Physik. Springen bleibt gesetzt, bis die Physik es im nächsten festen Schritt verbraucht.
 export void apply_controls(world::Entity player, const PlayerControls& controls) {
@@ -151,12 +173,18 @@ export void apply_controls(world::Entity player, const PlayerControls& controls)
     if (auto* transform = player.get_mut<world::Transform>()) {
         transform->rotation = yaw_rotation(input->yaw);
     }
+    apply_motion(player, input->yaw, controls);
+}
+
+// Nur die Wünsche an die Physik aus Blickrichtung yaw und controls, ohne Blick und Drehung zu
+// ändern (Vorhersage, R5.3: beim Neurechnen gemerkter Befehle).
+export void apply_motion(world::Entity player, f32 yaw, const PlayerControls& controls) {
     auto* motion = player.get_mut<physics::CharacterMotion>();
     if (motion == nullptr) {
         // Die Physik legt den Zustand im ersten Schritt an.
         return;
     }
-    const math::Quat facing = yaw_rotation(input->yaw);
+    const math::Quat facing = yaw_rotation(yaw);
     const Vec3 forward = facing * Vec3{0.0f, 0.0f, -1.0f};
     const Vec3 right = facing * Vec3{1.0f, 0.0f, 0.0f};
     Vec3 move = forward * controls.forward + right * controls.right;

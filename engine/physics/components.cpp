@@ -29,26 +29,40 @@ void register_types(reflect::TypeRegistry& types) {
             .value("Mesh", ShapeType::Mesh);
     }
     if (types.find<RigidBody>() == nullptr) {
+        // Clients brauchen Art und Ebene für ihre kinematischen Stellvertreter (R5.3); den Rest
+        // rechnet nur der Server.
         types.add<RigidBody>("RigidBody")
+            .replicated()
             .field("motion", &RigidBody::motion)
             .field("layer", &RigidBody::layer)
             .field("mass", &RigidBody::mass)
             .range(0.0, 100000.0)
+            .local()
             .field("friction", &RigidBody::friction)
             .range(0.0, 2.0, 0.01)
+            .local()
             .field("restitution", &RigidBody::restitution)
             .range(0.0, 1.0, 0.01)
+            .local()
             .field("linear_damping", &RigidBody::linear_damping)
             .range(0.0, 10.0, 0.01)
+            .local()
             .field("angular_damping", &RigidBody::angular_damping)
             .range(0.0, 10.0, 0.01)
+            .local()
             .field("gravity_factor", &RigidBody::gravity_factor)
+            .local()
             .field("allow_sleep", &RigidBody::allow_sleep)
+            .local()
             .field("linear_velocity", &RigidBody::linear_velocity)
-            .field("angular_velocity", &RigidBody::angular_velocity);
+            .local()
+            .field("angular_velocity", &RigidBody::angular_velocity)
+            .local();
     }
     if (types.find<Collider>() == nullptr) {
+        // Kollision der Vorhersage auf Clients (R5.3).
         types.add<Collider>("Collider")
+            .replicated()
             .field("shape", &Collider::shape)
             .field("radius", &Collider::radius)
             .range(0.001, 1000.0, 0.01)
@@ -62,7 +76,9 @@ void register_types(reflect::TypeRegistry& types) {
             .field("sensor", &Collider::sensor);
     }
     if (types.find<CharacterController>() == nullptr) {
+        // Die eigene Figur rechnet der Client mit denselben Werten voraus (R5.3).
         types.add<CharacterController>("CharacterController")
+            .replicated()
             .field("radius", &CharacterController::radius)
             .range(0.05, 5.0, 0.01)
             .field("height", &CharacterController::height)
@@ -123,6 +139,10 @@ void register_types(reflect::TypeRegistry& types) {
             .field("ground_material", &CharacterMotion::ground_material)
             .local()
             .field("crouched", &CharacterMotion::crouched);
+    }
+    // Zuletzt, damit die Reihenfolge der übrigen Typen bleibt (R5.3).
+    if (types.find<Predicted>() == nullptr) {
+        types.add<Predicted>("Predicted").transient();
     }
 }
 

@@ -10,11 +10,13 @@ target_sources(ngine_replication
             snapshot.cppm
             session.cppm
             input.cppm
+            prediction.cppm
     PRIVATE
         schema.cpp
         snapshot.cpp
         session.cpp
-        input.cpp)
+        input.cpp
+        prediction.cpp)
 
 target_link_libraries(ngine_replication
     PUBLIC ngine::core ngine::math ngine::reflect ngine::world ngine::net ngine::input

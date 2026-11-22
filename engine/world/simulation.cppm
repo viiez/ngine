@@ -9,6 +9,7 @@ export module ngine.world:simulation;
 
 import ngine.core;
 import ngine.jobs;
+import ngine.math;
 import :ecs;
 import :transform;
 import :schedule;
@@ -28,6 +29,9 @@ struct Interpolated {
     bool initialized = false;
     // WorldTransform hält eine gemischte Lage.
     bool mixed = false;
+    // Versatz nur für das Zeichnen in Metern (R5.3): Die Vorhersage glättet damit Korrekturen.
+    // Wer ihn setzt, baut ihn auch wieder ab; Transform und Simulation bleiben unberührt.
+    math::Vec3 offset{0.0f, 0.0f, 0.0f};
 };
 
 struct SimulationOptions {

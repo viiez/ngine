@@ -24,9 +24,11 @@ module;
 //
 // Clients verbinden sich über ngine.replication. Der erste übernimmt die Figur aus der Szene, jeder
 // weitere bekommt eine neue aus prefabs/spielfigur.prefab neben dem Startpunkt; geht er, endet
-// seine Figur (die aus der Szene bleibt stehen). Jeder Client schickt pro Bild die Werte seiner
-// Aktionen und seinen Blick; auf dem Server liest das Skript Spielersteuerung seiner Figur genau
-// diese (ohne .NET die Steuerung in C++).
+// seine Figur (die aus der Szene bleibt stehen). Jeder Client schickt pro festem Schritt einen
+// nummerierten Befehl mit Aktionen und Blick (R5.3); der Server prüft ihn und arbeitet pro Bild
+// genau einen aus der Warteschlange ab. Auf dem Server liest das Skript Spielersteuerung seiner
+// Figur diese Werte (ohne .NET die Steuerung in C++). Mit jedem Schnappschuss bekommt jeder Client
+// den Stand seiner Figur nach seinem letzten Befehl, damit er seine Vorhersage abgleichen kann.
 //
 // Seit R5.2 repliziert der Server die ganze Welt (ADR 0052): jede Entity mit Komponenten, die die
 // Reflection als repliziert markiert, als Delta gegen den letzten bestätigten Stand jedes Clients,
@@ -57,6 +59,7 @@ import ngine.world;
 import app.game_world;
 import app.physics;
 import app.player;
+import app.prediction;
 import app.scripting;
 import sandbox.net_client;
 import sandbox.playground;
@@ -128,19 +131,22 @@ std::unique_ptr<net::Transport> make_transport() {
     return std::move(*transport);
 }
 
-// Ein verbundener Spieler: seine Figur und die Aktionen, die er zuletzt geschickt hat.
+// Ein verbundener Spieler: seine Figur und seine Befehle (R5.3).
 struct Player {
     u64 figure = 0;
     // Figur neu angelegt (endet mit ihm) oder aus der Szene übernommen (bleibt).
     bool spawned = false;
     std::unique_ptr<input::ActionState> actions;
-    // Letzte Werte und die Flanken aller Nachrichten seit dem letzten Bild.
+    // Befehle pro festem Schritt, einer pro Bild.
+    replication::CommandQueue commands;
+    // Werte des Befehls dieses Bildes.
     std::vector<input::ActionValue> latest;
-    bool fresh = false;
-    // Blick, den der Client zuletzt geschickt hat (R5.2); ersetzt dann die Mausbewegung.
-    std::optional<replication::ViewAngles> view;
+    // Ob in diesem Bild ein Befehl galt (dann geht der Stand der Figur an den Client).
+    bool processed = false;
     u64 messages = 0;
+    // Nachrichten, die nicht zu lesen waren, und Befehle mit Werten außerhalb der Grenzen.
     u64 rejected = 0;
+    u64 limited = 0;
 };
 
 class GameServer {
@@ -148,10 +154,8 @@ public:
     GameServer(app::GameWorld& game, replication::Server& server, world::Entity scene_figure,
                math::DVec3 spawn)
         : game_{&game}, server_{&server}, scene_figure_{scene_figure}, spawn_{spawn},
-          map_hash_{input::ActionMap::standard().hash()},
-          look_{input::ActionMap::standard().find("look")},
-          dig_{input::ActionMap::standard().find("dig")},
-          throw_{input::ActionMap::standard().find("throw")} {}
+          map_{input::ActionMap::standard()}, map_hash_{map_.hash()}, look_{map_.find("look")},
+          dig_{map_.find("dig")}, throw_{map_.find("throw")} {}
 
     // Die Figur der Szene gehört der Spur (--track) und keinem Client.
     void reserve_scene_figure() {
@@ -181,58 +185,52 @@ public:
             return;
         }
         Player& player = found->second;
-        const auto kind = replication::game_message(message.data);
-        if (kind == replication::GameMessage::View) {
-            if (auto view = replication::decode_view(message.data)) {
-                player.view = *view;
-            } else if (player.rejected++ == 0) {
-                log::warn("Client {}: {}", message.connection, view.error());
-            }
+        if (replication::game_message(message.data) != replication::GameMessage::Commands) {
             return;
         }
-        if (kind != replication::GameMessage::Actions) {
-            return;
-        }
-        auto values = replication::decode_actions(message.data, map_hash_);
-        if (!values) {
+        auto commands = replication::decode_commands(message.data, map_hash_);
+        if (!commands) {
             if (player.rejected++ == 0) {
-                log::warn("Client {}: {}", message.connection, values.error());
+                log::warn("Client {}: {}", message.connection, commands.error());
             }
             return;
         }
-        // Mehrere Nachrichten in einem Bild: letzte Werte, aber keine Flanke geht verloren.
-        if (player.fresh && player.latest.size() == values->size()) {
-            for (usize i = 0; i < values->size(); ++i) {
-                (*values)[i].pressed = (*values)[i].pressed || player.latest[i].pressed;
-                (*values)[i].released = (*values)[i].released || player.latest[i].released;
-            }
-        }
-        player.latest = std::move(*values);
-        player.fresh = true;
         ++player.messages;
+        for (replication::Command& command : *commands) {
+            // Prüfen (R5.3): Länge von move, Tasten, Blick. Die Bewegung selbst rechnet der Server.
+            if (replication::limit_command(command, map_, app::max_pitch) > 0 &&
+                player.limited++ == 0) {
+                log::warn("Client {}: Befehl {} außerhalb der Grenzen, begrenzt",
+                          message.connection, command.number);
+            }
+            player.commands.push(std::move(command));
+        }
     }
 
-    // Vor dem Schritt: die Werte jedes Spielers für dieses Bild. Ohne neue Nachricht bleiben die
-    // Werte stehen, Flanken zählen nur einmal.
+    // Vor dem Schritt: der nächste Befehl jedes Spielers. Vor dem ersten Befehl gilt keine
+    // Eingabe; fehlt einer, wiederholt die Warteschlange den letzten ohne Flanken.
     void apply_inputs() {
         for (auto& [client, player] : players_) {
-            if (!player.fresh) {
+            player.processed = false;
+            auto command = player.commands.next();
+            if (!command) {
                 for (input::ActionValue& value : player.latest) {
                     value.pressed = false;
                     value.released = false;
                 }
+                player.actions->apply(player.latest);
+                continue;
             }
-            // Dreht der Client die Kamera selbst, gilt sein Blick statt der Mausbewegung, damit
-            // verlorene Pakete den Blick nicht verstellen.
-            if (player.view) {
-                if (look_ && *look_ < player.latest.size()) {
-                    player.latest[*look_].x = 0.0f;
-                    player.latest[*look_].y = 0.0f;
-                }
-                if (auto* view = game_->world().entity(player.figure).get_mut<app::PlayerInput>()) {
-                    view->yaw = player.view->yaw;
-                    view->pitch = std::clamp(player.view->pitch, -1.55f, 1.55f);
-                }
+            player.processed = true;
+            player.latest = std::move(command->actions);
+            // Der Blick steht im Befehl; Mausbewegung gibt es nicht.
+            if (look_ && *look_ < player.latest.size()) {
+                player.latest[*look_].x = 0.0f;
+                player.latest[*look_].y = 0.0f;
+            }
+            if (auto* view = game_->world().entity(player.figure).get_mut<app::PlayerInput>()) {
+                view->yaw = command->yaw;
+                view->pitch = std::clamp(command->pitch, -app::max_pitch, app::max_pitch);
             }
             // Löcher im Terrain kämen nicht bei den Clients an (Terrain-Deltas übers Netz folgen
             // in R5.4), Figuren und Kisten fielen für sie durch den Boden: bis dahin kein Graben.
@@ -247,7 +245,28 @@ public:
                 throw_ball(player.figure);
             }
             player.actions->apply(player.latest);
-            player.fresh = false;
+        }
+    }
+
+    // Nach dem Schritt: jedem Spieler der Stand seiner Figur nach seinem letzten Befehl (R5.3).
+    void send_owner_states() {
+        for (auto& [client, player] : players_) {
+            if (player.commands.last() == 0) {
+                continue;
+            }
+            const auto snapshot = game_->physics().character_snapshot(player.figure);
+            if (!snapshot) {
+                continue;
+            }
+            const replication::OwnerState state{
+                .command = player.commands.last(),
+                .queued = static_cast<u8>(std::min<usize>(player.commands.size(), 255)),
+                .position = snapshot->position,
+                .velocity = snapshot->velocity,
+                .ground = static_cast<u8>(snapshot->ground),
+                .crouched = snapshot->crouched};
+            (void)server_->send(client, replication::encode_owner(state),
+                                net::Delivery::Unreliable);
         }
     }
 
@@ -299,12 +318,16 @@ public:
             const math::DVec3 at =
                 transform != nullptr ? transform->position - spawn_ : math::DVec3{};
             const replication::EncoderClientStats stats = server_->stats(client);
-            log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Eingaben, {} abgelehnt; "
-                      "{:.1f} KB/s, Schnappschuss {} B, {} Entities, {} warten, {} ohne Basis",
+            const replication::CommandQueueStats& commands = player.commands.stats();
+            log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Nachrichten, {} abgelehnt, "
+                      "{} begrenzt; Befehle {} verarbeitet, {} wiederholt, {} verworfen, {} "
+                      "übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} Entities, {} "
+                      "warten, {} ohne Basis",
                       client, figure ? figure.name() : std::string_view{"fehlt"}, math::length(at),
-                      player.messages, player.rejected,
-                      static_cast<f64>(stats.bytes_per_second) / 1024.0, stats.last_bytes,
-                      stats.entities, stats.waiting, stats.full);
+                      player.messages, player.rejected, player.limited, commands.processed,
+                      commands.repeated, commands.dropped, commands.overflow,
+                      player.commands.size(), static_cast<f64>(stats.bytes_per_second) / 1024.0,
+                      stats.last_bytes, stats.entities, stats.waiting, stats.full);
         }
     }
 
@@ -353,7 +376,8 @@ private:
                 motion->jump = false;
             }
         }
-        log::info("Client {} hat das Spiel verlassen ({} Eingaben)", client, player.messages);
+        log::info("Client {} hat das Spiel verlassen ({} Befehle)", client,
+                  player.commands.stats().processed);
     }
 
     app::GameWorld* game_;
@@ -362,6 +386,7 @@ private:
     bool scene_figure_reserved_ = false;
     bool scene_figure_taken_ = false;
     math::DVec3 spawn_;
+    input::ActionMap map_;
     u32 map_hash_;
     std::optional<usize> look_;
     std::optional<usize> dig_;
@@ -469,10 +494,11 @@ export int run_game_server(const GameServerOptions& options) {
         }
         game.steer_players();
         (void)game.update(1.0 / 60.0);
-        // Schnappschüsse mit 30 Hz.
+        // Schnappschüsse mit 30 Hz, dazu jedem Spieler der Stand seiner Figur (R5.3).
         if (frame % 2 == 0) {
             players.update_focus();
             server.send_snapshot();
+            players.send_owner_states();
             snapshot_bytes = std::max(snapshot_bytes, server.last_snapshot_size());
         }
         const f64 ms =
@@ -510,13 +536,17 @@ export int run_game_server(const GameServerOptions& options) {
     return 0;
 }
 
-// Client ohne Fenster (R5.1): verbindet, schickt pro Bild die Aktionen der festen Spur und
-// meldet, wo seine Figur auf dem Server steht. Fehlschlag, wenn bis zum Ende keine Figur kam oder
-// sie sich nicht bewegt hat. Seit R5.2 mit der ganzen Welt als Delta.
+// Client ohne Fenster (R5.1): verbindet, schickt pro festem Schritt einen Befehl aus der festen
+// Spur und meldet, wo seine Figur steht. Seit R5.2 mit der ganzen Welt als Delta, seit R5.3 mit
+// Vorhersage der eigenen Figur über app::GameWorld (Physik im Modus remote). Fehlschlag, wenn bis
+// zum Ende keine Figur kam oder sie sich nicht bewegt hat.
 export int run_game_client(const std::string& address, u64 frames) {
-    reflect::TypeRegistry types = make_client_types();
-    const replication::Schema schema{types};
-    world::World world{types};
+    app::GameWorld game;
+    game.animation().set_rendering(false);
+    game.animation().set_parameter_sync(animation::ParameterSync::Follow);
+    replication::register_types(game.types());
+    const replication::Schema schema{game.types()};
+    world::World& world = game.world();
     auto connected = NetClient::connect(world, schema, address);
     if (!connected) {
         log::error("{}", connected.error());
@@ -524,7 +554,8 @@ export int run_game_client(const std::string& address, u64 frames) {
     }
     NetClient& net = **connected;
     input::ActionState actions{input::ActionMap::standard()};
-    const u32 map_hash = actions.map().hash();
+    app::PlayerPrediction prediction{
+        game, actions, [&net](std::span<const std::byte> data) { net.send_game(data); }};
     TickClock clock;
     std::optional<math::DVec3> first;
     math::DVec3 last{};
@@ -538,22 +569,29 @@ export int run_game_client(const std::string& address, u64 frames) {
             log::error("Keine Verbindung zum Server");
             return 1;
         }
-        if (net.ready()) {
+        prediction.set_figure(net.figure(), net.figure_on_server(), net.client().mirror());
+        for (const replication::OwnerState& owner : net.owner_states()) {
+            prediction.handle_owner(owner);
+        }
+        net.client().mirror().interpolate(1.0 / 60.0);
+        actions.begin_frame();
+        if (prediction.figure() != 0) {
             // Die Spur beginnt, sobald die Figur feststeht.
-            actions.begin_frame();
             for (const platform::Event& event : scripted_events(track_frame++)) {
                 actions.handle(event);
             }
-            actions.end_frame(1.0f / 60.0f);
-            net.send_input(map_hash, actions.values());
-            const u64 local = net.figure();
-            if (const auto* transform =
-                    local != 0 ? world.entity(local).get<world::Transform>() : nullptr) {
-                if (!first) {
-                    first = transform->position;
-                }
-                last = transform->position;
+        }
+        actions.end_frame(1.0f / 60.0f);
+        prediction.look(actions);
+        (void)game.update(1.0 / 60.0);
+        prediction.update(1.0f / 60.0f);
+        if (const auto* transform = prediction.figure() != 0
+                                        ? world.entity(prediction.figure()).get<world::Transform>()
+                                        : nullptr) {
+            if (!first) {
+                first = transform->position;
             }
+            last = transform->position;
         }
         if (frame % 60 == 59 && first) {
             log::info("Client: Figur {:.2f} m vom ersten Stand, {} Entities gespiegelt, Tick {}",
@@ -562,11 +600,13 @@ export int run_game_client(const std::string& address, u64 frames) {
         }
         if (frame % 180 == 179) {
             log::info("{}", net.report());
+            log::info("{}", app::describe_prediction(prediction.report()));
         }
         clock.wait();
     }
     log::info("Client: {} Schnappschüsse angewendet", net.client().snapshots_applied());
     log::info("{}", net.report());
+    log::info("{}", app::describe_prediction(prediction.report()));
     net.disconnect();
     // Kurz weiterpollen, damit die Trennung beim Server ankommt.
     for (int i = 0; i < 10; ++i) {
@@ -579,10 +619,10 @@ export int run_game_client(const std::string& address, u64 frames) {
     }
     const f64 moved = math::length(last - *first);
     if (moved < 1.0) {
-        log::error("Die Figur hat sich auf dem Server nicht bewegt ({:.2f} m)", moved);
+        log::error("Die Figur hat sich nicht bewegt ({:.2f} m)", moved);
         return 1;
     }
-    log::info("Client: Figur ist auf dem Server {:.1f} m gelaufen", moved);
+    log::info("Client: Figur ist {:.1f} m gelaufen (vorhergesagt)", moved);
     return 0;
 }
 
@@ -618,7 +658,6 @@ export int run_bots(const std::string& address, u32 count, u64 frames) {
         bot->offset = static_cast<u64>(i) * 97;
         bots.push_back(std::move(bot));
     }
-    const u32 map_hash = input::ActionMap::standard().hash();
     TickClock clock;
     for (u64 frame = 0; frame < frames; ++frame) {
         for (usize i = 0; i < bots.size(); ++i) {
@@ -640,7 +679,7 @@ export int run_bots(const std::string& address, u32 count, u64 frames) {
                 bot.actions.handle(event);
             }
             bot.actions.end_frame(1.0f / 60.0f);
-            bot.net->send_input(map_hash, bot.actions.values());
+            bot.net->send_command(bot.actions);
             if (frame % 60 == 59) {
                 bot.rates.push_back(bot.net->client().stats().snapshot_bytes_per_second);
             }

@@ -33,6 +33,20 @@ struct PhysicsSettings {
     // Wartet im Abgleich, bis alle nötigen Formen gebaut sind. Dann ist ein Lauf bitgleich (Tests,
     // --headless, Server); im Spiel bleiben Körper ohne Form unter sich solange eingefroren.
     bool wait_for_terrain = false;
+    // Physik eines Clients (R5.3, ADR 0053): Bewegt werden nur Figuren mit Predicted (die eigene,
+    // vorhergesagte Figur). Alle anderen Körper und Figuren sind kinematisch und folgen ihrem
+    // Transform, das die Replikation setzt; Figuren ohne Predicted werden dazu kinematische
+    // Kapseln.
+    bool remote = false;
+};
+
+// Zustand einer Spielfigur, wie Server und Client ihn vergleichen (R5.3).
+struct CharacterSnapshot {
+    // Fußpunkt in der Welt.
+    math::DVec3 position{0.0, 0.0, 0.0};
+    math::Vec3 velocity{0.0f, 0.0f, 0.0f};
+    GroundState ground = GroundState::Air;
+    bool crouched = false;
 };
 
 // Dreiecke eines Meshes für ConvexHull und Mesh. Indizes zu dritt, gegen den Uhrzeigersinn von
@@ -177,6 +191,9 @@ public:
     void set_terrain_materials(const world::TerrainMaterials& table);
     // Wie PhysicsSettings::wait_for_terrain, z. B. für Bilder ohne Fenster.
     void set_wait_for_terrain(bool wait) noexcept;
+    // Wie PhysicsSettings::remote; vor dem ersten Schritt setzen.
+    void set_remote(bool remote) noexcept;
+    [[nodiscard]] bool remote() const noexcept;
 
     // Gleicht die Körper mit den Komponenten ab (step() tut das selbst).
     void sync();
@@ -200,6 +217,15 @@ public:
     // Entities, deren Formen shape an dieser Lage überlappen, nach Kennung sortiert.
     [[nodiscard]] std::vector<u64> overlap(const QueryShape& shape, math::DVec3 position,
                                            math::Quat rotation, QueryFilter filter = {}) const;
+
+    // Vorhersage (R5.3): Zustand einer Figur nach dem letzten Schritt, nullopt ohne Figur.
+    [[nodiscard]] std::optional<CharacterSnapshot> character_snapshot(u64 entity) const;
+    // Setzt Lage, Geschwindigkeit und Ducken einer Figur und bestimmt ihre Kontakte neu, z. B. auf
+    // den Stand des Servers. Schreibt Transform und CharacterMotion. false ohne Figur.
+    bool set_character(u64 entity, const CharacterSnapshot& snapshot);
+    // Rechnet nur diese Figur einen Schritt um dt weiter, ohne Körper, Kontakte und Ereignisse
+    // (Neurechnen der gemerkten Befehle). Die Wünsche stehen wie sonst in CharacterMotion.
+    bool step_character(u64 entity, f32 dt);
 
     // Ob die Entity einen Körper hat.
     [[nodiscard]] bool has_body(u64 entity) const noexcept;

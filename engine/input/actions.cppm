@@ -172,6 +172,11 @@ public:
     [[nodiscard]] const ActionValue& fixed(std::string_view action) const noexcept;
     // Nach jedem festen Schritt (Simulation::set_after_fixed_step()).
     void end_fixed_step();
+    // Stand aller Aktionen für die feste Simulation, in der Reihenfolge der Belegung (R5.3: ein
+    // Befehl pro festem Schritt).
+    [[nodiscard]] std::span<const ActionValue> fixed_values() const noexcept {
+        return fixed_;
+    }
 
     // Werte aller Aktionen im Bild, in der Reihenfolge der Belegung (ActionMap::actions()).
     [[nodiscard]] std::span<const ActionValue> values() const noexcept {

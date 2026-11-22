@@ -258,9 +258,9 @@ public:
     }
 
     // Client mit Fenster (R5.2): eine leere Welt, die die Replikation vom Server füllt. Keine
-    // Simulation, keine Skripte; Automaten übernehmen die Parameter vom Server, das Terrain
-    // erzeugt der Client aus der replizierten Komponente Terrain selbst. update_remote() statt
-    // update().
+    // Skripte; Automaten übernehmen die Parameter vom Server, das Terrain erzeugt der Client aus
+    // der replizierten Komponente Terrain selbst. Seit R5.3 rechnet die Spielschleife die eigene
+    // Figur voraus (update_predicted() mit app::PlayerPrediction statt update()).
     [[nodiscard]] static rhi::Result<std::unique_ptr<ModelScene>>
     create_client(rhi::Device& device, rhi::Format target_format, SceneAssets assets = {}) {
         auto renderer = render::Renderer::create(device, target_format);
@@ -438,12 +438,18 @@ public:
         update_audio(dt);
     }
 
-    // Ein Bild als Client (R5.2): Die Welt kommt vom Server, die Kamera vom Aufrufer. Automaten
-    // und Klänge laufen wie im Spiel.
-    void update_remote(f32 dt, DVec3 eye, math::Quat look) {
-        view_position_ = eye;
-        view_rotation_ = look;
-        throw_origin_ = eye;
+    // Ein Bild als Client mit Vorhersage (R5.3): Die Spielschleife rechnet die eigene Figur
+    // (app::PlayerPrediction hängt sich in die festen Schritte), die Kamera folgt ihr wie im Spiel.
+    // Fremdes kommt vom Server. Ohne Figur bleibt die Kamera, wo sie war.
+    void update_predicted(f32 dt, u64 figure) {
+        simulate(dt);
+        const world::Entity player = figure != 0 ? world_.entity(figure) : world::Entity{};
+        if (player && player.has<PlayerInput>()) {
+            const PlayerView view = app::player_view(player, physics_);
+            view_position_ = view.position;
+            view_rotation_ = view.rotation;
+            throw_origin_ = view.eye;
+        }
         camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
         update_animation(dt);
         update_audio(dt);

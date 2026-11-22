@@ -885,6 +885,9 @@ struct Mirror::Impl {
     std::unordered_set<u64> unresolved;
     std::unordered_set<u64> orphans;
     MirrorStats stats;
+    // Eigene Figur auf dem Server und die Komponenten, die der Client für sie selbst setzt.
+    u64 predicted = 0;
+    std::vector<u16> owned;
 
     u64 local(u64 server_id) const noexcept {
         const auto it = entities.find(server_id);
@@ -896,6 +899,10 @@ struct Mirror::Impl {
                         bool sample) {
         const u16 index = record.components[slot];
         const SchemaComponent& component = schema->component(index);
+        if (record.id == predicted && world->has(local_entity, ids[index]) &&
+            std::ranges::find(owned, index) != owned.end()) {
+            return {};
+        }
         void* data = world->ensure(local_entity, ids[index]);
         Resolver resolve{.entities = &entities, .unresolved = false};
         for (u32 part = 0; part < component.parts; ++part) {
@@ -1146,7 +1153,7 @@ void Mirror::interpolate(f64 dt, f64 delay) {
     const f64 render = d.render_tick;
     u32 moving = 0;
     for (auto& [server_id, track] : d.tracks) {
-        if (track.samples.empty() || (track.settled && !beyond)) {
+        if (track.samples.empty() || (track.settled && !beyond) || server_id == d.predicted) {
             continue;
         }
         const u64 entity = d.local(server_id);
@@ -1191,6 +1198,21 @@ void Mirror::interpolate(f64 dt, f64 delay) {
         ++moving;
     }
     d.stats.interpolated = moving;
+}
+
+void Mirror::set_predicted(u64 server_id, std::span<const reflect::TypeInfo* const> owned) {
+    Impl& d = *impl_;
+    d.predicted = server_id;
+    d.owned.clear();
+    for (const reflect::TypeInfo* type : owned) {
+        if (type == nullptr) {
+            continue;
+        }
+        if (const auto index = d.schema->index_of(*type)) {
+            d.owned.push_back(*index);
+        }
+    }
+    d.tracks.erase(server_id);
 }
 
 u64 Mirror::local_id(u64 server_id) const noexcept {

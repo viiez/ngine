@@ -103,6 +103,7 @@ import app.model_scene;
 import app.paths;
 import app.input_bindings;
 import app.player;
+import app.prediction;
 import ngine.input;
 import ngine.asset;
 import sandbox.script_demo;
@@ -130,71 +131,8 @@ namespace {
 
 #if NGINE_WITH_WINDOW
 
-// Kamera des Clients mit Fenster (R5.2): Blick dreht der Client selbst und schickt ihn mit den
-// Aktionen zum Server; die Lage kommt von der gespiegelten Figur (interpoliert). Ohne Physik
-// rückt die Schulterkamera nicht vor Wänden heran.
-class RemoteView {
-public:
-    void update(ngine::world::World& world, ngine::u64 figure,
-                const ngine::input::ActionState& actions) {
-        if (figure == 0) {
-            return;
-        }
-        ngine::world::Entity entity = world.entity(figure);
-        const auto* player = entity.get<app::PlayerInput>();
-        if (!started_ && player != nullptr) {
-            yaw_ = player->yaw;
-            pitch_ = player->pitch;
-            shoulder_ = player->view == app::CameraView::Shoulder;
-            started_ = true;
-        }
-        const ngine::input::ActionValue& look = actions.value("look");
-        yaw_ -= look.x * look_speed;
-        pitch_ = std::clamp(pitch_ - look.y * look_speed, -1.55f, 1.55f);
-        if (actions.pressed("camera")) {
-            shoulder_ = !shoulder_;
-        }
-        const auto* transform = entity.get<ngine::world::Transform>();
-        if (transform == nullptr) {
-            return;
-        }
-        float eye = player != nullptr ? player->eye_height : 1.6f;
-        if (const auto* motion = entity.get<ngine::physics::CharacterMotion>();
-            motion != nullptr && motion->crouched) {
-            eye *= 0.6f;
-        }
-        rotation_ = app::view_rotation(app::PlayerInput{.yaw = yaw_, .pitch = pitch_});
-        position_ = transform->position + ngine::math::DVec3{0.0, static_cast<double>(eye), 0.0};
-        if (shoulder_) {
-            const float distance = player != nullptr ? player->shoulder_distance : 3.0f;
-            const float side = player != nullptr ? player->shoulder_side : 0.5f;
-            const ngine::math::Vec3 offset = rotation_ * ngine::math::Vec3{side, 0.0f, distance};
-            position_ = position_ + ngine::math::to_f64(offset);
-        }
-    }
-
-    [[nodiscard]] ngine::replication::ViewAngles angles() const noexcept {
-        return {.yaw = yaw_, .pitch = pitch_};
-    }
-    [[nodiscard]] ngine::math::DVec3 position() const noexcept {
-        return position_;
-    }
-    [[nodiscard]] ngine::math::Quat rotation() const noexcept {
-        return rotation_;
-    }
-
-private:
-    static constexpr float look_speed = 0.0025f;
-    bool started_ = false;
-    float yaw_ = 0.0f;
-    float pitch_ = 0.0f;
-    bool shoulder_ = false;
-    ngine::math::DVec3 position_{0.0, 2.0, 0.0};
-    ngine::math::Quat rotation_{};
-};
-
-// Fenster „Netzwerk“ des Clients (R5.2).
-void network_window(const sandbox::NetClient& net) {
+// Fenster „Netzwerk“ des Clients (R5.2, seit R5.3 mit der Vorhersage).
+void network_window(const sandbox::NetClient& net, const app::PredictionReport& prediction) {
     namespace ui = ngine::editor_ui;
     if (!ui::begin_window("Netzwerk")) {
         ui::end_window();
@@ -225,6 +163,16 @@ void network_window(const sandbox::NetClient& net) {
                          stats.mirror.buffer_ticks * 1000.0 / ngine::replication::snapshot_rate));
     ui::text(std::format("Ohne Basis {}, zu spät {}, weitergerechnet {}", stats.mirror.missing_base,
                          stats.mirror.stale, stats.mirror.extrapolated));
+    ui::separator();
+    const ngine::replication::PredictionStats& predictor = prediction.predictor;
+    ui::text(std::format("Korrekturen {} ({} pro Minute), zuletzt {:.1f} cm", predictor.corrections,
+                         prediction.corrections_per_minute, predictor.last_correction * 100.0));
+    ui::text(std::format("Abweichung {:.2f} cm, neu gerechnet {} Schritte ({:.2f} ms)",
+                         predictor.last_error * 100.0, predictor.replayed, prediction.replay_ms));
+    ui::text(std::format("Befehle voraus {}, beim Server {} (Mittel {:.1f})", predictor.pending,
+                         prediction.server_queue, prediction.server_queue_average));
+    ui::text(std::format("Takt {:+.1f} %, Versatz {:.1f} cm", (prediction.rate - 1.0f) * 100.0f,
+                         prediction.smoothing * 100.0f));
     ui::end_window();
 }
 
@@ -530,7 +478,8 @@ int run_windowed(const Options& options) {
         // Client mit Fenster (R5.2): Die Welt der Szene spiegelt die des Servers.
         std::unique_ptr<ngine::replication::Schema> schema;
         std::unique_ptr<sandbox::NetClient> net;
-        RemoteView remote_view;
+        // Vorhersage der eigenen Figur (R5.3), sobald die Aktionen stehen.
+        std::unique_ptr<app::PlayerPrediction> prediction;
         if (options.client_address && scene) {
             ngine::replication::register_types(scene->game().types());
             schema = std::make_unique<ngine::replication::Schema>(scene->game().types());
@@ -568,7 +517,12 @@ int run_windowed(const Options& options) {
         // Eingabe als Aktionen (R4.1); die Belegung lädt neu, wenn sich die Datei ändert.
         app::InputBindings bindings;
         ngine::input::ActionState actions{bindings.load()};
-        const ngine::u32 map_hash = actions.map().hash();
+        if (net) {
+            sandbox::NetClient* connection = net.get();
+            prediction = std::make_unique<app::PlayerPrediction>(
+                scene->game(), actions,
+                [connection](std::span<const std::byte> data) { connection->send_game(data); });
+        }
         // Skripte aus assets/skripte, mit Hot Reload (R4.4); als Client rechnet sie der Server.
         if (scene && script_runtime && !net) {
             scene->enable_scripts(*script_runtime, &actions);
@@ -615,10 +569,15 @@ int run_windowed(const Options& options) {
                     ngine::log::error("Verbindung zum Server verloren");
                     running = false;
                 }
+                prediction->set_figure(net->figure(), net->figure_on_server(),
+                                       net->client().mirror());
+                for (const ngine::replication::OwnerState& owner : net->owner_states()) {
+                    prediction->handle_owner(owner);
+                }
                 net->client().mirror().interpolate(dt);
-                remote_view.update(scene->world(), net->figure(), actions);
-                net->send_input(map_hash, actions.values(), remote_view.angles());
-                scene->update_remote(dt, remote_view.position(), remote_view.rotation());
+                prediction->look(actions);
+                scene->update_predicted(dt, prediction->figure());
+                prediction->update(dt);
             } else {
                 if (options.playground && actions.pressed("throw")) {
                     scene->throw_ball();
@@ -658,7 +617,7 @@ int run_windowed(const Options& options) {
                     ui->begin_frame(static_cast<float>(extent.width),
                                     static_cast<float>(extent.height), dt);
                     if (show_network && net) {
-                        network_window(*net);
+                        network_window(*net, prediction->report());
                     }
                     ui_renderer->add_pass(graph, ui->end_frame(), backbuffer);
                 }
