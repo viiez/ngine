@@ -189,7 +189,7 @@ jobs:
           exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
           [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
           log="$RUNNER_TEMP/server.log"
-          "$exe" --server --scene szenen/spielplatz.json --port 27020 --frames 2400 > "$log" 2>&1 &
+          "$exe" --server --scene szenen/spielplatz.json --port 27020 --frames 3600 > "$log" 2>&1 &
           server=$!
           for i in $(seq 1 240); do
             grep -q "Server bereit" "$log" && break
@@ -198,7 +198,10 @@ jobs:
           done
           cat "$log"
           grep -q "Server bereit" "$log"
-          "$exe" --client 127.0.0.1:27020 --frames 600
+          "$exe" --client 127.0.0.1:27020 --headless --frames 600
+          # Seit R5.2: vier Bots gleichzeitig, mit 100 ms Verzögerung und 5 % Verlust; jeder
+          # muss seine Figur bekommen und Schnappschüsse anwenden.
+          "$exe" --bots 4 --client 127.0.0.1:27020 --net-sim 100 5 --frames 600
           wait "$server"
           cat "$log"
           grep -q "steuert" "$log"

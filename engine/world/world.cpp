@@ -627,7 +627,7 @@ usize QueryBase::count() const {
 
 void register_types(reflect::TypeRegistry& types) {
     if (types.find<Name>() == nullptr) {
-        types.add<Name>("Name").field("value", &Name::value);
+        types.add<Name>("Name").replicated().field("value", &Name::value);
     }
     if (types.find<math::Vec3>() == nullptr) {
         types.add<math::Vec3>("Vec3")
@@ -650,6 +650,7 @@ void register_types(reflect::TypeRegistry& types) {
     }
     if (types.find<Transform>() == nullptr) {
         types.add<Transform>("Transform")
+            .replicated()
             .field("position", &Transform::position)
             .field("rotation", &Transform::rotation)
             .hint(reflect::Hint::Rotation)

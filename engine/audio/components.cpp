@@ -37,6 +37,7 @@ void register_types(reflect::TypeRegistry& types) {
     }
     if (types.find<AudioSource>() == nullptr) {
         types.add<AudioSource>("AudioSource")
+            .replicated()
             .field("sound", &AudioSource::sound)
             .hint(reflect::Hint::Asset)
             .field("bus", &AudioSource::bus)

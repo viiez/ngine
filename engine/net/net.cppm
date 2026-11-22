@@ -56,11 +56,26 @@ struct ConnectionStats {
     f32 receive_rate_bytes = 0.0f;
 };
 
+// Simulierte Netzbedingungen (R5.2, TD-14): GameNetworkingSockets verzögert und verwirft Pakete
+// selbst. Gilt für alle Verbindungen des Prozesses.
+struct NetworkConditions {
+    // Zusätzliche Rundlaufzeit in Millisekunden, je zur Hälfte beim Senden und Empfangen. Laufen
+    // beide Seiten im selben Prozess, zählt sie hin und zurück je einmal (doppelt).
+    u32 lag_ms = 0;
+    // Anteil verworfener Pakete in Prozent, je Richtung.
+    f32 loss_percent = 0.0f;
+};
+
 // Ein Endpunkt: Server (listen) oder Client (connect), auch beides. Mehrere Transporte im selben
 // Prozess sind erlaubt (Listen-Server, Tests). Gehört einem Thread.
 class Transport {
 public:
     [[nodiscard]] static Result<std::unique_ptr<Transport>> create();
+
+    // Schaltet die Simulation für den ganzen Prozess ein ({} schaltet sie ab). Darf vor dem
+    // ersten Transport aufgerufen werden.
+    static void simulate(const NetworkConditions& conditions);
+    [[nodiscard]] static NetworkConditions simulated();
 
     Transport(const Transport&) = delete;
     Transport& operator=(const Transport&) = delete;

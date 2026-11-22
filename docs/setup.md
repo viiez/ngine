@@ -413,6 +413,34 @@ Bei Problemen hilft die komplette Konsolenausgabe von Konfigurieren, Bauen oder 
    den Pinsel um, 1 bis 5 wählen den Modus, `[` und `]` (auf der deutschen Tastatur Ü und +)
    ändern den Radius.
 
+## R5.2 testen: Replikation
+
+Der Server schickt seit R5.2 Deltas gegen den bestätigten Stand, nur aus der Umgebung der Figur.
+Die Sandbox mit `--client` öffnet ein Fenster und zeigt die Welt des Servers.
+
+1. **Tests:** `ctest` meldet die `[replication]`-Tests als bestanden, darunter einen Client, der bei
+   100 ms Verzögerung und rund 19 % Verlust zur Welt des Servers heilt.
+2. **Server:** `ngine_sandbox --server --scene szenen/spielplatz.json --bodies 500`: 500 Kisten
+   und Kugeln regnen beim Start etwa 14 m hinter der Startposition der Figur herab und schlafen
+   danach ein. Das Log meldet alle fünf Sekunden pro Client Datenrate, Größe der Schnappschüsse
+   und wartende Entities.
+3. **Client mit Fenster:** `ngine_sandbox --client 127.0.0.1`. Der Spielplatz erscheint, wie ihn
+   der Server rechnet; Maus und WASD steuern die eigene Figur (in R5.2 noch um die Latenz
+   verzögert). Die Maus bleibt gefangen. Die linke Maustaste wirft Kugeln, die der Server anlegt
+   und alle Clients sehen. Graben (rechte Maustaste) ignoriert der Server bis R5.4, weil die
+   Löcher sonst bei keinem Client ankämen. F3 öffnet das Fenster „Netzwerk“ mit Ping, Verlust,
+   Datenraten und dem Puffer der Interpolation (um 3 Ticks).
+4. **Zwei Clients:** Einen zweiten Client starten. Beide sehen die Figur des anderen flüssig laufen
+   und die Kisten fallen.
+5. **Schlechtes Netz:** Einen Client mit `--net-sim 150 5` starten. Fremde Figuren und Kisten
+   bleiben flüssig; im Fenster „Netzwerk“ steigen Ping und Verlust, „ohne Basis“ zählt hin und
+   wieder hoch.
+6. **Bots:** `ngine_sandbox --bots 8 --client 127.0.0.1 --frames 1800`. Am Ende meldet das Log
+   „Bots: 8 Clients, Schnappschüsse im Mittel … KB/s“; der Wert bleibt unter dem Budget von
+   64 KB/s pro Client, und der Server meldet seine Zeit pro Bild.
+7. **Ohne Fenster:** `ngine_sandbox --client 127.0.0.1 --headless --frames 600` verhält sich wie
+   der Client aus R5.1 und schreibt alle drei Sekunden eine Zeile „Netz: …“ ins Log.
+
 ## R5.1 testen: Server mit Spielwelt
 
 Der Server rechnet seit R5.1 den Spielplatz statt der Kugeln aus D3. Alles läuft ohne Fenster;

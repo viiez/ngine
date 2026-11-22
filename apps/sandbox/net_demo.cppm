@@ -65,12 +65,15 @@ constexpr f32 player_speed = 4.0f;
 
 struct Types {
     reflect::TypeRegistry registry;
-    std::array<const reflect::TypeInfo*, 2> replicated{};
+    // Seit R5.2 aus den Markierungen der Registry: Name und Position (Transform und Terrain
+    // gibt es in dieser Welt nicht).
+    std::unique_ptr<replication::Schema> schema;
 
     Types() {
         world::register_types(registry);
         replication::register_types(registry);
         registry.add<Position>("Position")
+            .replicated()
             .field("x", &Position::x)
             .field("y", &Position::y)
             .field("z", &Position::z);
@@ -79,7 +82,7 @@ struct Types {
             .field("speed", &Orbit::speed)
             .field("angle", &Orbit::angle);
         registry.add<Input>("PlayerInput").field("x", &Input::x).field("z", &Input::z);
-        replicated = {&registry.get<world::Name>(), &registry.get<Position>()};
+        schema = std::make_unique<replication::Schema>(registry);
     }
 };
 
@@ -120,7 +123,6 @@ public:
         : world_{&world}, jobs_{{.worker_count = 2}}, simulation_{world, jobs_} {
         for (u32 i = 0; i < orbit_count; ++i) {
             world.create(std::format("Kugel {}", i))
-                .set(replication::Replicated{})
                 .set(Position{})
                 .set(Orbit{.radius = 3.0f + static_cast<f32>(i % 8),
                            .speed = 0.5f + static_cast<f32>(i % 5) * 0.25f,
@@ -148,10 +150,8 @@ public:
     void sync_players(std::span<const net::ConnectionId> clients) {
         for (const net::ConnectionId client : clients) {
             if (!players_.contains(client)) {
-                players_[client] = world_->create(std::format("Spieler {}", client))
-                                       .set(replication::Replicated{})
-                                       .set(Position{.y = 1.0f})
-                                       .id();
+                players_[client] =
+                    world_->create(std::format("Spieler {}", client)).set(Position{.y = 1.0f}).id();
             }
         }
         std::erase_if(players_, [&](const auto& entry) {
@@ -230,8 +230,8 @@ export int run_net_demo(u64 frames) {
         log::error("{}", port.error());
         return 1;
     }
-    replication::Server server{*server_transport, server_world, types.replicated};
-    replication::Client client{*client_transport, client_world, types.replicated};
+    replication::Server server{*server_transport, server_world, *types.schema};
+    replication::Client client{*client_transport, client_world, *types.schema};
     if (auto result = client.connect(std::format("127.0.0.1:{}", *port)); !result) {
         log::error("{}", result.error());
         return 1;
@@ -283,12 +283,14 @@ export int run_net_demo(u64 frames) {
 
     // Zum Vergleich ein letzter Schnappschuss ohne weitere Bewegung; warten, bis er ankommt.
     server.send_snapshot();
-    const u32 final_tick = server.tick();
-    for (int i = 0; i < 300 && client.mirror().last_tick() != final_tick; ++i) {
+    for (int i = 0; i < 300 && client.mirror().last_tick() != server.tick(); ++i) {
+        received.clear();
+        server.poll(received);
         if (!client_frame(frames)) {
             return 1;
         }
-        // Geht der letzte unzuverlässige Schnappschuss verloren, kommt derselbe Stand erneut.
+        // Geht der letzte unzuverlässige Schnappschuss verloren, kommt derselbe Stand erneut
+        // (als Delta gegen den zuletzt bestätigten).
         if (i % 10 == 9) {
             server.send_snapshot();
         }
@@ -296,16 +298,14 @@ export int run_net_demo(u64 frames) {
     }
 
     usize mismatches = 0;
-    server_world.each<const replication::Replicated, const Position>(
-        [&](world::Entity entity, const replication::Replicated&, const Position& expected) {
-            const u64 local = client.mirror().local_id(entity.id());
-            const Position* actual =
-                local == 0 ? nullptr : client_world.entity(local).get<Position>();
-            if (actual == nullptr || actual->x != expected.x || actual->y != expected.y ||
-                actual->z != expected.z) {
-                ++mismatches;
-            }
-        });
+    server_world.each<const Position>([&](world::Entity entity, const Position& expected) {
+        const u64 local = client.mirror().local_id(entity.id());
+        const Position* actual = local == 0 ? nullptr : client_world.entity(local).get<Position>();
+        if (actual == nullptr || actual->x != expected.x || actual->y != expected.y ||
+            actual->z != expected.z) {
+            ++mismatches;
+        }
+    });
     const net::ConnectionId on_server = server.clients().empty() ? 0 : server.clients().front();
     const u64 player = game.player(on_server);
     const u64 mirrored_player = client.mirror().local_id(player);

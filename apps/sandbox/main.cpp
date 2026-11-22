@@ -58,8 +58,14 @@
 //                   Figuren, pro Client eine Figur; ohne --frames läuft er, bis man ihn beendet
 //   --track         mit --server: Die Figur der Szene läuft die feste Spur von --headless
 //                   --playground, so schnell es geht (gleiche Prüfsumme)
-//   --client <adr>  ohne Fenster zu einem Server verbinden, z. B. 127.0.0.1 oder host:27020; die
-//                   eigene Figur läuft die feste Spur
+//   --client <adr>  zu einem Server verbinden, z. B. 127.0.0.1 oder host:27020 (R5.2): zeigt die
+//                   Welt des Servers mit Fenster, W/A/S/D, Maus, Shift, Leertaste, Strg und V wie
+//                   auf dem Spielplatz; F3 zeigt das Fenster „Netzwerk“. Mit --headless ohne
+//                   Fenster, die eigene Figur läuft die feste Spur (R5.1)
+//   --bots <n>      n Clients ohne Fenster in einem Prozess (Messung der Bandbreite, R5.2), zu
+//                   --client oder 127.0.0.1; mit --frames die Länge (Standard 30 s)
+//   --net-sim <ms> <prozent>  Latenz (zusätzliche Rundlaufzeit) und Verlust je Richtung simulieren
+//                   (R5.2), für Server, Client und Bots
 //   --no-cache      Modelle aus den Quellen laden statt gekocht aus dem Cache (Vergleich, R2.5)
 //   --no-audio      ohne Audio-Gerät (Null-Gerät; die Welt klingt, man hört nur nichts)
 //   --mute          Audio stumm schalten (Master-Bus), z. B. für Messungen
@@ -70,6 +76,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstddef>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -101,6 +108,13 @@ import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import sandbox.game_server;
+import sandbox.net_client;
+import ngine.net;
+import ngine.replication;
+import ngine.world;
+import ngine.math;
+import ngine.physics;
+import ngine.editor_ui;
 import sandbox.playground;
 import sandbox.animation_bench;
 import sandbox.audio_bench;
@@ -113,6 +127,108 @@ import ngine.platform;
 #endif
 
 namespace {
+
+#if NGINE_WITH_WINDOW
+
+// Kamera des Clients mit Fenster (R5.2): Blick dreht der Client selbst und schickt ihn mit den
+// Aktionen zum Server; die Lage kommt von der gespiegelten Figur (interpoliert). Ohne Physik
+// rückt die Schulterkamera nicht vor Wänden heran.
+class RemoteView {
+public:
+    void update(ngine::world::World& world, ngine::u64 figure,
+                const ngine::input::ActionState& actions) {
+        if (figure == 0) {
+            return;
+        }
+        ngine::world::Entity entity = world.entity(figure);
+        const auto* player = entity.get<app::PlayerInput>();
+        if (!started_ && player != nullptr) {
+            yaw_ = player->yaw;
+            pitch_ = player->pitch;
+            shoulder_ = player->view == app::CameraView::Shoulder;
+            started_ = true;
+        }
+        const ngine::input::ActionValue& look = actions.value("look");
+        yaw_ -= look.x * look_speed;
+        pitch_ = std::clamp(pitch_ - look.y * look_speed, -1.55f, 1.55f);
+        if (actions.pressed("camera")) {
+            shoulder_ = !shoulder_;
+        }
+        const auto* transform = entity.get<ngine::world::Transform>();
+        if (transform == nullptr) {
+            return;
+        }
+        float eye = player != nullptr ? player->eye_height : 1.6f;
+        if (const auto* motion = entity.get<ngine::physics::CharacterMotion>();
+            motion != nullptr && motion->crouched) {
+            eye *= 0.6f;
+        }
+        rotation_ = app::view_rotation(app::PlayerInput{.yaw = yaw_, .pitch = pitch_});
+        position_ = transform->position + ngine::math::DVec3{0.0, static_cast<double>(eye), 0.0};
+        if (shoulder_) {
+            const float distance = player != nullptr ? player->shoulder_distance : 3.0f;
+            const float side = player != nullptr ? player->shoulder_side : 0.5f;
+            const ngine::math::Vec3 offset = rotation_ * ngine::math::Vec3{side, 0.0f, distance};
+            position_ = position_ + ngine::math::to_f64(offset);
+        }
+    }
+
+    [[nodiscard]] ngine::replication::ViewAngles angles() const noexcept {
+        return {.yaw = yaw_, .pitch = pitch_};
+    }
+    [[nodiscard]] ngine::math::DVec3 position() const noexcept {
+        return position_;
+    }
+    [[nodiscard]] ngine::math::Quat rotation() const noexcept {
+        return rotation_;
+    }
+
+private:
+    static constexpr float look_speed = 0.0025f;
+    bool started_ = false;
+    float yaw_ = 0.0f;
+    float pitch_ = 0.0f;
+    bool shoulder_ = false;
+    ngine::math::DVec3 position_{0.0, 2.0, 0.0};
+    ngine::math::Quat rotation_{};
+};
+
+// Fenster „Netzwerk“ des Clients (R5.2).
+void network_window(const sandbox::NetClient& net) {
+    namespace ui = ngine::editor_ui;
+    if (!ui::begin_window("Netzwerk")) {
+        ui::end_window();
+        return;
+    }
+    const ngine::replication::ClientStats stats = net.client().stats();
+    const ngine::net::NetworkConditions simulated = ngine::net::Transport::simulated();
+    ui::text(std::format("Server {}", net.address()));
+    ui::text(std::format("Ping {} ms, Verlust {}", stats.ping_ms,
+                         stats.loss >= 0.0f ? std::format("{:.1f} %", stats.loss * 100.0f)
+                                            : std::string{"?"}));
+    if (simulated.lag_ms > 0 || simulated.loss_percent > 0.0f) {
+        ui::text_colored({1.0f, 0.8f, 0.3f, 1.0f},
+                         std::format("Simuliert: +{} ms, {:.1f} % Verlust", simulated.lag_ms,
+                                     simulated.loss_percent));
+    }
+    ui::text(std::format("Empfangen {:.1f} KB/s, gesendet {:.1f} KB/s",
+                         stats.receive_bytes_per_second / 1024.0f,
+                         stats.send_bytes_per_second / 1024.0f));
+    ui::separator();
+    ui::text(std::format("Schnappschüsse {}/s, {:.1f} KB/s", stats.snapshots_per_second,
+                         static_cast<double>(stats.snapshot_bytes_per_second) / 1024.0));
+    ui::text(std::format("Größe zuletzt {} B, höchstens {} B", stats.last_snapshot_bytes,
+                         stats.largest_snapshot_bytes));
+    ui::text(std::format("Entities {}, interpoliert {}", net.client().mirror().entity_count(),
+                         stats.mirror.interpolated));
+    ui::text(std::format("Puffer {:.1f} Ticks ({:.0f} ms)", stats.mirror.buffer_ticks,
+                         stats.mirror.buffer_ticks * 1000.0 / ngine::replication::snapshot_rate));
+    ui::text(std::format("Ohne Basis {}, zu spät {}, weitergerechnet {}", stats.mirror.missing_base,
+                         stats.mirror.stale, stats.mirror.extrapolated));
+    ui::end_window();
+}
+
+#endif
 
 struct Options {
     bool headless = false;
@@ -134,6 +250,8 @@ struct Options {
     bool track = false;
     std::optional<ngine::u16> port;
     std::optional<std::string> client_address;
+    std::optional<ngine::u32> bots;
+    std::optional<ngine::net::NetworkConditions> net_sim;
     std::optional<std::string> image_path;
     std::optional<std::string> model_path;
     bool baseline = false;
@@ -178,6 +296,25 @@ Options parse_options(std::span<char*> args) {
             options.track = true;
         } else if (arg == "--client" && i + 1 < args.size()) {
             options.client_address = std::string{args[++i]};
+        } else if (arg == "--bots" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            ngine::u32 count = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), count).ec ==
+                std::errc{}) {
+                options.bots = count;
+            }
+        } else if (arg == "--net-sim" && i + 2 < args.size()) {
+            const std::string_view lag{args[++i]};
+            const std::string_view loss{args[++i]};
+            ngine::net::NetworkConditions conditions;
+            if (std::from_chars(lag.data(), lag.data() + lag.size(), conditions.lag_ms).ec ==
+                    std::errc{} &&
+                std::from_chars(loss.data(), loss.data() + loss.size(), conditions.loss_percent)
+                        .ec == std::errc{}) {
+                options.net_sim = conditions;
+            } else {
+                ngine::log::warn("--net-sim erwartet Millisekunden und Prozent, z. B. 150 5");
+            }
         } else if (arg == "--port" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u16 port = 0;
@@ -364,7 +501,10 @@ int run_windowed(const Options& options) {
             }
         } else {
             auto created =
-                options.playground
+                options.client_address
+                    ? app::ModelScene::create_client(**device, (*device)->swapchain_format(),
+                                                     sandbox_assets.scene_assets())
+                : options.playground
                     ? app::ModelScene::create_playground(**device, (*device)->swapchain_format(),
                                                          sandbox::voxel_origin(options.far),
                                                          sandbox_assets.scene_assets(),
@@ -383,7 +523,41 @@ int run_windowed(const Options& options) {
             if (options.animators) {
                 scene->add_animated_crowd(*options.animators);
             }
-            sandbox::report_load(scene->load_all(**device));
+            if (!options.client_address) {
+                sandbox::report_load(scene->load_all(**device));
+            }
+        }
+        // Client mit Fenster (R5.2): Die Welt der Szene spiegelt die des Servers.
+        std::unique_ptr<ngine::replication::Schema> schema;
+        std::unique_ptr<sandbox::NetClient> net;
+        RemoteView remote_view;
+        if (options.client_address && scene) {
+            ngine::replication::register_types(scene->game().types());
+            schema = std::make_unique<ngine::replication::Schema>(scene->game().types());
+            auto connected =
+                sandbox::NetClient::connect(scene->world(), *schema, *options.client_address);
+            if (!connected) {
+                ngine::log::fatal("{}", connected.error());
+                return 1;
+            }
+            net = std::move(*connected);
+        }
+        // Fenster „Netzwerk“ über die UI des Editors; der Kontext endet vor dem UiRenderer.
+        std::unique_ptr<ngine::editor_ui::UiRenderer> ui_renderer;
+        std::optional<ngine::editor_ui::Context> ui;
+        bool show_network = true;
+        if (net) {
+            auto created_ui =
+                ngine::editor_ui::UiRenderer::create(**device, (*device)->swapchain_format());
+            if (!created_ui) {
+                ngine::log::fatal("{}", created_ui.error());
+                return 1;
+            }
+            ui_renderer = std::move(*created_ui);
+            ui.emplace(*ui_renderer, ngine::editor_ui::ContextDesc{.ini_path = {},
+                                                                   .scale = window->display_scale(),
+                                                                   .get_clipboard = {},
+                                                                   .set_clipboard = {}});
         }
 
         ngine::render::TexturePool pool{**device};
@@ -394,16 +568,19 @@ int run_windowed(const Options& options) {
         // Eingabe als Aktionen (R4.1); die Belegung lädt neu, wenn sich die Datei ändert.
         app::InputBindings bindings;
         ngine::input::ActionState actions{bindings.load()};
-        // Skripte aus assets/skripte, mit Hot Reload (R4.4).
-        if (scene && script_runtime) {
+        const ngine::u32 map_hash = actions.map().hash();
+        // Skripte aus assets/skripte, mit Hot Reload (R4.4); als Client rechnet sie der Server.
+        if (scene && script_runtime && !net) {
             scene->enable_scripts(*script_runtime, &actions);
         }
         bool looking = false;
         // Auf dem Spielplatz mit Figur ist die Maus gefangen und schaut ohne Taste (R4.3).
+        // Als Client steuert man immer die eigene Figur des Servers (R5.2).
         const auto player_mode = [&] {
-            return scene && !voxels && scene->active_player() && !scene->flying();
+            return net != nullptr ||
+                   (scene && !voxels && scene->active_player() && !scene->flying());
         };
-        if (player_mode()) {
+        if (player_mode() || net) {
             looking = true;
             window->set_relative_mouse(true);
         }
@@ -430,6 +607,18 @@ int run_windowed(const Options& options) {
                 if ((options.flight || options.hover) && !voxels->flight_active()) {
                     running = false;
                 }
+            } else if (net) {
+                if (auto result = net->poll(); !result) {
+                    ngine::log::error("{}", result.error());
+                    running = false;
+                } else if (net->disconnected()) {
+                    ngine::log::error("Verbindung zum Server verloren");
+                    running = false;
+                }
+                net->client().mirror().interpolate(dt);
+                remote_view.update(scene->world(), net->figure(), actions);
+                net->send_input(map_hash, actions.values(), remote_view.angles());
+                scene->update_remote(dt, remote_view.position(), remote_view.rotation());
             } else {
                 if (options.playground && actions.pressed("throw")) {
                     scene->throw_ball();
@@ -442,6 +631,9 @@ int run_windowed(const Options& options) {
                 if (options.playground) {
                     ngine::log::info("{}", scene->physics_stats());
                     ngine::log::info("{}", scene->character_stats());
+                }
+                if (net) {
+                    ngine::log::info("{}", net->report());
                 }
                 // Zeiten je Pass auf der GPU (R4.6, TD-45).
                 ngine::log::info("{}", ngine::render::pass_report(gpu_profiler));
@@ -460,6 +652,15 @@ int run_windowed(const Options& options) {
                     voxels->add_passes(**device, graph, backbuffer);
                 } else {
                     scene->add_passes(graph, backbuffer);
+                }
+                if (ui) {
+                    const auto extent = window->framebuffer_size();
+                    ui->begin_frame(static_cast<float>(extent.width),
+                                    static_cast<float>(extent.height), dt);
+                    if (show_network && net) {
+                        network_window(*net);
+                    }
+                    ui_renderer->add_pass(graph, ui->end_frame(), backbuffer);
                 }
                 graph.execute(frame->commands, pool, &gpu_profiler);
                 pool.end_frame();
@@ -510,6 +711,8 @@ int run_windowed(const Options& options) {
                                 scene->toggle_debug_draw();
                             } else if (ev.key == Key::F2 && scene) {
                                 scene->toggle_cascades();
+                            } else if (ev.key == Key::F3 && net) {
+                                show_network = !show_network;
                             } else if (ev.key == Key::F3 && scene) {
                                 scene->toggle_draw_colliders();
                             } else if (ev.key == Key::F4 && scene && scene->active_player()) {
@@ -598,6 +801,10 @@ int main(int argc, char** argv) {
     ngine::log::info("{} {}.{}.{} startet", ngine::engine_name, version.major, version.minor,
                      version.patch);
 
+    if (options.net_sim) {
+        ngine::net::Transport::simulate(*options.net_sim);
+    }
+
     int exit_code = 0;
     if (options.jobs_demo) {
         exit_code = sandbox::run_jobs_demo(options.frames.value_or(120));
@@ -622,9 +829,13 @@ int main(int argc, char** argv) {
                                               .scene = options.scene_path,
                                               .track = options.track,
                                               .scripts = !options.no_scripts,
+                                              .bodies = options.bodies,
                                               .database = sandbox_assets.database(),
                                               .cache = sandbox_assets.cache()});
-    } else if (options.client_address) {
+    } else if (options.bots) {
+        exit_code = sandbox::run_bots(options.client_address.value_or("127.0.0.1"), *options.bots,
+                                      options.frames.value_or(1800));
+    } else if (options.client_address && (options.headless || !NGINE_WITH_WINDOW)) {
         exit_code = sandbox::run_game_client(*options.client_address, options.frames.value_or(300));
     } else if (options.voxel_demo && options.headless) {
         exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120), options.seed,

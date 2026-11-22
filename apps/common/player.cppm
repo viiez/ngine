@@ -53,7 +53,10 @@ export void register_player_types(reflect::TypeRegistry& types) {
             .value("Shoulder", CameraView::Shoulder);
     }
     if (types.find<PlayerInput>() == nullptr) {
+        // Blick und Kamera gehen an die Clients (R5.2): Der Client startet mit dem Blick seiner
+        // Figur und stellt die Kamera wie der Server.
         types.add<PlayerInput>("PlayerInput")
+            .replicated()
             .field("yaw", &PlayerInput::yaw)
             .hint(reflect::Hint::Angle)
             .field("pitch", &PlayerInput::pitch)
@@ -68,10 +71,13 @@ export void register_player_types(reflect::TypeRegistry& types) {
             .range(-5.0, 5.0, 0.05)
             .field("dig_radius", &PlayerInput::dig_radius)
             .range(0.1, 10.0, 0.05)
+            .local()
             .field("dig_reach", &PlayerInput::dig_reach)
             .range(0.5, 50.0, 0.1)
+            .local()
             .field("look_speed", &PlayerInput::look_speed)
-            .range(0.0001, 0.05, 0.0001);
+            .range(0.0001, 0.05, 0.0001)
+            .local();
     }
 }
 
