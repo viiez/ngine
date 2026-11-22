@@ -167,6 +167,10 @@ void network_window(const sandbox::NetClient& net, const app::PredictionReport& 
     const ngine::replication::PredictionStats& predictor = prediction.predictor;
     ui::text(std::format("Korrekturen {} ({} pro Minute), zuletzt {:.1f} cm", predictor.corrections,
                          prediction.corrections_per_minute, predictor.last_correction * 100.0));
+    ui::text(std::format("  pro Minute: {} frei, {} an Körpern, {} in der Luft",
+                         prediction.minute.free, prediction.minute.bodies, prediction.minute.air));
+    ui::text(std::format("  insgesamt: {} frei, {} an Körpern, {} in der Luft",
+                         prediction.causes.free, prediction.causes.bodies, prediction.causes.air));
     ui::text(std::format("Abweichung {:.2f} cm, neu gerechnet {} Schritte ({:.2f} ms)",
                          predictor.last_error * 100.0, predictor.replayed, prediction.replay_ms));
     ui::text(std::format("Befehle voraus {}, beim Server {} (Mittel {:.1f})", predictor.pending,

@@ -83,6 +83,15 @@ std::optional<PredictedState> Predictor::latest() const {
     return entries_.back().state;
 }
 
+std::optional<PredictedState> Predictor::predicted(u32 number) const {
+    const auto found = std::ranges::find_if(
+        entries_, [number](const Entry& entry) { return entry.command.number == number; });
+    if (found == entries_.end()) {
+        return std::nullopt;
+    }
+    return found->state;
+}
+
 PredictionStats Predictor::stats() const noexcept {
     PredictionStats stats = stats_;
     stats.pending = static_cast<u32>(entries_.size());

@@ -444,7 +444,7 @@ public:
     void update_predicted(f32 dt, u64 figure) {
         simulate(dt);
         const world::Entity player = figure != 0 ? world_.entity(figure) : world::Entity{};
-        if (player && player.has<PlayerInput>()) {
+        if (player && player.alive() && player.has<PlayerInput>()) {
             const PlayerView view = app::player_view(player, physics_);
             view_position_ = view.position;
             view_rotation_ = view.rotation;

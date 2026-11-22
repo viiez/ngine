@@ -211,7 +211,7 @@ bool PhysicsWorld::Impl::simulates_character(u64 entity) const {
 
 void PhysicsWorld::Impl::move_character(u64 entity, CharacterRecord& record, f32 dt, bool events) {
     const JPH::Vec3 gravity = system->GetGravity();
-    const CharacterBodyFilter body_filter;
+    const CharacterBodyFilter body_filter{&loose_proxies};
     const JPH::ShapeFilter shape_filter;
     const JPH::BroadPhaseLayerFilter& broad =
         system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
@@ -366,24 +366,35 @@ std::optional<CharacterSnapshot> PhysicsWorld::character_snapshot(u64 entity) co
     const CharacterRecord& record = found->second;
     const JPH::CharacterVirtual& character = *record.character;
     const JPH::CharacterBase::EGroundState state = character.GetGroundState();
+    bool touching = false;
+    for (const JPH::CharacterContact& contact : character.GetActiveContacts()) {
+        if (contact.mHadCollision && !contact.mIsSensorB &&
+            (contact.mMotionTypeB != JPH::EMotionType::Static ||
+             !contact.mCharacterIDB.IsInvalid())) {
+            touching = true;
+            break;
+        }
+    }
     return CharacterSnapshot{
         .position = from_jolt(character.GetPosition()),
         .velocity = from_jolt(character.GetLinearVelocity()),
         .ground = state == JPH::CharacterBase::EGroundState::OnGround        ? GroundState::Ground
                   : state == JPH::CharacterBase::EGroundState::OnSteepGround ? GroundState::Steep
                                                                              : GroundState::Air,
-        .crouched = record.crouched};
+        .crouched = record.crouched,
+        .touching = touching};
 }
 
 bool PhysicsWorld::set_character(u64 entity, const CharacterSnapshot& snapshot) {
     Impl& impl = *impl_;
     const auto found = impl.characters.find(entity);
-    if (found == impl.characters.end()) {
+    // Endete die Entity seit dem letzten Schritt, gilt die Figur nicht mehr.
+    if (found == impl.characters.end() || !impl.world->alive(entity)) {
         return false;
     }
     CharacterRecord& record = found->second;
     JPH::CharacterVirtual& character = *record.character;
-    const CharacterBodyFilter body_filter;
+    const CharacterBodyFilter body_filter{&impl.loose_proxies};
     const JPH::ShapeFilter shape_filter;
     const JPH::BroadPhaseLayerFilter& broad =
         impl.system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
@@ -427,7 +438,8 @@ bool PhysicsWorld::set_character(u64 entity, const CharacterSnapshot& snapshot) 
 bool PhysicsWorld::step_character(u64 entity, f32 dt) {
     Impl& impl = *impl_;
     const auto found = impl.characters.find(entity);
-    if (found == impl.characters.end() || impl.world->get(entity, impl.motion_id) == nullptr) {
+    if (found == impl.characters.end() || !impl.world->alive(entity) ||
+        impl.world->get(entity, impl.motion_id) == nullptr) {
         return false;
     }
     impl.move_character(entity, found->second, dt, false);

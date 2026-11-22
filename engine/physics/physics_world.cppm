@@ -47,6 +47,9 @@ struct CharacterSnapshot {
     math::Vec3 velocity{0.0f, 0.0f, 0.0f};
     GroundState ground = GroundState::Air;
     bool crouched = false;
+    // Berührt einen beweglichen Körper oder eine andere Figur (nur zum Lesen; set_character()
+    // übergeht es). Zum Einordnen von Korrekturen der Vorhersage (R5.3).
+    bool touching = false;
 };
 
 // Dreiecke eines Meshes für ConvexHull und Mesh. Indizes zu dritt, gegen den Uhrzeigersinn von

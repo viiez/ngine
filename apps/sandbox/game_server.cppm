@@ -264,7 +264,8 @@ public:
                 .position = snapshot->position,
                 .velocity = snapshot->velocity,
                 .ground = static_cast<u8>(snapshot->ground),
-                .crouched = snapshot->crouched};
+                .crouched = snapshot->crouched,
+                .touching = snapshot->touching};
             (void)server_->send(client, replication::encode_owner(state),
                                 net::Delivery::Unreliable);
         }

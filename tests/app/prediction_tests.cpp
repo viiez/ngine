@@ -112,6 +112,35 @@ TEST_CASE("Remote physics moves only the predicted figure", "[app][physics]") {
     CHECK_FALSE(box.has<world::Interpolated>());
 }
 
+TEST_CASE("Moving proxies of dynamic bodies do not block the predicted figure", "[app][physics]") {
+    // Eine Wand, die auf dem Server dynamisch ist, vor der eigenen Figur: In Ruhe hält sie die
+    // Figur auf, bewegt (ihr Transform kommt vom Server und ändert sich) läuft die Figur durch.
+    const auto run = [](bool moving) {
+        app::GameWorld game{{.worker_count = 2}};
+        game.physics().set_remote(true);
+        add_ground(game.world());
+        world::Entity own = game.spawn_figure({0.0, 0.0, 0.0}, "Eigene");
+        own.set(physics::Predicted{});
+        world::Entity wall = game.world().create("Wand");
+        wall.set(world::Transform{.position = {0.0, 1.0, -3.0}})
+            .set(physics::RigidBody{.mass = 20.0f})
+            .set(physics::Collider{.shape = physics::ShapeType::Box,
+                                   .half_extents = {3.0f, 1.0f, 0.2f}});
+        for (int i = 0; i < 120; ++i) {
+            walk(own);
+            if (moving) {
+                auto* transform = wall.get_mut<world::Transform>();
+                transform->position.x += (i % 40 < 20 ? 0.02 : -0.02);
+                wall.modified<world::Transform>();
+            }
+            (void)game.update(1.0 / 60.0);
+        }
+        return own.get<world::Transform>()->position.z;
+    };
+    CHECK(run(false) > -2.9);
+    CHECK(run(true) < -4.0);
+}
+
 namespace {
 
 // Setzt die simulierte Netzqualität am Ende zurück, auch wenn ein Test scheitert.
@@ -228,7 +257,8 @@ struct PredictedSession {
                                                     .position = snapshot->position,
                                                     .velocity = snapshot->velocity,
                                                     .ground = static_cast<u8>(snapshot->ground),
-                                                    .crouched = snapshot->crouched};
+                                                    .crouched = snapshot->crouched,
+                                                    .touching = snapshot->touching};
                 (void)replication_server->send(replication_server->clients().front(),
                                                replication::encode_owner(owner),
                                                net::Delivery::Unreliable);

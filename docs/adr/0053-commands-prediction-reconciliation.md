@@ -48,6 +48,11 @@ reagieren, mit derselben Physik ([ADR 0045](0045-physics-jolt-double-precision.m
   Physik (Lesen, Setzen und Schritt kommen als Rückrufe). Weicht der Stand des Servers um mehr als
   1 cm oder 5 cm/s ab, übernimmt er ihn für Befehl k und rechnet die gemerkten Befehle k+1 bis n
   neu; darunter bleibt die Vorhersage stehen.
+- **Fremde Körper in der Vergangenheit:** Stellvertreter von Körpern, die auf dem Server dynamisch
+  sind, bremsen die vorhergesagte Figur nur in Ruhe (unter 0,3 m/s, `CharacterBodyFilter`);
+  bewegt läuft sie durch, wie auf dem Server, wo der Körper ausweicht. Korrekturen zählt der
+  Client nach Ursache (an Körpern, in der Luft, frei); dafür meldet `Owner`, ob die Figur einen
+  beweglichen Körper berührt.
 - **Glättung:** Den Sprung zwischen alter und neuer Vorhersage hält der Client als
   `Interpolated::offset` der Darstellung und baut ihn mit 60 ms Halbwertszeit ab; über 2 m setzt
   er sofort. Gerechnet wird ohne Versatz.

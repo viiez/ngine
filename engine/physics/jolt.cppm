@@ -632,12 +632,31 @@ JPH::RefConst<JPH::Shape> character_shape(f32 radius, f32 height) {
     return created(moved.Create(), "Figur");
 }
 
-// Figuren laufen nicht gegen Sensoren.
+// Figuren laufen nicht gegen Sensoren. Auf einem Client (R5.3) bremsen Stellvertreter
+// dynamischer Körper (loose), die sich gerade bewegen, die vorhergesagte Figur nicht: Sie stehen
+// dort, wo sie vor rund 100 ms auf dem Server waren, und rollende Kugeln oder geschobene Kisten
+// lösten sonst ständig Korrekturen aus. Ruhende Körper halten die Figur auf wie auf dem Server.
 class CharacterBodyFilter final : public JPH::BodyFilter {
 public:
+    explicit CharacterBodyFilter(const std::unordered_set<JPH::uint32>* loose = nullptr)
+        : loose_{loose} {}
+
     bool ShouldCollideLocked(const JPH::Body& body) const override {
-        return !body.IsSensor();
+        if (body.IsSensor()) {
+            return false;
+        }
+        if (loose_ == nullptr || loose_->empty() ||
+            !loose_->contains(body.GetID().GetIndexAndSequenceNumber())) {
+            return true;
+        }
+        return body.GetLinearVelocity().LengthSq() < moving_speed * moving_speed;
     }
+
+    // Ab dieser Geschwindigkeit gilt ein Stellvertreter als bewegt (m/s).
+    static constexpr float moving_speed = 0.3f;
+
+private:
+    const std::unordered_set<JPH::uint32>* loose_;
 };
 
 // Baut die Form eines Chunks aus seinem Netz (Positionen in Metern relativ zur Ecke) mit einem
@@ -682,6 +701,8 @@ struct PhysicsWorld::Impl {
     std::map<u64, BodyRecord> bodies;
     // Kennung des Körpers (Index und Folgenummer) zu Entity, für Kontakte.
     std::unordered_map<JPH::uint32, u64> entity_of_body;
+    // Stellvertreter dynamischer Körper auf einem Client (Modus remote, CharacterBodyFilter).
+    std::unordered_set<JPH::uint32> loose_proxies;
     std::map<ShapeKey, JPH::Ref<JPH::Shape>> shape_cache;
     ShapeSource shape_source;
     // Paare in Berührung (a < b). Schlafen beide ein, meldet Jolt den Kontakt als gelöst; das Paar

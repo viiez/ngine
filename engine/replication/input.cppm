@@ -17,7 +17,8 @@ module;
 //             8 Wert folgt), bei 8 dazu f32 x, f32 y.
 //   Possess:  u64 Kennung der Figur auf dem Server
 //   Owner:    u32 letzter verarbeiteter Befehl, u8 Befehle in der Warteschlange, f64 x, y, z,
-//             f32 vx, vy, vz, u8 Boden, u8 geduckt: Stand der eigenen Figur nach diesem Befehl.
+//             f32 vx, vy, vz, u8 Boden, u8 Flags (1 geduckt, 2 berührt Körper): Stand der eigenen
+//             Figur nach diesem Befehl.
 //
 // Zahlen stehen in Little Endian. Bis R5.2 gingen pro Bild die Aktionen (Actions) und der Blick
 // (View) einzeln; seit R5.3 ist ein Befehl alles, was eine Figur in einem festen Schritt braucht,
@@ -82,6 +83,9 @@ struct OwnerState {
     // physics::GroundState als Zahl.
     u8 ground = 0;
     bool crouched = false;
+    // Die Figur berührt einen beweglichen Körper oder eine andere Figur (Einordnen von
+    // Korrekturen).
+    bool touching = false;
 };
 
 [[nodiscard]] std::vector<std::byte> encode_owner(const OwnerState& state);

@@ -56,6 +56,8 @@ constexpr u8 flag_released = 4;
 constexpr u8 flag_value = 8;
 
 constexpr usize owner_size = 1 + 4 + 1 + 3 * 8 + 3 * 4 + 1 + 1;
+constexpr u8 owner_crouched = 1;
+constexpr u8 owner_touching = 2;
 
 } // namespace
 
@@ -238,7 +240,8 @@ std::vector<std::byte> encode_owner(const OwnerState& state) {
     put_f32(out, state.velocity.y);
     put_f32(out, state.velocity.z);
     out.push_back(static_cast<std::byte>(state.ground));
-    out.push_back(static_cast<std::byte>(state.crouched ? 1 : 0));
+    out.push_back(static_cast<std::byte>((state.crouched ? owner_crouched : 0) |
+                                         (state.touching ? owner_touching : 0)));
     return out;
 }
 
@@ -253,7 +256,12 @@ Result<OwnerState> decode_owner(std::span<const std::byte> data) {
                       std::bit_cast<f64>(get<u64>(data, 22))};
     state.velocity = {get_f32(data, 30), get_f32(data, 34), get_f32(data, 38)};
     state.ground = static_cast<u8>(data[42]);
-    state.crouched = data[43] != std::byte{0};
+    const u8 flags = static_cast<u8>(data[43]);
+    if ((flags & ~(owner_crouched | owner_touching)) != 0) {
+        return std::unexpected("Stand der Figur: unbekannte Flags");
+    }
+    state.crouched = (flags & owner_crouched) != 0;
+    state.touching = (flags & owner_touching) != 0;
     if (!std::isfinite(state.position.x) || !std::isfinite(state.position.y) ||
         !std::isfinite(state.position.z) || !std::isfinite(state.velocity.x) ||
         !std::isfinite(state.velocity.y) || !std::isfinite(state.velocity.z)) {

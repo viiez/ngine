@@ -123,6 +123,13 @@ struct Link {
         return message.size();
     }
 
+    // Ein Schnappschuss, der verloren geht.
+    void lose() {
+        world::update_transforms(server);
+        encoder.capture(++tick);
+        (void)encoder.encode(1);
+    }
+
     world::Entity on_client(const world::Entity& entity) {
         return client.entity(mirror.local_id(entity.id()));
     }
@@ -467,6 +474,38 @@ TEST_CASE("Mirror interpolates and briefly extrapolates transforms", "[replicati
     CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(7.25));
     link.mirror.interpolate(5.0 / replication::snapshot_rate, 3.0);
     CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(8.0));
+}
+
+TEST_CASE("Mirror bridges sparse and lost updates of moving entities", "[replication]") {
+    // Fern (über 40 m) kommt nur jeder dritte Stand; gehen dazu Schnappschüsse verloren, darf die
+    // Entity nicht stehen bleiben und dann springen (R5.3, Abnahme).
+    Link link;
+    link.encoder.set_focus(1, math::DVec3{0.0, 0.0, 0.0});
+    world::Entity distant = link.server.create("Fern");
+    distant.set(at(100.0));
+    link.step();
+    link.step();
+    const world::Entity mirrored = link.on_client(distant);
+    REQUIRE(mirrored.alive());
+    std::vector<f64> seen;
+    for (int i = 1; i <= 80; ++i) {
+        distant.set(at(100.0 + i));
+        if (i >= 45 && i <= 47) {
+            link.lose();
+        } else {
+            link.step();
+        }
+        link.mirror.interpolate(1.0 / replication::snapshot_rate);
+        if (i >= 30) {
+            seen.push_back(mirrored.get<world::Transform>()->position.x);
+        }
+    }
+    for (usize i = 1; i < seen.size(); ++i) {
+        INFO("Bild " << i << ": " << seen[i - 1] << " -> " << seen[i]);
+        CHECK(seen[i] >= seen[i - 1]);
+        CHECK(seen[i] - seen[i - 1] < 2.0);
+    }
+    CHECK(seen.back() > seen.front() + 40.0);
 }
 
 TEST_CASE("Welcome detects a different schema", "[replication]") {
@@ -822,7 +861,8 @@ TEST_CASE("Owner state carries the exact figure state", "[replication]") {
                                         .position = {1234567.125, -3.0000001, 0.1},
                                         .velocity = {1.5f, -9.81f, 0.25f},
                                         .ground = 1,
-                                        .crouched = true};
+                                        .crouched = true,
+                                        .touching = true};
     const auto message = replication::encode_owner(state);
     CHECK(replication::game_message(message) == replication::GameMessage::Owner);
     const auto decoded = replication::decode_owner(message);
@@ -835,8 +875,12 @@ TEST_CASE("Owner state carries the exact figure state", "[replication]") {
     CHECK(decoded->velocity.y == state.velocity.y);
     CHECK(decoded->ground == 1);
     CHECK(decoded->crouched);
+    CHECK(decoded->touching);
     CHECK_FALSE(
         replication::decode_owner(std::span{message.data(), message.size() - 1}).has_value());
+    auto unknown = message;
+    unknown.back() = std::byte{8};
+    CHECK_FALSE(replication::decode_owner(unknown).has_value());
 }
 
 namespace {

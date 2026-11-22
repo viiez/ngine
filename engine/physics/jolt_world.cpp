@@ -288,6 +288,7 @@ void PhysicsWorld::Impl::destroy_body(std::map<u64, BodyRecord>::iterator it,
     body_interface().RemoveBody(id);
     body_interface().DestroyBody(id);
     entity_of_body.erase(id.GetIndexAndSequenceNumber());
+    loose_proxies.erase(id.GetIndexAndSequenceNumber());
     frozen.erase(entity);
     // Laufende Kontakte des Körpers enden mit ihm.
     for (auto pair = touching.begin(); pair != touching.end();) {
@@ -359,6 +360,8 @@ void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<Trig
         Collider collider;
         // Stellvertreter auf einem Client: ohne Interpolation, das Transform kommt vom Server.
         bool proxy = false;
+        // Stellvertreter eines Körpers, der auf dem Server dynamisch ist.
+        bool loose = false;
     };
     std::vector<Wanted> wanted;
     const bool remote = settings.remote;
@@ -373,6 +376,7 @@ void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<Trig
             if (remote && body.motion == MotionType::Dynamic) {
                 entry.body.motion = MotionType::Kinematic;
                 entry.proxy = true;
+                entry.loose = true;
             }
             wanted.push_back(entry);
         });
@@ -443,6 +447,9 @@ void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<Trig
         }
         if (create_body(entity, entry.body, entry.collider, *transform)) {
             ++added;
+            if (entry.loose) {
+                loose_proxies.insert(bodies.at(entity).id.GetIndexAndSequenceNumber());
+            }
         }
     }
     if (added > 64) {

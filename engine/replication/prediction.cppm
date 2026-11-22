@@ -26,6 +26,8 @@ struct PredictedState {
     math::Vec3 velocity{0.0f, 0.0f, 0.0f};
     u8 ground = 0;
     bool crouched = false;
+    // Berührt einen beweglichen Körper oder eine andere Figur; zählt nicht beim Vergleich.
+    bool touching = false;
 };
 
 struct PredictionSettings {
@@ -70,8 +72,9 @@ public:
 
     // Die neuesten count Befehle zum Senden, älteste zuerst.
     [[nodiscard]] std::vector<Command> recent(usize count) const;
-    // Vorhergesagter Zustand nach dem neuesten Befehl.
+    // Vorhergesagter Zustand nach dem neuesten Befehl bzw. nach dem Befehl number (wenn gemerkt).
     [[nodiscard]] std::optional<PredictedState> latest() const;
+    [[nodiscard]] std::optional<PredictedState> predicted(u32 number) const;
     [[nodiscard]] PredictionStats stats() const noexcept;
     // Vergisst alles (neue Figur, Trennung); die Nummern zählen weiter.
     void reset();

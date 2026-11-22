@@ -65,10 +65,24 @@ export struct PredictionSettings {
     f32 max_rate_change = 0.05f;
 };
 
+// Korrekturen nach Ursache (R5.3, Abnahme): Bodies, wenn die Figur auf Client oder Server kurz
+// vorher einen beweglichen Körper oder eine andere Figur berührte (Kisten, Kugeln: erwartet, weil
+// fremde Körper auf dem Client in der Vergangenheit stehen); sonst Air, wenn sie auf einer Seite in
+// der Luft war; sonst Free. Free sollte nahe null sein, sonst rechnen Client und Server
+// verschieden.
+export struct CorrectionCounts {
+    u64 free = 0;
+    u64 bodies = 0;
+    u64 air = 0;
+};
+
 export struct PredictionReport {
     replication::PredictionStats predictor;
-    // Korrekturen in der letzten Minute.
+    // Korrekturen in der letzten Minute, insgesamt und nach Ursache.
     u32 corrections_per_minute = 0;
+    CorrectionCounts minute;
+    // Alle Korrekturen nach Ursache.
+    CorrectionCounts causes;
     // Befehle, die beim Server zuletzt warteten, und deren gleitendes Mittel.
     u32 server_queue = 0;
     f32 server_queue_average = 0.0f;
@@ -89,10 +103,11 @@ export std::string describe_prediction(const PredictionReport& report) {
         "Vorhersage: {} Korrekturen ({} in der letzten Minute, zuletzt {:.1f} cm), "
         "{} Schritte neu gerechnet ({:.2f} ms), letzte Abweichung {:.2f} cm, {} "
         "Befehle offen, {} gesendet, beim Server {} (Mittel {:.1f}), Takt {:+.1f} %, "
-        "Versatz {:.1f} cm",
+        "Versatz {:.1f} cm; in der letzten Minute {} frei, {} an Körpern, {} in der Luft",
         p.corrections, report.corrections_per_minute, p.last_correction * 100.0, p.replayed,
         report.replay_ms, p.last_error * 100.0, p.pending, report.commands, report.server_queue,
-        report.server_queue_average, (report.rate - 1.0f) * 100.0f, report.smoothing * 100.0f);
+        report.server_queue_average, (report.rate - 1.0f) * 100.0f, report.smoothing * 100.0f,
+        report.minute.free, report.minute.bodies, report.minute.air);
 }
 
 export class PlayerPrediction {
@@ -135,6 +150,7 @@ public:
         animated_ = 0;
         predictor_.reset();
         outgoing_.clear();
+        contacts_.clear();
         world::Entity entity = world.entity(local);
         if (local == 0 || !entity.has<physics::CharacterController>() ||
             !entity.has<world::Transform>() || !entity.has<PlayerInput>()) {
@@ -173,7 +189,7 @@ public:
     // Einmal pro Bild: Blick und Kamera aus den Aktionen, wie im Spiel (Maus, Stick).
     void look(const input::ActionState& actions) {
         world::Entity own = game_->world().entity(figure_);
-        auto* input = figure_ != 0 ? own.get_mut<PlayerInput>() : nullptr;
+        auto* input = own_alive() ? own.get_mut<PlayerInput>() : nullptr;
         if (input == nullptr) {
             return;
         }
@@ -198,7 +214,7 @@ public:
         rate_ =
             1.0f + std::clamp(error * 0.02f, -settings_.max_rate_change, settings_.max_rate_change);
         game_->simulation().set_time_scale(rate_);
-        if (figure_ == 0) {
+        if (!own_alive()) {
             return;
         }
         physics::PhysicsWorld& physics = game_->physics();
@@ -206,7 +222,10 @@ public:
         const replication::PredictedState server{.position = owner.position,
                                                  .velocity = owner.velocity,
                                                  .ground = owner.ground,
-                                                 .crouched = owner.crouched};
+                                                 .crouched = owner.crouched,
+                                                 .touching = owner.touching};
+        const std::optional<replication::PredictedState> mine =
+            predictor_.predicted(owner.command);
         const auto start = std::chrono::steady_clock::now();
         const f32 dt = game_->world().time().fixed_delta;
         const bool corrected = predictor_.reconcile(
@@ -221,7 +240,20 @@ public:
         replay_ms_ =
             std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();
-        corrections_.push_back(std::chrono::steady_clock::now());
+        const Cause cause = classify(owner.command, server, mine);
+        corrections_.emplace_back(std::chrono::steady_clock::now(), cause);
+        count(causes_, cause);
+        if (cause == Cause::Free && free_logged_ < 5 && mine) {
+            ++free_logged_;
+            log::info("Vorhersage: Korrektur ohne Kontakt nach Befehl {}: {:.1f} cm, Geschwindigkeit "
+                      "Server ({:.2f}, {:.2f}, {:.2f}), Client ({:.2f}, {:.2f}, {:.2f}), Boden {}/{}, "
+                      "geduckt {}/{}",
+                      owner.command, replication::position_error(*mine, server) * 100.0,
+                      server.velocity.x, server.velocity.y, server.velocity.z, mine->velocity.x,
+                      mine->velocity.y, mine->velocity.z, static_cast<int>(server.ground),
+                      static_cast<int>(mine->ground),
+                      server.crouched, mine->crouched);
+        }
         const auto after = physics.character_snapshot(figure_);
         if (!before || !after) {
             return;
@@ -275,13 +307,24 @@ public:
     [[nodiscard]] u64 figure() const noexcept {
         return figure_;
     }
+    // Die eigene Figur ist bekannt und lebt (der Spiegel kann sie zwischen zwei Bildern beenden).
+    [[nodiscard]] bool own_alive() const {
+        return figure_ != 0 && game_->world().alive(figure_);
+    }
     [[nodiscard]] PredictionReport report() {
         const auto now = std::chrono::steady_clock::now();
-        while (!corrections_.empty() && now - corrections_.front() > std::chrono::minutes{1}) {
+        while (!corrections_.empty() &&
+               now - corrections_.front().first > std::chrono::minutes{1}) {
             corrections_.pop_front();
+        }
+        CorrectionCounts minute;
+        for (const auto& [time, cause] : corrections_) {
+            count(minute, cause);
         }
         return PredictionReport{.predictor = predictor_.stats(),
                                 .corrections_per_minute = static_cast<u32>(corrections_.size()),
+                                .minute = minute,
+                                .causes = causes_,
                                 .server_queue = server_queue_,
                                 .server_queue_average = queue_average_,
                                 .rate = rate_,
@@ -301,7 +344,45 @@ private:
         return replication::PredictedState{.position = snapshot.position,
                                            .velocity = snapshot.velocity,
                                            .ground = static_cast<u8>(snapshot.ground),
-                                           .crouched = snapshot.crouched};
+                                           .crouched = snapshot.crouched,
+                                           .touching = snapshot.touching};
+    }
+
+    enum class Cause : u8 { Free, Bodies, Air };
+
+    static void count(CorrectionCounts& counts, Cause cause) {
+        switch (cause) {
+        case Cause::Free:
+            ++counts.free;
+            break;
+        case Cause::Bodies:
+            ++counts.bodies;
+            break;
+        case Cause::Air:
+            ++counts.air;
+            break;
+        }
+    }
+
+    // Ursache einer Korrektur nach Befehl number: Berührung in den 15 Schritten davor (Client)
+    // oder im Stand des Servers, sonst Luft auf einer Seite, sonst frei.
+    [[nodiscard]] Cause classify(u32 number, const replication::PredictedState& server,
+                                 const std::optional<replication::PredictedState>& mine) const {
+        bool touched = server.touching || (mine && mine->touching);
+        for (const auto& [command, touching] : contacts_) {
+            if (touching && command <= number && command + 15 >= number) {
+                touched = true;
+                break;
+            }
+        }
+        if (touched) {
+            return Cause::Bodies;
+        }
+        const auto air = static_cast<u8>(physics::GroundState::Air);
+        if (server.ground == air || (mine && mine->ground == air)) {
+            return Cause::Air;
+        }
+        return Cause::Free;
     }
 
     // Wünsche an die Physik aus einem Befehl; Kamera und Graben zählen hier nicht.
@@ -366,6 +447,10 @@ private:
         if (pending_) {
             if (const auto snapshot = game_->physics().character_snapshot(figure_)) {
                 predictor_.record(*pending_, to_state(*snapshot));
+                contacts_.emplace_back(pending_->number, snapshot->touching);
+                while (contacts_.size() > 64) {
+                    contacts_.pop_front();
+                }
             }
             outgoing_.push_back(std::move(*pending_));
             while (outgoing_.size() > replication::commands_per_message) {
@@ -399,7 +484,10 @@ private:
     f32 tempo_ = 0.0f;
     u64 commands_ = 0;
     f64 replay_ms_ = 0.0;
-    std::deque<std::chrono::steady_clock::time_point> corrections_;
+    std::deque<std::pair<std::chrono::steady_clock::time_point, Cause>> corrections_;
+    CorrectionCounts causes_;
+    std::deque<std::pair<u32, bool>> contacts_;
+    u32 free_logged_ = 0;
 };
 
 } // namespace app
