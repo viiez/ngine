@@ -482,14 +482,15 @@ TEST_CASE("Mirror bridges sparse and lost updates of moving entities", "[replica
     Link link;
     link.encoder.set_focus(1, math::DVec3{0.0, 0.0, 0.0});
     world::Entity distant = link.server.create("Fern");
-    distant.set(at(100.0));
+    // Von 60 m bis 140 m: immer über 40 m und innerhalb der Relevanz (150 m).
+    distant.set(at(60.0));
     link.step();
     link.step();
     const world::Entity mirrored = link.on_client(distant);
     REQUIRE(mirrored.alive());
     std::vector<f64> seen;
     for (int i = 1; i <= 80; ++i) {
-        distant.set(at(100.0 + i));
+        distant.set(at(60.0 + i));
         if (i >= 45 && i <= 47) {
             link.lose();
         } else {
