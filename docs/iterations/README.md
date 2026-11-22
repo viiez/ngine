@@ -39,7 +39,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R5](R5-multiplayer.md) | Konstruktion | Reifegrad Multiplayer (R5.1 bis R5.5) | in Arbeit |
 | [R5.1](R5.1-server-mit-spielwelt.md) | Konstruktion | Server mit Spielwelt | abgeschlossen |
 | [R5.2](R5.2-replikation.md) | Konstruktion | Replikation | abgeschlossen |
-| [R5.3](R5.3-vorhersage.md) | Konstruktion | Vorhersage der Spielfigur | in Arbeit |
+| [R5.3](R5.3-vorhersage.md) | Konstruktion | Vorhersage der Spielfigur | abgeschlossen |
 
 ## Vorlage
 

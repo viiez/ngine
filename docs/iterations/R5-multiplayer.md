@@ -1,7 +1,7 @@
 # R5: Multiplayer
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 und R5.2 abgeschlossen)
+- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 bis R5.3 abgeschlossen)
 - **Pull Requests:** #59 (Plan), Iterationen siehe Review
 
 R5 ist der fünfte und letzte Reifegrad der Konstruktion vor dem Review und der Evaluation der
@@ -195,3 +195,5 @@ Folgt nach der letzten Iteration. Bisher:
 | Iteration | Pull Requests | Ergebnis |
 | --- | --- | --- |
 | [R5.1](R5.1-server-mit-spielwelt.md) Server mit Spielwelt | #59 (Plan), #60 | `app::GameWorld` für alle Apps, Server mit Spielplatz, Skripten und einer Figur pro Client, Jolt aufgeteilt und unter ThreadSanitizer |
+| [R5.2](R5.2-replikation.md) Replikation | #62 | Markierung in der Reflection, Deltas gegen den bestätigten Stand, Relevanz und Budget pro Client, Interpolation, Client mit Fenster und Fenster „Netzwerk“ |
+| [R5.3](R5.3-vorhersage.md) Vorhersage der Spielfigur | #63 | Nummerierte Befehle mit Warteschlange, Vorhersage der eigenen Figur mit Abgleich und Glättung, Physik auf dem Client im Modus `remote`, Korrekturen nach Ursache |
