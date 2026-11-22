@@ -322,13 +322,18 @@ u64 run_track(PredictedSession& session) {
         session.frame(track_events(t));
     }
     const u64 during = session.prediction->report().predictor.corrections - before;
-    // Bis der Server alle Befehle verarbeitet hat und die Figur steht.
-    REQUIRE(session.idle(300, [&] {
+    // Bis der Server alle Befehle der Spur verarbeitet hat und die Figur steht. Offen bleiben immer
+    // einige (Puffer des Servers und Rundlaufzeit), daher zählt die Nummer des letzten.
+    const u64 last = session.prediction->report().commands;
+    const bool settled = session.idle(300, [&] {
         const app::PredictionReport report = session.prediction->report();
-        return report.predictor.pending <= 3 &&
+        return report.predictor.acknowledged >= last &&
                math::length(session.client_position() - session.server_position()) < 0.01 &&
                report.smoothing == 0.0f;
-    }));
+    });
+    INFO(app::describe_prediction(session.prediction->report()));
+    INFO("Abstand " << math::length(session.client_position() - session.server_position()));
+    REQUIRE(settled);
     CHECK(math::length(session.server_position() - start) > 10.0);
     return during;
 }
