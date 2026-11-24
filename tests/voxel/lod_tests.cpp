@@ -478,6 +478,19 @@ TEST_CASE("Streaming around several observers and remeshing brush edits", "[voxe
     CHECK(!store.has_changes());
     CHECK(store.size() == streamer.layout().size());
     CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
+
+    // Ein kleiner Pinsel mitten in einem feinen Chunk meshet nur die Chunks neu, deren Netz die
+    // Samples liest, nicht alle Nachbarn (R5.4).
+    const auto middle = static_cast<f32>(generator.height(16 + 64, 16));
+    REQUIRE_FALSE(voxel::apply(store, {.mode = voxel::BrushMode::Remove,
+                                       .center = {16.0f + 64.0f, middle, 16.0f},
+                                       .radius = 3.0f})
+                      .empty());
+    voxel::StreamChanges small = streamer.update(jobs, store, observers);
+    CHECK_FALSE(small.meshes.empty());
+    CHECK(small.meshes.size() <= 4);
+    apply(meshes, std::move(small));
+    CHECK(stale_meshes(jobs, streamer, store, meshes) == 0);
 }
 
 TEST_CASE("Brush edits while streaming in the background stay in the meshes", "[voxel]") {

@@ -50,6 +50,11 @@ Bis R5.3 baut jeder Client sein Terrain aus der replizierten Komponente `Terrain
   Nachricht k ≥ n, gehen alle berührten Chunks auf den bestätigten Stand, und die offenen Pinsel
   nach k werden neu angewendet. Pinsel, die der Server nach dem Stand der Figur (`Owner`) seit 60
   Befehlen verarbeitet haben müsste, verfallen.
+- **Der Server wartet nicht auf Pinsel:** `app::GameWorld` wartet beim Start auf Netze und Formen
+  (bitgleich), nach Pinseln aber nicht (`TerrainUpdate::wait_for_edits`,
+  `PhysicsSettings::wait_for_rebuilds`): Bis die neuen Formen und groben Stufen fertig sind, gelten
+  die alten. Ein Pinsel meshet nur die feinen Chunks neu, deren Netz die geänderten Samples liest,
+  dazu gröbere Nachbarn, nicht mehr die ganze Nachbarschaft. Ergebnis der Abnahme.
 - **Grobe Stufen über einen Index** (TD-41): `TerrainDeltas` hält neben der `DeltaMap` einen
   `CoarseDeltas`-Index mit den geänderten Samples auf dem Raster jeder Stufe 1 bis 10, nach grobem
   Chunk und Herkunft; Tabelle und Index sind zusammen unveränderlich (`DeltaState`) und werden mit
@@ -65,6 +70,8 @@ Bis R5.3 baut jeder Client sein Terrain aus der replizierten Komponente `Terrain
   vorhergesagte Grube kurz; der Client zählt solche Pinsel als abweichend.
 - Wer mehr als 1 MB Deltas hat, wartet beim Beitritt gut acht Sekunden, bis alles da ist; die
   Umgebung ist meist nach einem Bruchteil davon vollständig.
+- Eine Kiste auf weggegrabenem Boden fällt auf dem Server erst, wenn die neue Form fertig ist
+  (wenige Schritte); Läufe mit Pinseln sind auf dem Server nicht mehr bitgleich.
 - Ohne Terrain in der Welt wartet die Vorhersage nicht. Gibt es eines, wartet sie auf die erste
   Nachricht mit „Umgebung vollständig“.
 

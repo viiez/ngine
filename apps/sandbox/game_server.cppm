@@ -371,13 +371,13 @@ public:
             const replication::CommandQueueStats& commands = player.commands.stats();
             const replication::TerrainClientStats terrain = terrain_.stats(client);
             log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Nachrichten, {} abgelehnt, "
-                      "{} begrenzt; Befehle {} verarbeitet, {} wiederholt, {} verworfen, {} "
-                      "übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} Entities, {} "
+                      "{} begrenzt; Befehle {} verarbeitet, {} wiederholt ({} ohne Eingabe), {} "
+                      "verworfen, {} übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} Entities, {} "
                       "warten, {} ohne Basis; Terrain {} Chunks, {:.1f} KB, Beitritt {:.1f} KB{}, {} "
                       "vorgemerkt",
                       client, figure ? figure.name() : std::string_view{"fehlt"}, math::length(at),
                       player.messages, player.rejected, player.limited, commands.processed,
-                      commands.repeated, commands.dropped, commands.overflow,
+                      commands.repeated, commands.idle, commands.dropped, commands.overflow,
                       player.commands.size(), static_cast<f64>(stats.bytes_per_second) / 1024.0,
                       stats.last_bytes, stats.entities, stats.waiting, stats.full, terrain.chunks,
                       static_cast<f64>(terrain.bytes) / 1024.0,

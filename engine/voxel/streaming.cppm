@@ -93,9 +93,12 @@ public:
 
     // Ein Schritt, einmal pro Frame. observers in Voxeln relativ zum Ursprung des Terrains. Mit
     // wait wartet der Aufruf, bis die Auswahl zu den Beobachtern passt (Tests, Bilder, Server
-    // beim Start). Liefert die geänderten Netze.
+    // beim Start). Ohne wait_refresh entstehen grobe Blätter, die nur wegen geänderter Deltas neu
+    // entstehen, auch mit wait im Hintergrund (Server, R5.4: Wer ständig gräbt, soll nicht jedes
+    // Bild auf alle Stufen warten). Liefert die geänderten Netze.
     StreamChanges update(jobs::JobSystem& jobs, ChunkStore& store,
-                         std::span<const math::DVec3> observers, bool wait = false);
+                         std::span<const math::DVec3> observers, bool wait = false,
+                         bool wait_refresh = true);
 
     [[nodiscard]] const LodLayout& layout() const noexcept {
         return layout_;
@@ -142,6 +145,9 @@ private:
     // laufenden Änderung (ihre Nachbarschaft wird neu gemeshed).
     std::unordered_set<ChunkCoord, ChunkCoordHash> regen_;
     std::vector<ChunkCoord> refreshed_;
+    // Die laufende Änderung erneuert nur grobe Blätter (ohne neue Auswahl); auf sie wartet wait nur
+    // mit wait_refresh.
+    bool refresh_only_ = false;
     // Geänderte Bereiche seit dem Start der laufenden Änderung: Chunks, die dort erzeugt wurden,
     // sind womöglich veraltet.
     std::vector<SampleBox> batch_edits_;

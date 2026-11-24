@@ -89,13 +89,16 @@ void Streamer::invalidate(const SampleBox& box) {
 }
 
 StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
-                               std::span<const math::DVec3> observers, bool wait) {
+                               std::span<const math::DVec3> observers, bool wait,
+                               bool wait_refresh) {
     NGINE_PROFILE_ZONE("voxel::Streamer::update");
     jobs_ = &jobs;
     StreamChanges changes;
-    // Jeder Schritt wartet auf Jobs nur mit wait; sonst geht es im nächsten Aufruf weiter.
+    // Jeder Schritt wartet auf Jobs nur mit wait, bei einer reinen Erneuerung grober Blätter nur
+    // mit wait_refresh; sonst geht es im nächsten Aufruf weiter.
+    const auto blocking = [&] { return wait && (wait_refresh || !refresh_only_); };
     const auto jobs_done = [&] {
-        if (wait) {
+        if (blocking()) {
             jobs.wait(counter_);
         }
         return counter_.done();
@@ -112,10 +115,12 @@ StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
                 }
                 // Nur geänderte grobe Blätter neu erzeugen; die Auswahl bleibt.
                 target_ = layout_;
+                refresh_only_ = true;
                 start_batch(store);
             } else {
                 // Die Auswahl rechnet ein Job; selected_for_ bleibt bis zur nächsten unverändert.
                 selected_for_.assign(observers.begin(), observers.end());
+                refresh_only_ = false;
                 phase_ = Phase::selecting;
                 jobs.run([this] { planned_ = select_lod(selected_for_, desc_.lod); }, &counter_);
             }
@@ -136,7 +141,7 @@ StreamChanges Streamer::update(jobs::JobSystem& jobs, ChunkStore& store,
         if (phase_ == Phase::generating) {
             collect();
             launch(jobs);
-            while (wait && !in_flight_.empty()) {
+            while (blocking() && !in_flight_.empty()) {
                 jobs.wait(counter_);
                 collect();
                 launch(jobs);
@@ -490,10 +495,16 @@ std::vector<ChunkCoord> Streamer::edit_targets(ChunkStore& store) {
         }
     }
     // Das Netz eines Blatts liest nur seine Nachbarschaft; ein geändertes Blatt betrifft also sich
-    // und seine Nachbarn.
+    // und seine Nachbarn. Blätter der Stufe 0 neben einem geänderten der Stufe 0 lesen nur dessen
+    // Randschicht; ob sie betroffen sind, hat der Store schon entschieden (mark_changed(), dann
+    // stehen sie selbst in touched). Gröbere Nachbarn kommen immer mit (R5.4: Ein Pinsel meshte
+    // sonst bis zu 27 Blätter je geändertem Chunk neu).
     std::vector<ChunkCoord> remesh;
     for (const ChunkCoord leaf : touched) {
         for (const ChunkCoord n : layout_.neighbourhood(leaf)) {
+            if (leaf.level == 0 && n.level == 0 && !touched.contains(n)) {
+                continue;
+            }
             remesh.push_back(n);
         }
     }

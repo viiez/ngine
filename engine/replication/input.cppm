@@ -99,6 +99,8 @@ struct CommandQueueStats {
     u64 processed = 0;
     // Fehlte der nächste Befehl, galt der letzte noch einmal (ohne Flanken).
     u64 repeated = 0;
+    // Davon ohne Eingabe und ohne Nummer, weil schon zu lange keiner kam (R5.4).
+    u64 idle = 0;
     // Doppelt, zu spät oder älter als der zuletzt verarbeitete.
     u64 dropped = 0;
     // Wegen voller Warteschlange verworfen.
@@ -108,10 +110,17 @@ struct CommandQueueStats {
 // Befehle eines Spielers auf dem Server (R5.3): sortiert nach Nummer, einer pro festem Schritt.
 // Die Abarbeitung beginnt, sobald target Befehle warten (Puffer gegen Schwankungen). Fehlt der
 // nächste, gilt der letzte ohne Flanken noch einmal unter der fehlenden Nummer; kommt er später,
-// wird er verworfen. Über capacity verwirft die Schlange die ältesten.
+// wird er verworfen. Nach max_repeats Wiederholungen in Folge gilt er ohne Eingabe und ohne neue
+// Nummer (nur der Blick bleibt), und der nächste Befehl, der kommt, gilt, auch wenn davor welche
+// fehlen: Nach einem Stau läuft und gräbt die Figur nicht mit dem letzten Befehl weiter, und die
+// Schlange läuft dem Client nicht davon (R5.4). Über capacity verwirft die Schlange die ältesten.
 class CommandQueue {
 public:
-    explicit CommandQueue(usize target = 2, usize capacity = 8);
+    // 15 Schritte sind 250 ms, weit über Puffer und Schwankung.
+    static constexpr u32 default_max_repeats = 15;
+
+    explicit CommandQueue(usize target = 2, usize capacity = 8,
+                          u32 max_repeats = default_max_repeats);
 
     void push(Command command);
     // Befehl für diesen Schritt; nullopt, solange die Abarbeitung nicht begonnen hat.
@@ -134,6 +143,8 @@ public:
 private:
     usize target_;
     usize capacity_;
+    u32 max_repeats_;
+    u32 repeats_ = 0;
     std::deque<Command> queue_;
     std::optional<Command> last_;
     u32 next_ = 0;

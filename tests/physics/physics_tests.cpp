@@ -608,6 +608,43 @@ TEST_CASE("Digging under a box lets it fall", "[physics]") {
     CHECK(box.get<world::Transform>()->position.y < 7.0);
 }
 
+TEST_CASE("Without waiting for rebuilds the old terrain shape holds until the new one is built",
+          "[physics]") {
+    const auto types = make_types();
+    world::World world{types};
+    world::Entity terrain = add_flat_terrain(world, {});
+    const world::Entity box = add_box(world, {2.0, 12.0, 2.0});
+    jobs::JobSystem jobs{{.worker_count = 2}};
+    world::Simulation simulation{world, jobs};
+    physics::PhysicsWorld physics{world, jobs,
+                                  {.wait_for_terrain = true, .wait_for_rebuilds = false}};
+    physics::add_to(simulation, physics);
+    // Beim Start wartet der Schritt weiter auf fehlende Formen: Die Kiste landet.
+    for (i32 i = 0; i < 180; ++i) {
+        frame(world, jobs, simulation);
+    }
+    REQUIRE_THAT(box.get<world::Transform>()->position.y, WithinAbs(8.5, 0.05));
+
+    // Nach dem Pinsel entstehen die neuen Formen im Hintergrund; bis dahin trägt die alte.
+    const math::DVec3 center = world::terrain_voxels(terrain, {2.0, 8.0, 2.0});
+    (void)world::edit_terrain(terrain, {.mode = voxel::BrushMode::Remove,
+                                        .center = {static_cast<f32>(center.x),
+                                                   static_cast<f32>(center.y),
+                                                   static_cast<f32>(center.z)},
+                                        .radius = 6.0f});
+    frame(world, jobs, simulation);
+    CHECK(physics.stats().terrain_building > 0);
+    CHECK_THAT(box.get<world::Transform>()->position.y, WithinAbs(8.5, 0.05));
+    for (i32 i = 0; i < 3000 && physics.stats().terrain_building > 0; ++i) {
+        frame(world, jobs, simulation);
+    }
+    REQUIRE(physics.stats().terrain_building == 0);
+    for (i32 i = 0; i < 120; ++i) {
+        frame(world, jobs, simulation);
+    }
+    CHECK(box.get<world::Transform>()->position.y < 7.0);
+}
+
 TEST_CASE("Bodies stay frozen until the terrain below has collision", "[physics]") {
     const auto types = make_types();
     world::World world{types};

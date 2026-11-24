@@ -33,6 +33,10 @@ struct PhysicsSettings {
     // Wartet im Abgleich, bis alle nötigen Formen gebaut sind. Dann ist ein Lauf bitgleich (Tests,
     // --headless, Server); im Spiel bleiben Körper ohne Form unter sich solange eingefroren.
     bool wait_for_terrain = false;
+    // Mit wait_for_terrain auch auf neue Formen geänderter Chunks warten. Aus, gilt die alte Form,
+    // bis die neue fertig ist, und nur Chunks ohne Form halten den Schritt auf (Server, R5.4: Sonst
+    // wartet ein grabender Server jeden Pinsel ab).
+    bool wait_for_rebuilds = true;
     // Physik eines Clients (R5.3, ADR 0053): Bewegt werden nur Figuren mit Predicted (die eigene,
     // vorhergesagte Figur). Alle anderen Körper und Figuren sind kinematisch und folgen ihrem
     // Transform, das die Replikation setzt; Figuren ohne Predicted werden dazu kinematische
@@ -194,6 +198,8 @@ public:
     void set_terrain_materials(const world::TerrainMaterials& table);
     // Wie PhysicsSettings::wait_for_terrain, z. B. für Bilder ohne Fenster.
     void set_wait_for_terrain(bool wait) noexcept;
+    // Wie PhysicsSettings::wait_for_rebuilds.
+    void set_wait_for_rebuilds(bool wait) noexcept;
     // Wie PhysicsSettings::remote; vor dem ersten Schritt setzen.
     void set_remote(bool remote) noexcept;
     [[nodiscard]] bool remote() const noexcept;

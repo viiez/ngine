@@ -270,8 +270,9 @@ Result<OwnerState> decode_owner(std::span<const std::byte> data) {
     return state;
 }
 
-CommandQueue::CommandQueue(usize target, usize capacity)
-    : target_{std::max<usize>(target, 1)}, capacity_{std::max(capacity, target_)} {}
+CommandQueue::CommandQueue(usize target, usize capacity, u32 max_repeats)
+    : target_{std::max<usize>(target, 1)}, capacity_{std::max(capacity, target_)},
+      max_repeats_{max_repeats} {}
 
 void CommandQueue::push(Command command) {
     ++stats_.received;
@@ -307,18 +308,32 @@ std::optional<Command> CommandQueue::next() {
         ++stats_.dropped;
     }
     Command command;
-    if (!queue_.empty() && queue_.front().number == next_) {
+    // Nach einer langen Lücke geht es mit dem frühesten weiter, der da ist, auch wenn davor
+    // welche fehlen.
+    if (!queue_.empty() && (queue_.front().number == next_ || repeats_ >= max_repeats_)) {
         command = std::move(queue_.front());
         queue_.pop_front();
+        repeats_ = 0;
     } else if (last_) {
-        // Fehlt: der letzte noch einmal, Flanken zählen nur einmal.
+        // Fehlt: der letzte noch einmal unter der fehlenden Nummer, Flanken zählen nur einmal.
         command = *last_;
-        command.number = next_;
         for (input::ActionValue& value : command.actions) {
             value.pressed = false;
             value.released = false;
         }
         ++stats_.repeated;
+        if (++repeats_ > max_repeats_) {
+            // Fehlen zu viele: ohne Eingabe und ohne Nummer. Liefe die Schlange mit Nummern
+            // weiter, wären nach einem Stau alle Befehle des Clients zu alt und würden verworfen;
+            // die Figur liefe dann mit dem letzten Befehl weiter (R5.4).
+            for (input::ActionValue& value : command.actions) {
+                value = {};
+            }
+            ++stats_.idle;
+            ++stats_.processed;
+            return command;
+        }
+        command.number = next_;
     } else {
         // Der erste fehlt: mit dem frühesten weitermachen, der da ist.
         command = std::move(queue_.front());

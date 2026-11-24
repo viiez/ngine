@@ -856,6 +856,44 @@ TEST_CASE("Command queue keeps order, repeats gaps and drops late commands", "[r
     CHECK(after->number == 16);
 }
 
+TEST_CASE("Command queue stops repeating input after a long gap", "[replication]") {
+    const input::ActionMap map = input::ActionMap::standard();
+    replication::CommandQueue queue{1, 8, 3};
+    queue.push(make_command(1, map));
+    auto first = queue.next();
+    REQUIRE(first);
+    REQUIRE(first->actions[4].down);
+    // Drei Mal gilt der letzte weiter unter den fehlenden Nummern, danach ohne Eingabe und ohne
+    // neue Nummer, aber mit Blick.
+    for (u32 i = 2; i <= 6; ++i) {
+        auto command = queue.next();
+        REQUIRE(command);
+        CHECK(command->yaw == first->yaw);
+        if (i <= 4) {
+            CHECK(command->number == i);
+            CHECK(command->actions[4].down);
+        } else {
+            CHECK(command->number == 4);
+            CHECK_FALSE(command->actions[4].down);
+            CHECK(command->actions[4].x == 0.0f);
+        }
+    }
+    CHECK(queue.stats().repeated == 5);
+    CHECK(queue.stats().idle == 2);
+    CHECK(queue.last() == 4);
+    // Nach dem Stau gilt der nächste, der kommt, obwohl 5 und 6 fehlen; die Zählung beginnt neu.
+    queue.push(make_command(7, map));
+    auto back = queue.next();
+    REQUIRE(back);
+    CHECK(back->number == 7);
+    CHECK(back->actions[4].down);
+    auto again = queue.next();
+    REQUIRE(again);
+    CHECK(again->number == 8);
+    CHECK(again->actions[4].down);
+    CHECK(queue.stats().dropped == 0);
+}
+
 TEST_CASE("Owner state carries the exact figure state", "[replication]") {
     const replication::OwnerState state{.command = 1234,
                                         .queued = 3,

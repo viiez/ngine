@@ -140,9 +140,10 @@ void count_meshes(TerrainData& data) {
 // Ein Schritt des Streamings eines endlosen Terrains; Beobachter in Voxeln relativ zu seinem
 // Ursprung. Liefert die Zahl der neuen Netze.
 usize stream_terrain(TerrainData& data, jobs::JobSystem& jobs,
-                     std::span<const math::DVec3> observers, bool wait) {
+                     std::span<const math::DVec3> observers, bool wait, bool wait_for_edits) {
     const auto start = std::chrono::steady_clock::now();
-    voxel::StreamChanges changes = data.streamer->update(jobs, data.chunks, observers, wait);
+    voxel::StreamChanges changes =
+        data.streamer->update(jobs, data.chunks, observers, wait, wait_for_edits);
     data.stats.streaming = true;
     data.stats.stream = data.streamer->stats();
     data.stats.meshed = static_cast<u32>(changes.meshes.size());
@@ -250,7 +251,7 @@ usize update_terrains(World& world, jobs::JobSystem& jobs, const TerrainUpdate& 
             if (local.empty()) {
                 local.push_back({0.0, static_cast<f64>(terrain.ground) / voxel::voxel_size, 0.0});
             }
-            meshed += stream_terrain(data, jobs, local, update.wait);
+            meshed += stream_terrain(data, jobs, local, update.wait, update.wait_for_edits);
             return;
         }
         if (!data.chunks.has_changes()) {
