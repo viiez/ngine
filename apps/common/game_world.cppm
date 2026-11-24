@@ -207,6 +207,7 @@ public:
             if (scripts_) {
                 scripts_->run(script::ScriptPhase::Frame, world_.time().delta);
             }
+            dig_players(world_.time().delta);
         });
         physics_.set_events(&events_);
         physics::add_to(simulation_, physics_);
@@ -475,7 +476,29 @@ private:
     struct PlayerSlot {
         u64 figure = 0;
         input::ActionState* actions = nullptr;
+        // Graben ohne Skript (R5.4), wie Grabpause im Skript.
+        DigTimer dig;
     };
+
+    // Graben der Figuren mit eigenen Aktionen, die kein Skript steuert (R5.4): wie das Skript
+    // Spielersteuerung nach den festen Schritten eines Bildes, mit fast auftragen.
+    void dig_players(f32 dt) {
+        for (PlayerSlot& slot : players_) {
+            world::Entity figure = world_.entity(slot.figure);
+            if (!figure || !figure.alive() || scripted_player(figure)) {
+                continue;
+            }
+            if (!slot.dig.ready(dt, slot.actions->down("dig"))) {
+                continue;
+            }
+            const auto* input = figure.get<PlayerInput>();
+            const auto target = figure_dig_target(world_, figure, physics_);
+            if (input != nullptr && target) {
+                dig(*target, *input, slot.actions->down("fast"));
+                slot.dig.used();
+            }
+        }
+    }
 
     reflect::TypeRegistry types_;
     world::World world_;

@@ -178,6 +178,21 @@ void network_window(const sandbox::NetClient& net, const app::PredictionReport& 
                          prediction.server_queue, prediction.server_queue_average));
     ui::text(std::format("Takt {:+.1f} %, Versatz {:.1f} cm", (prediction.rate - 1.0f) * 100.0f,
                          prediction.smoothing * 100.0f));
+    ui::separator();
+    // Terrain übers Netz (R5.4).
+    const ngine::replication::TerrainReceiverStats terrain = net.terrain().stats();
+    ui::text(std::format("Terrain: {} Chunks, {:.1f} KB in {} Nachrichten, {} warten",
+                         terrain.chunks, static_cast<double>(terrain.bytes) / 1024.0,
+                         terrain.messages, terrain.waiting));
+    ui::text(std::format("Umgebung {}", net.terrain().complete()
+                                            ? "vollständig"
+                                            : (prediction.waiting_for_terrain
+                                                   ? "fehlt, Vorhersage wartet"
+                                                   : "fehlt")));
+    ui::text(std::format("Pinsel {} vorhergesagt, {} offen, {} bestätigt, {} abweichend, {} "
+                         "verfallen",
+                         prediction.digs, terrain.predicted, terrain.confirmed, terrain.mismatched,
+                         terrain.expired));
     ui::end_window();
 }
 
@@ -527,6 +542,7 @@ int run_windowed(const Options& options) {
             prediction = std::make_unique<app::PlayerPrediction>(
                 scene->game(), actions,
                 [connection](std::span<const std::byte> data) { connection->send_game(data); });
+            prediction->set_terrain(&net->terrain());
         }
         // Skripte aus assets/skripte, mit Hot Reload (R4.4); als Client rechnet sie der Server.
         if (scene && script_runtime && !net) {

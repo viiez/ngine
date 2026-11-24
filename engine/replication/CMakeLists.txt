@@ -11,14 +11,20 @@ target_sources(ngine_replication
             session.cppm
             input.cppm
             prediction.cppm
+            wire.cppm
+            terrain.cppm
     PRIVATE
         schema.cpp
         snapshot.cpp
+        encoder.cpp
+        mirror.cpp
         session.cpp
         input.cpp
-        prediction.cpp)
+        prediction.cpp
+        terrain.cpp)
 
 target_link_libraries(ngine_replication
     PUBLIC ngine::core ngine::math ngine::reflect ngine::world ngine::net ngine::input
-    PRIVATE ngine::serialize ngine::profile)
+        ngine::serialize
+    PRIVATE ngine::profile)
 ngine_set_compiler_options(ngine_replication)

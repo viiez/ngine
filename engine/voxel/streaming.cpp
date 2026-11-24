@@ -45,8 +45,9 @@ f64 now_ms() {
 struct Streamer::Pending {
     ChunkCoord coord;
     Chunk chunk;
-    // Deltas zum Zeitpunkt des Starts, unveränderlich (R3.4).
-    std::shared_ptr<const DeltaMap> deltas;
+    // Deltas zum Zeitpunkt des Starts mit dem Index der groben Stufen, unveränderlich (R3.4,
+    // TD-41).
+    std::shared_ptr<const DeltaState> deltas;
     f64 ms = 0.0;
     std::atomic<bool> done{false};
 };
@@ -220,7 +221,7 @@ void Streamer::launch(jobs::JobSystem& jobs) {
         auto pending = std::make_unique<Pending>();
         pending->coord = queue_[next_++];
         if (deltas_ != nullptr) {
-            pending->deltas = deltas_->snapshot();
+            pending->deltas = deltas_->state();
         }
         Pending* job = pending.get();
         const Generator* generator = &generator_;

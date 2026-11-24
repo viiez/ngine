@@ -31,6 +31,10 @@ module;
 // - Nach der Länge der Warteschlange beim Server stellt die Vorhersage den Takt ihrer festen
 //   Schritte um bis zu ±5 % nach.
 // - Die Parameter der Animation der eigenen Figur setzt der Client selbst (wie das Skript).
+// - Seit R5.4 gräbt die Vorhersage nach jedem Schritt mit dig wie der Server (DigTimer,
+//   figure_dig_target()) und hält den Pinsel über replication::TerrainReceiver vorhergesagt, bis
+//   der Server den Befehl bestätigt. Solange die Deltas um die Figur nicht vollständig da sind,
+//   wartet die Vorhersage.
 //
 // Sandbox mit Fenster, Client ohne Fenster und Tests nutzen sie gleich.
 export module app.prediction;
@@ -96,6 +100,10 @@ export struct PredictionReport {
     u64 commands = 0;
     // Zeit des letzten Neurechnens (ms).
     f64 replay_ms = 0.0;
+    // Vorhergesagte Pinselstriche (R5.4).
+    u64 digs = 0;
+    // Die Vorhersage wartet auf die Deltas um die Figur (R5.4).
+    bool waiting_for_terrain = false;
 };
 
 // Eine Zeile für das Log.
@@ -105,11 +113,13 @@ export std::string describe_prediction(const PredictionReport& report) {
         "Vorhersage: {} Korrekturen ({} in der letzten Minute, zuletzt {:.1f} cm), "
         "{} Schritte neu gerechnet ({:.2f} ms), letzte Abweichung {:.2f} cm, {} "
         "Befehle offen, {} gesendet, beim Server {} (Mittel {:.1f}), Takt {:+.1f} %, "
-        "Versatz {:.1f} cm; in der letzten Minute {} frei, {} an Körpern, {} in der Luft",
+        "Versatz {:.1f} cm; in der letzten Minute {} frei, {} an Körpern, {} in der Luft; {} "
+        "Pinsel{}",
         p.corrections, report.corrections_per_minute, p.last_correction * 100.0, p.replayed,
         report.replay_ms, p.last_error * 100.0, p.pending, report.commands, report.server_queue,
         report.server_queue_average, (report.rate - 1.0f) * 100.0f, report.smoothing * 100.0f,
-        report.minute.free, report.minute.bodies, report.minute.air);
+        report.minute.free, report.minute.bodies, report.minute.air, report.digs,
+        report.waiting_for_terrain ? "; wartet auf das Terrain" : "");
 }
 
 export class PlayerPrediction {
@@ -132,11 +142,22 @@ public:
     PlayerPrediction(const PlayerPrediction&) = delete;
     PlayerPrediction& operator=(const PlayerPrediction&) = delete;
 
+    // Deltas des Terrains vom Server (R5.4): Graben wird darüber vorhergesagt, und die Vorhersage
+    // wartet, bis die Umgebung der Figur vollständig ist. nullptr: Graben nur lokal, kein Warten.
+    void set_terrain(replication::TerrainReceiver* terrain) noexcept {
+        terrain_ = terrain;
+    }
+
     // Einmal pro Bild vor der Simulation: die eigene Figur in der Welt des Clients (lokale
     // Kennung, 0 solange unbekannt) und ihre Kennung auf dem Server.
     void set_figure(u64 local, u64 server_id, replication::Mirror& mirror) {
         world::World& world = game_->world();
         if (local != 0 && !world.alive(local)) {
+            local = 0;
+        }
+        // Beitritt (R5.4): Ohne die Deltas um die Figur stünde sie auf Boden, den der Server
+        // vielleicht längst weggegraben hat. Bis dahin zeigt der Client sie wie fremde Figuren.
+        if (local != 0 && figure_ == 0 && !terrain_ready()) {
             local = 0;
         }
         if (local == figure_ && (local == 0 || world.entity(local).has<physics::Predicted>())) {
@@ -318,6 +339,16 @@ public:
     [[nodiscard]] u64 figure() const noexcept {
         return figure_;
     }
+    // Die Umgebung der Figur ist da (oder es gibt kein Terrain bzw. keinen Empfänger).
+    [[nodiscard]] bool terrain_ready() {
+        if (terrain_ == nullptr || terrain_->complete()) {
+            return true;
+        }
+        bool any = false;
+        game_->world().each<const world::Terrain>(
+            [&](world::Entity, const world::Terrain&) { any = true; });
+        return !any;
+    }
     // Die eigene Figur ist bekannt und lebt (der Spiegel kann sie zwischen zwei Bildern beenden).
     [[nodiscard]] bool own_alive() const {
         return figure_ != 0 && game_->world().alive(figure_);
@@ -341,7 +372,9 @@ public:
                                 .rate = rate_,
                                 .smoothing = smoothing_,
                                 .commands = commands_,
-                                .replay_ms = replay_ms_};
+                                .replay_ms = replay_ms_,
+                                .digs = digs_,
+                                .waiting_for_terrain = figure_ == 0 && !terrain_ready()};
     }
 
 private:
@@ -466,6 +499,7 @@ private:
                     contacts_.pop_front();
                 }
             }
+            predict_dig(*pending_);
             outgoing_.push_back(std::move(*pending_));
             while (outgoing_.size() > replication::commands_per_message) {
                 outgoing_.pop_front();
@@ -480,7 +514,35 @@ private:
         actions_->end_fixed_step();
     }
 
+    // Graben wie auf dem Server nach dem Schritt des Befehls (R5.4): mit dig im Takt der
+    // Grabpause, mit fast auftragen. Ohne Empfänger gräbt es nur lokal.
+    void predict_dig(const replication::Command& command) {
+        const PlayerControls controls = player_controls(actions_->map(), command.actions);
+        const f32 dt = game_->world().time().fixed_delta;
+        if (!dig_timer_.ready(dt, controls.dig)) {
+            return;
+        }
+        world::World& world = game_->world();
+        const world::Entity own = world.entity(figure_);
+        const auto* input = own.get<PlayerInput>();
+        const auto target = figure_dig_target(world, own, game_->physics());
+        if (input == nullptr || !target) {
+            return;
+        }
+        const voxel::Brush brush = dig_brush(*target, *input, controls.run);
+        if (terrain_ != nullptr) {
+            terrain_->predict(target->terrain, command.number, brush);
+        } else {
+            (void)world::edit_terrain(target->terrain, brush);
+        }
+        dig_timer_.used();
+        ++digs_;
+    }
+
     GameWorld* game_;
+    replication::TerrainReceiver* terrain_ = nullptr;
+    DigTimer dig_timer_;
+    u64 digs_ = 0;
     input::ActionState* actions_;
     Send send_;
     PredictionSettings settings_;

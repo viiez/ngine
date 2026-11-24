@@ -19,6 +19,7 @@ module;
 //   Owner:    u32 letzter verarbeiteter Befehl, u8 Befehle in der Warteschlange, f64 x, y, z,
 //             f32 vx, vy, vz, u8 Boden, u8 Flags (1 geduckt, 2 berührt Körper): Stand der eigenen
 //             Figur nach diesem Befehl.
+//   Terrain:  Deltas eines Terrains (R5.4), Format in :terrain.
 //
 // Zahlen stehen in Little Endian. Bis R5.2 gingen pro Bild die Aktionen (Actions) und der Blick
 // (View) einzeln; seit R5.3 ist ein Befehl alles, was eine Figur in einem festen Schritt braucht,
@@ -39,6 +40,8 @@ enum class GameMessage : u8 {
     Possess = 2,
     // Server an Client: Stand deiner Figur nach deinem letzten verarbeiteten Befehl.
     Owner = 3,
+    // Server an Client: geänderte Deltas eines Terrains (R5.4, :terrain), zuverlässig.
+    Terrain = 4,
 };
 
 // So viele Befehle trägt eine Nachricht höchstens; der Client schickt die neuesten drei.

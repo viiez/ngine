@@ -485,3 +485,108 @@ TEST_CASE("Region files round-trip the deltas byte for byte", "[voxel]") {
     broken[0] = std::byte{'X'};
     CHECK_FALSE(voxel::decode_region(regions.front().first, broken, untouched));
 }
+
+TEST_CASE("Coarse index builds the same chunks as scanning every delta", "[voxel]") {
+    // TD-41 (R5.4): Der Index der groben Stufen muss bitgleich zum Weg über alle Deltas sein, auch
+    // nach Ändern und Entfernen von Deltas.
+    voxel::TerrainDeltas deltas{test_world};
+    voxel::ChunkStore store;
+    const voxel::Generator& generator = deltas.generator();
+    const auto crater = [&](f32 x, f32 z, f32 radius, voxel::BrushMode mode) {
+        const auto ground = static_cast<f32>(generator.height(static_cast<i64>(x),
+                                                              static_cast<i64>(z)));
+        return deltas.apply(store, {.mode = mode, .center = {x, ground, z}, .radius = radius});
+    };
+    // Krater an mehreren Stellen, auch mit negativen Koordinaten und über Chunk-Grenzen.
+    REQUIRE_FALSE(crater(64.0f, 64.0f, 14.0f, voxel::BrushMode::Remove).empty());
+    REQUIRE_FALSE(crater(-40.0f, 20.0f, 9.0f, voxel::BrushMode::Remove).empty());
+    REQUIRE_FALSE(crater(300.0f, -260.0f, 11.0f, voxel::BrushMode::Add).empty());
+    const voxel::TerrainEdit last = crater(31.5f, -0.5f, 6.0f, voxel::BrushMode::Remove);
+    REQUIRE_FALSE(last.empty());
+
+    const auto compare = [&] {
+        const std::shared_ptr<const voxel::DeltaState> state = deltas.state();
+        u32 differing = 0;
+        u32 changed = 0;
+        for (u8 level = 1; level <= 6; ++level) {
+            const i64 extent = voxel::chunk_extent(level);
+            for (const auto& [coord, delta] : state->map) {
+                const voxel::ChunkCoord c{
+                    static_cast<i32>(voxel::floor_div(voxel::chunk_origin(coord.x), extent)),
+                    static_cast<i32>(voxel::floor_div(voxel::chunk_origin(coord.y), extent)),
+                    static_cast<i32>(voxel::floor_div(voxel::chunk_origin(coord.z), extent)),
+                    level};
+                voxel::Chunk scanned;
+                generator.fill(c, scanned);
+                voxel::Chunk indexed = scanned;
+                const u64 base = voxel::checksum(scanned);
+                voxel::apply_deltas(state->map, c, scanned);
+                voxel::apply_deltas(*state, c, indexed);
+                if (!same_samples(scanned, indexed)) {
+                    ++differing;
+                }
+                if (voxel::checksum(scanned) != base) {
+                    ++changed;
+                }
+            }
+        }
+        CHECK(differing == 0);
+        return changed;
+    };
+    CHECK(compare() > 0);
+    CHECK(deltas.state()->coarse.size() > 0);
+
+    // Undo des letzten Kraters und Entfernen eines ganzen Deltas halten den Index aktuell.
+    (void)deltas.restore(store, last.changes, false);
+    (void)compare();
+    std::vector<voxel::DeltaChange> removal;
+    for (const auto& [coord, delta] : *deltas.snapshot()) {
+        removal.push_back({coord, delta, nullptr});
+    }
+    (void)deltas.restore(store, removal, true);
+    CHECK(deltas.size() == 0);
+    CHECK(deltas.state()->coarse.size() == 0);
+
+    // Eine alte Momentaufnahme bleibt beim Schreiben unverändert (Kopie beim Schreiben).
+    const std::shared_ptr<const voxel::DeltaState> held = deltas.state();
+    REQUIRE_FALSE(crater(64.0f, 64.0f, 8.0f, voxel::BrushMode::Remove).empty());
+    CHECK(held->map.empty());
+    CHECK(held->coarse.size() == 0);
+    CHECK(deltas.state()->coarse.size() > 0);
+}
+
+TEST_CASE("Coarse index is faster than scanning every delta", "[voxel]") {
+    // Messung für TD-41: ein Chunk der Stufe 5 über vielen Deltas.
+    voxel::TerrainDeltas deltas{test_world};
+    voxel::ChunkStore store;
+    const voxel::Generator& generator = deltas.generator();
+    for (i32 i = 0; i < 40; ++i) {
+        const f32 x = static_cast<f32>((i % 8) * 60);
+        const f32 z = static_cast<f32>((i / 8) * 60);
+        const auto ground =
+            static_cast<f32>(generator.height(static_cast<i64>(x), static_cast<i64>(z)));
+        (void)deltas.apply(store, {.mode = voxel::BrushMode::Remove,
+                                   .center = {x, ground, z},
+                                   .radius = 10.0f});
+    }
+    const std::shared_ptr<const voxel::DeltaState> state = deltas.state();
+    REQUIRE(state->map.size() > 40);
+    const voxel::ChunkCoord coarse{0, 0, 0, 5};
+    voxel::Chunk base;
+    generator.fill(coarse, base);
+    const auto time = [&](auto&& build) {
+        const auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < 20; ++i) {
+            voxel::Chunk chunk = base;
+            build(chunk);
+        }
+        return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
+                   .count() /
+               20.0;
+    };
+    const f64 scanned = time([&](voxel::Chunk& c) { voxel::apply_deltas(state->map, coarse, c); });
+    const f64 indexed = time([&](voxel::Chunk& c) { voxel::apply_deltas(*state, coarse, c); });
+    WARN("Stufe 5 mit " << state->map.size() << " Deltas: alle prüfen " << scanned
+                        << " ms, Index " << indexed << " ms");
+    CHECK(indexed <= scanned);
+}

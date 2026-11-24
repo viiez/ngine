@@ -12,7 +12,8 @@ module;
 #include <vector>
 
 // Verbindung eines Clients zum Server mit Spielwelt (R5.2): Transport, Replikation in die eigene
-// Welt, welche Figur ihm gehört, Befehle zum Server und der Stand der eigenen Figur zurück (R5.3).
+// Welt, welche Figur ihm gehört, Befehle zum Server und der Stand der eigenen Figur zurück (R5.3),
+// seit R5.4 die Deltas des Terrains (replication::TerrainReceiver).
 // Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client --headless) und die Bots
 // (--bots) teilen das.
 export module sandbox.net_client;
@@ -74,6 +75,20 @@ public:
                 if (auto owner = replication::decode_owner(message.data)) {
                     owner_states_.push_back(*owner);
                 }
+            } else if (kind == replication::GameMessage::Terrain) {
+                if (!apply_terrain_) {
+                    terrain_bytes_ += message.data.size();
+                } else if (auto result = terrain_.receive(message.data);
+                           !result && terrain_errors_++ == 0) {
+                    log::warn("Client: {}", result.error());
+                }
+            }
+        }
+        if (apply_terrain_) {
+            // Deltas für Terrains, die der Spiegel kennt und die gebaut sind (R5.4).
+            (void)terrain_.apply(*world_, client_.mirror());
+            for (const replication::OwnerState& owner : owner_states_) {
+                terrain_.expire(*world_, owner.command);
             }
         }
         return {};
@@ -110,6 +125,21 @@ public:
             recent_.erase(recent_.begin());
         }
         send_game(replication::encode_commands(map.hash(), recent_));
+    }
+
+    // Deltas des Terrains vom Server und vorhergesagte Pinsel (R5.4).
+    [[nodiscard]] replication::TerrainReceiver& terrain() noexcept {
+        return terrain_;
+    }
+    [[nodiscard]] const replication::TerrainReceiver& terrain() const noexcept {
+        return terrain_;
+    }
+    // Ohne Terrain (Bots): Nachrichten nur zählen, nicht anwenden.
+    void set_apply_terrain(bool apply) noexcept {
+        apply_terrain_ = apply;
+    }
+    [[nodiscard]] usize terrain_bytes() const noexcept {
+        return apply_terrain_ ? static_cast<usize>(terrain_.stats().bytes) : terrain_bytes_;
     }
 
     // Stände der eigenen Figur, die in diesem Bild angekommen sind.
@@ -151,20 +181,28 @@ public:
         return std::format(
             "Netz: Ping {} ms, Verlust {}, {} Schnappschüsse/s mit {:.1f} KB/s (zuletzt {} B, "
             "höchstens {} B), empfangen {:.1f} KB/s, gesendet {:.1f} KB/s; {} Entities, Puffer "
-            "{:.1f} Ticks, {} interpoliert, {} ohne Basis, {} zu spät",
+            "{:.1f} Ticks, {} interpoliert, {} ohne Basis, {} zu spät; Terrain {:.1f} KB{}",
             stats.ping_ms,
             stats.loss >= 0.0f ? std::format("{:.1f} %", stats.loss * 100.0f) : std::string{"?"},
             stats.snapshots_per_second, static_cast<f64>(stats.snapshot_bytes_per_second) / 1024.0,
             stats.last_snapshot_bytes, stats.largest_snapshot_bytes,
             stats.receive_bytes_per_second / 1024.0f, stats.send_bytes_per_second / 1024.0f,
             client_.mirror().entity_count(), stats.mirror.buffer_ticks, stats.mirror.interpolated,
-            stats.mirror.missing_base, stats.mirror.stale);
+            stats.mirror.missing_base, stats.mirror.stale,
+            static_cast<f64>(terrain_bytes()) / 1024.0,
+            apply_terrain_ ? std::format(" in {} Chunks, Umgebung {}, Pinsel {} offen, {} "
+                                         "bestätigt, {} abweichend, {} verfallen",
+                                         terrain_.stats().chunks,
+                                         terrain_.complete() ? "vollständig" : "fehlt",
+                                         terrain_.stats().predicted, terrain_.stats().confirmed,
+                                         terrain_.stats().mismatched, terrain_.stats().expired)
+                           : std::string{});
     }
 
 private:
     NetClient(std::unique_ptr<net::Transport> transport, world::World& world,
               const replication::Schema& schema)
-        : transport_{std::move(transport)}, client_{*transport_, world, schema} {}
+        : transport_{std::move(transport)}, client_{*transport_, world, schema}, world_{&world} {}
 
     std::unique_ptr<net::Transport> transport_;
     replication::Client client_;
@@ -172,6 +210,11 @@ private:
     std::string address_;
     u64 figure_ = 0;
     std::vector<replication::OwnerState> owner_states_;
+    world::World* world_;
+    replication::TerrainReceiver terrain_;
+    bool apply_terrain_ = true;
+    usize terrain_bytes_ = 0;
+    u32 terrain_errors_ = 0;
     // Nur für send_command().
     std::vector<replication::Command> recent_;
     u32 next_command_ = 1;
