@@ -852,11 +852,21 @@ struct Track {
     std::deque<Sample> samples;
     // Die gezeichnete Zeit ist am letzten Stand vorbei; bis zum nächsten bleibt er stehen.
     bool settled = false;
+    // Abstand der Stände einer bewegten Entity in Ticks (Spitze, klingt langsam ab): Entfernte
+    // kommen nur jeden dritten Tick, und Verlust oder Budget verzögern einzelne Stände.
+    f64 gap = 1.0;
+    // Zusätzliche Verzögerung dieser Entity in Ticks, folgt sanft aus gap.
+    f64 extra = 0.0;
 };
 
-constexpr usize max_samples = 8;
-// Länger ohne Stand heißt: Die Entity stand still (Deltas schicken Unverändertes nicht).
+constexpr usize max_samples = 12;
+// Länger ohne Stand heißt bei einer Entity, die zuletzt stand: Sie stand still (Deltas schicken
+// Unverändertes nicht). Eine bewegte überbrückt Lücken bis bridge_gap (verlorene oder verzögerte
+// Stände) und steht erst danach.
 constexpr u32 hold_gap = 3;
+constexpr u32 bridge_gap = 9;
+// Höchstens so viele Ticks zusätzlicher Verzögerung pro Entity (300 ms).
+constexpr f64 max_extra = 9.0;
 constexpr u32 mirror_history = 32;
 
 world::Transform blend(const world::Transform& a, const world::Transform& b, f64 t) {
@@ -885,6 +895,9 @@ struct Mirror::Impl {
     std::unordered_set<u64> unresolved;
     std::unordered_set<u64> orphans;
     MirrorStats stats;
+    // Eigene Figur auf dem Server und die Komponenten, die der Client für sie selbst setzt.
+    u64 predicted = 0;
+    std::vector<u16> owned;
 
     u64 local(u64 server_id) const noexcept {
         const auto it = entities.find(server_id);
@@ -896,6 +909,10 @@ struct Mirror::Impl {
                         bool sample) {
         const u16 index = record.components[slot];
         const SchemaComponent& component = schema->component(index);
+        if (record.id == predicted && world->has(local_entity, ids[index]) &&
+            std::ranges::find(owned, index) != owned.end()) {
+            return {};
+        }
         void* data = world->ensure(local_entity, ids[index]);
         Resolver resolve{.entities = &entities, .unresolved = false};
         for (u32 part = 0; part < component.parts; ++part) {
@@ -913,8 +930,19 @@ struct Mirror::Impl {
         if (sample && component.codec == Codec::Transform) {
             Track& track = tracks[record.id];
             const auto& transform = *static_cast<const world::Transform*>(data);
-            if (!track.samples.empty() && tick - track.samples.back().tick > hold_gap) {
-                track.samples.push_back({tick - 1, track.samples.back().transform});
+            if (!track.samples.empty()) {
+                const u32 gap = tick - track.samples.back().tick;
+                const usize n = track.samples.size();
+                const bool moving =
+                    n >= 2 && (track.samples[n - 1].transform.position !=
+                                   track.samples[n - 2].transform.position ||
+                               track.samples[n - 1].transform.rotation !=
+                                   track.samples[n - 2].transform.rotation);
+                if (gap > hold_gap && (!moving || gap > bridge_gap)) {
+                    track.samples.push_back({tick - 1, track.samples.back().transform});
+                } else {
+                    track.gap = std::max(static_cast<f64>(gap), track.gap - 0.1);
+                }
             }
             track.samples.push_back({tick, transform});
             while (track.samples.size() > max_samples) {
@@ -949,7 +977,10 @@ struct Mirror::Impl {
         for (const RecordPtr& record : next) {
             const RecordPtr* before = find_record(previous, record->id);
             if (before != nullptr && *before == record) {
-                continue;
+                // Unverändert, außer die Entity endete hier (etwa mit ihrem Elternteil).
+                if (const u64 id = local(record->id); id != 0 && w.alive(id)) {
+                    continue;
+                }
             }
             u64& entity = entities[record->id];
             bool fresh = false;
@@ -991,7 +1022,7 @@ struct Mirror::Impl {
         for (auto it = orphans.begin(); it != orphans.end();) {
             const RecordPtr* record = find_record(*current, *it);
             const u64 child = local(*it);
-            if (record == nullptr || child == 0) {
+            if (record == nullptr || child == 0 || !w.alive(child)) {
                 it = orphans.erase(it);
                 continue;
             }
@@ -1007,7 +1038,7 @@ struct Mirror::Impl {
         for (const u64 server_id : retry) {
             const RecordPtr* record = find_record(*current, server_id);
             const u64 entity = local(server_id);
-            if (record == nullptr || entity == 0) {
+            if (record == nullptr || entity == 0 || !w.alive(entity)) {
                 continue;
             }
             for (usize slot = 0; slot < (*record)->components.size(); ++slot) {
@@ -1146,28 +1177,35 @@ void Mirror::interpolate(f64 dt, f64 delay) {
     const f64 render = d.render_tick;
     u32 moving = 0;
     for (auto& [server_id, track] : d.tracks) {
-        if (track.samples.empty() || (track.settled && !beyond)) {
+        if (track.samples.empty() || (track.settled && !beyond) || server_id == d.predicted) {
             continue;
         }
         const u64 entity = d.local(server_id);
-        auto* transform = entity != 0
+        auto* transform = entity != 0 && world.alive(entity)
                               ? static_cast<world::Transform*>(world.get_mut(entity, transform_id))
                               : nullptr;
         if (transform == nullptr) {
             continue;
         }
+        // Seltene oder unregelmäßige Stände: diese Entity etwas später zeichnen, damit sie zwischen
+        // zwei Ständen liegt, statt vorauszurechnen. Die Verzögerung ändert sich um höchstens 10 %
+        // der Zeit, damit die Entity dabei nicht springt.
+        const f64 target_extra = std::clamp(2.0 * track.gap - 4.0, 0.0, max_extra);
+        const f64 step = dt * snapshot_rate * 0.1;
+        track.extra += std::clamp(target_extra - track.extra, -step, step);
+        const f64 at = render - track.extra;
         const std::deque<Sample>& samples = track.samples;
         world::Transform value = samples.back().transform;
-        if (render <= static_cast<f64>(samples.front().tick)) {
+        if (at <= static_cast<f64>(samples.front().tick)) {
             value = samples.front().transform;
-        } else if (render >= static_cast<f64>(samples.back().tick)) {
+        } else if (at >= static_cast<f64>(samples.back().tick)) {
             // Fehlen Schnappschüsse, läuft eine bewegte Entity kurz weiter; sonst steht sie.
             const Sample& last = samples.back();
             if (beyond && last.tick == d.last_tick && samples.size() >= 2) {
                 const Sample& before = samples[samples.size() - 2];
                 const f64 span = static_cast<f64>(last.tick - before.tick);
                 if (span > 0.0 && span <= hold_gap) {
-                    const f64 t = (render - static_cast<f64>(last.tick)) / span;
+                    const f64 t = (at - static_cast<f64>(last.tick)) / span;
                     value = last.transform;
                     value.position = last.transform.position +
                                      (last.transform.position - before.transform.position) * t;
@@ -1179,9 +1217,9 @@ void Mirror::interpolate(f64 dt, f64 delay) {
             for (usize i = 0; i + 1 < samples.size(); ++i) {
                 const f64 a = static_cast<f64>(samples[i].tick);
                 const f64 b = static_cast<f64>(samples[i + 1].tick);
-                if (render >= a && render < b) {
+                if (at >= a && at < b) {
                     value = blend(samples[i].transform, samples[i + 1].transform,
-                                  (render - a) / (b - a));
+                                  (at - a) / (b - a));
                     break;
                 }
             }
@@ -1191,6 +1229,21 @@ void Mirror::interpolate(f64 dt, f64 delay) {
         ++moving;
     }
     d.stats.interpolated = moving;
+}
+
+void Mirror::set_predicted(u64 server_id, std::span<const reflect::TypeInfo* const> owned) {
+    Impl& d = *impl_;
+    d.predicted = server_id;
+    d.owned.clear();
+    for (const reflect::TypeInfo* type : owned) {
+        if (type == nullptr) {
+            continue;
+        }
+        if (const auto index = d.schema->index_of(*type)) {
+            d.owned.push_back(*index);
+        }
+    }
+    d.tracks.erase(server_id);
 }
 
 u64 Mirror::local_id(u64 server_id) const noexcept {

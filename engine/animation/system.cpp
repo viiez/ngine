@@ -185,7 +185,7 @@ void AnimationSystem::update(world::World& world, f64 dt) {
     if (sync_ == ParameterSync::Follow) {
         for (Instance* instance : active_) {
             const auto* synced = world.entity(instance->entity).get<AnimatorParameters>();
-            if (synced == nullptr) {
+            if (synced == nullptr || std::ranges::find(local_, instance->entity) != local_.end()) {
                 continue;
             }
             const std::array<f32, synced_parameters> values{synced->p0, synced->p1, synced->p2,
@@ -249,6 +249,13 @@ void AnimationSystem::update(world::World& world, f64 dt) {
     }
     stats_.update_ms =
         std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - begin).count();
+}
+
+void AnimationSystem::set_local(u64 entity, bool local) {
+    std::erase(local_, entity);
+    if (local) {
+        local_.push_back(entity);
+    }
 }
 
 bool AnimationSystem::set_float(u64 entity, std::string_view name, f32 value) {

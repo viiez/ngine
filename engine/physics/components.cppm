@@ -139,6 +139,11 @@ struct CharacterController {
     f32 step_length = 0.7f;
 };
 
+// Markiert auf einem Client die Figur, die er selbst vorhersagt (R5.3). In der Physik eines
+// Clients (PhysicsSettings::remote) bewegen sich nur Figuren mit dieser Komponente; sie bleibt
+// lokal und wird nicht gespeichert.
+struct Predicted {};
+
 // Ob und worauf eine Spielfigur steht.
 enum class GroundState : u8 {
     // In der Luft.

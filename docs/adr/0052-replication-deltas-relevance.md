@@ -39,7 +39,9 @@ UDP-Paket. R5 braucht einen Spielplatz mit Terrain, Licht, Figuren und Hunderten
   Bestätigung immer dieselbe Auswahl geht.
 - **Interpolation auf dem Client:** `Mirror::interpolate()` zeichnet Transforms 3 Ticks (100 ms)
   hinter dem neuesten Schnappschuss, mit einer Uhr, die sanft nachstellt; fehlen Stände, rechnet
-  sie höchstens 3 Ticks weiter.
+  sie höchstens 3 Ticks weiter. Seit R5.3 überbrückt eine bewegte Entity Lücken bis 9 Ticks, statt
+  stehen zu bleiben, und jede Entity bekommt eine zusätzliche Verzögerung aus dem Abstand ihrer
+  Stände (bis 300 ms), damit selten oder unregelmäßig gesendete nicht zittern.
 - **Blick vom Client:** Der Client dreht die Kamera selbst und schickt Gier- und Nickwinkel
   (`GameMessage::View`), statt dass der Server Mausbewegungen aufsummiert, die verloren gehen.
 - **Simulierte Netzqualität:** `Transport::simulate()` stellt Verzögerung und Verlust von

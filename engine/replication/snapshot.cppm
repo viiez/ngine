@@ -186,6 +186,11 @@ public:
     // Schnappschuss; dt ist die Bildzeit in Sekunden. Einmal pro Bild nach apply().
     void interpolate(f64 dt, f64 delay = 3.0);
 
+    // Eigene, vorhergesagte Figur (R5.3): Die Komponenten in owned setzt der Client für diese
+    // Entity selbst, sobald sie da sind (z. B. Transform und CharacterMotion); ihr Transform wird
+    // nicht interpoliert. Die übrigen Komponenten spiegelt er weiter. server_id 0 hebt es auf.
+    void set_predicted(u64 server_id, std::span<const reflect::TypeInfo* const> owned);
+
     // Lokale Kennung zur Kennung auf dem Server, 0 wenn unbekannt.
     [[nodiscard]] u64 local_id(u64 server_id) const noexcept;
     [[nodiscard]] usize entity_count() const noexcept;

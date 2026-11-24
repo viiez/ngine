@@ -135,7 +135,9 @@ void PhysicsWorld::Impl::sync_characters(std::vector<ContactEnded>& ended,
     std::vector<u64> current;
     world->each<const CharacterController, const world::Transform>(
         [&](world::Entity entity, const CharacterController&, const world::Transform&) {
-            current.push_back(entity.id());
+            if (simulates_character(entity.id())) {
+                current.push_back(entity.id());
+            }
         });
     std::ranges::sort(current);
     for (auto it = characters.begin(); it != characters.end();) {
@@ -198,15 +200,27 @@ void PhysicsWorld::Impl::update_characters(f32 dt) {
     NGINE_PROFILE_ZONE("PhysicsWorld::characters");
     landed_events.clear();
     step_events.clear();
+    for (auto& [entity, record] : characters) {
+        move_character(entity, record, dt, true);
+    }
+}
+
+bool PhysicsWorld::Impl::simulates_character(u64 entity) const {
+    return !settings.remote || world->has(entity, predicted_id);
+}
+
+void PhysicsWorld::Impl::move_character(u64 entity, CharacterRecord& record, f32 dt, bool events) {
     const JPH::Vec3 gravity = system->GetGravity();
-    const CharacterBodyFilter body_filter;
+    const CharacterBodyFilter body_filter{&loose_proxies,
+                                          CharacterBodyFilter::light_share * record.settings.mass};
     const JPH::ShapeFilter shape_filter;
     const JPH::BroadPhaseLayerFilter& broad =
         system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
     const JPH::ObjectLayerFilter& object =
         system->GetDefaultLayerFilter(object_layer(PhysicsLayer::Character));
-    for (auto& [entity, record] : characters) {
+    {
         auto* motion = static_cast<CharacterMotion*>(world->get_mut(entity, motion_id));
+
         JPH::CharacterVirtual& character = *record.character;
         const CharacterController& c = record.settings;
 
@@ -216,7 +230,7 @@ void PhysicsWorld::Impl::update_characters(f32 dt) {
             character.SetLinearVelocity(JPH::Vec3::sZero());
             motion->velocity = {};
             motion->jump = false;
-            continue;
+            return;
         }
 
         // Ducken: Aufstehen nur, wenn über der Figur Platz ist.
@@ -304,7 +318,7 @@ void PhysicsWorld::Impl::update_characters(f32 dt) {
             record.fall_top = record.supported ? y : std::max(record.fall_top, y);
             record.step_distance = 0.0;
         } else {
-            if (!record.supported) {
+            if (!record.supported && events) {
                 landed_events.push_back(
                     CharacterLanded{.entity = entity,
                                     .height = static_cast<f32>(std::max(record.fall_top - y, 0.0)),
@@ -316,10 +330,12 @@ void PhysicsWorld::Impl::update_characters(f32 dt) {
             record.step_distance += std::sqrt(dx * dx + dz * dz);
             if (record.step_distance >= static_cast<f64>(c.step_length)) {
                 record.step_distance -= static_cast<f64>(c.step_length);
-                step_events.push_back(CharacterStep{.entity = entity,
-                                                    .position = from_jolt(after),
-                                                    .material = motion->ground_material,
-                                                    .run = motion->run});
+                if (events) {
+                    step_events.push_back(CharacterStep{.entity = entity,
+                                                        .position = from_jolt(after),
+                                                        .material = motion->ground_material,
+                                                        .run = motion->run});
+                }
             }
             record.fall_top = y;
         }
@@ -342,4 +358,94 @@ void PhysicsWorld::Impl::update_characters(f32 dt) {
         record.transform = *transform;
     }
 }
+
+std::optional<CharacterSnapshot> PhysicsWorld::character_snapshot(u64 entity) const {
+    const auto found = impl_->characters.find(entity);
+    if (found == impl_->characters.end()) {
+        return std::nullopt;
+    }
+    const CharacterRecord& record = found->second;
+    const JPH::CharacterVirtual& character = *record.character;
+    const JPH::CharacterBase::EGroundState state = character.GetGroundState();
+    bool touching = false;
+    for (const JPH::CharacterContact& contact : character.GetActiveContacts()) {
+        if (contact.mHadCollision && !contact.mIsSensorB &&
+            (contact.mMotionTypeB != JPH::EMotionType::Static ||
+             !contact.mCharacterIDB.IsInvalid())) {
+            touching = true;
+            break;
+        }
+    }
+    return CharacterSnapshot{
+        .position = from_jolt(character.GetPosition()),
+        .velocity = from_jolt(character.GetLinearVelocity()),
+        .ground = state == JPH::CharacterBase::EGroundState::OnGround        ? GroundState::Ground
+                  : state == JPH::CharacterBase::EGroundState::OnSteepGround ? GroundState::Steep
+                                                                             : GroundState::Air,
+        .crouched = record.crouched,
+        .touching = touching};
+}
+
+bool PhysicsWorld::set_character(u64 entity, const CharacterSnapshot& snapshot) {
+    Impl& impl = *impl_;
+    const auto found = impl.characters.find(entity);
+    // Endete die Entity seit dem letzten Schritt, gilt die Figur nicht mehr.
+    if (found == impl.characters.end() || !impl.world->alive(entity)) {
+        return false;
+    }
+    CharacterRecord& record = found->second;
+    JPH::CharacterVirtual& character = *record.character;
+    const CharacterBodyFilter body_filter{
+        &impl.loose_proxies, CharacterBodyFilter::light_share * record.settings.mass};
+    const JPH::ShapeFilter shape_filter;
+    const JPH::BroadPhaseLayerFilter& broad =
+        impl.system->GetDefaultBroadPhaseLayerFilter(object_layer(PhysicsLayer::Character));
+    const JPH::ObjectLayerFilter& object =
+        impl.system->GetDefaultLayerFilter(object_layer(PhysicsLayer::Character));
+    character.SetPosition(to_jolt(snapshot.position));
+    character.SetLinearVelocity(to_jolt(snapshot.velocity));
+    if (snapshot.crouched != record.crouched) {
+        // Die Form des Servers gilt, auch wenn hier kein Platz zum Aufstehen wäre.
+        (void)character.SetShape(
+            snapshot.crouched ? record.crouching.GetPtr() : record.standing.GetPtr(),
+            JPH::cLargeFloat, broad, object, body_filter, shape_filter, *impl.temp);
+        record.crouched = snapshot.crouched;
+    }
+    character.RefreshContacts(broad, object, body_filter, shape_filter, *impl.temp);
+    record.supported = character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+    record.fall_top = snapshot.position.y;
+
+    auto* transform =
+        static_cast<world::Transform*>(impl.world->get_mut(entity, impl.transform_id));
+    if (!record.has_parent) {
+        transform->position = snapshot.position;
+    } else {
+        const u64 parent = impl.world->parent(entity);
+        const math::Affine global =
+            math::Affine::from(snapshot.position, transform->rotation, {1.0f, 1.0f, 1.0f});
+        transform->position =
+            math::decompose(math::inverse(world::world_affine(*impl.world, parent)) * global)
+                .translation;
+    }
+    impl.world->modified(entity, impl.transform_id);
+    record.transform = *transform;
+    if (auto* motion = static_cast<CharacterMotion*>(impl.world->get_mut(entity, impl.motion_id))) {
+        motion->velocity = snapshot.velocity;
+        motion->ground = snapshot.ground;
+        motion->crouched = snapshot.crouched;
+    }
+    return true;
+}
+
+bool PhysicsWorld::step_character(u64 entity, f32 dt) {
+    Impl& impl = *impl_;
+    const auto found = impl.characters.find(entity);
+    if (found == impl.characters.end() || !impl.world->alive(entity) ||
+        impl.world->get(entity, impl.motion_id) == nullptr) {
+        return false;
+    }
+    impl.move_character(entity, found->second, dt, false);
+    return true;
+}
+
 } // namespace ngine::physics

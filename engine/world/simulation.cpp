@@ -173,7 +173,9 @@ void Simulation::interpolate() {
             interpolated.previous = transform;
             interpolated.initialized = true;
         }
-        if (alpha < 1.0f && !same(interpolated.previous, transform)) {
+        const bool offset = interpolated.offset.x != 0.0f || interpolated.offset.y != 0.0f ||
+                            interpolated.offset.z != 0.0f;
+        if ((alpha < 1.0f && !same(interpolated.previous, transform)) || offset) {
             interpolated.simulated = transform;
             interpolated.mixed = true;
             moving.push_back(entity.id());
@@ -194,6 +196,7 @@ void Simulation::interpolate() {
             static_cast<const Interpolated*>(world_->get(entity, interpolated_id));
         auto* transform = static_cast<Transform*>(world_->get_mut(entity, transform_id));
         *transform = mix(interpolated->previous, interpolated->simulated, alpha);
+        transform->position = transform->position + math::to_f64(interpolated->offset);
         world_->modified(entity, transform_id);
     }
     stats_.transforms = update_transforms(*world_);

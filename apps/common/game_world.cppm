@@ -5,6 +5,7 @@ module;
 #include <algorithm>
 #include <cmath>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -198,6 +199,9 @@ public:
             if (scripts_) {
                 scripts_->run(script::ScriptPhase::Fixed, world_.time().fixed_delta);
             }
+            if (before_physics_) {
+                before_physics_();
+            }
         });
         simulation_.add_frame_stage([this] {
             if (scripts_) {
@@ -213,6 +217,9 @@ public:
             }
             for (const PlayerSlot& slot : players_) {
                 slot.actions->end_fixed_step();
+            }
+            if (after_step_) {
+                after_step_();
             }
         });
         // Modell des Spielplatzes (Kisten, Kugeln, Figur) für die Formen der Physik.
@@ -317,6 +324,13 @@ public:
                 apply_controls(figure, player_controls(*slot.actions));
             }
         }
+    }
+
+    // Vorhersage auf dem Client (R5.3): before läuft in jedem festen Schritt nach den Skripten
+    // und vor der Physik, after nach dem ganzen Schritt. Leere Funktionen lösen die Haken.
+    void set_fixed_hooks(std::function<void()> before, std::function<void()> after) {
+        before_physics_ = std::move(before);
+        after_step_ = std::move(after);
     }
 
     // Neue Spielfigur aus prefabs/spielfigur.prefab (ohne Asset-Ordner aus Code) an position.
@@ -477,6 +491,8 @@ private:
     bool deterministic_ = false;
     input::ActionState* actions_ = nullptr;
     std::vector<PlayerSlot> players_;
+    std::function<void()> before_physics_;
+    std::function<void()> after_step_;
     // Ereignisse der Physik für die Skripte; nach Welt und Physik angelegt, damit die Skripte vor
     // ihnen gehen.
     events::EventBus events_;

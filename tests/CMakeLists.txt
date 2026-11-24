@@ -68,7 +68,7 @@ target_link_libraries(ngine_tests PRIVATE
 ngine_set_compiler_options(ngine_tests)
 # Simulation der Apps ohne GPU (R5.1, app::GameWorld); nur wenn apps/common gebaut wird.
 if(TARGET ngine_app_common)
-    target_sources(ngine_tests PRIVATE app/game_world_tests.cpp)
+    target_sources(ngine_tests PRIVATE app/game_world_tests.cpp app/prediction_tests.cpp)
     target_link_libraries(ngine_tests PRIVATE ngine_app_common)
 endif()
 # Quellen der Renderer-Shader für den Test des Hot Reload (R2.4).

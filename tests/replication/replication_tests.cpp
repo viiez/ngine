@@ -123,6 +123,13 @@ struct Link {
         return message.size();
     }
 
+    // Ein Schnappschuss, der verloren geht.
+    void lose() {
+        world::update_transforms(server);
+        encoder.capture(++tick);
+        (void)encoder.encode(1);
+    }
+
     world::Entity on_client(const world::Entity& entity) {
         return client.entity(mirror.local_id(entity.id()));
     }
@@ -469,6 +476,39 @@ TEST_CASE("Mirror interpolates and briefly extrapolates transforms", "[replicati
     CHECK(mirrored.get<world::Transform>()->position.x == Catch::Approx(8.0));
 }
 
+TEST_CASE("Mirror bridges sparse and lost updates of moving entities", "[replication]") {
+    // Fern (über 40 m) kommt nur jeder dritte Stand; gehen dazu Schnappschüsse verloren, darf die
+    // Entity nicht stehen bleiben und dann springen (R5.3, Abnahme).
+    Link link;
+    link.encoder.set_focus(1, math::DVec3{0.0, 0.0, 0.0});
+    world::Entity distant = link.server.create("Fern");
+    // Von 60 m bis 140 m: immer über 40 m und innerhalb der Relevanz (150 m).
+    distant.set(at(60.0));
+    link.step();
+    link.step();
+    const world::Entity mirrored = link.on_client(distant);
+    REQUIRE(mirrored.alive());
+    std::vector<f64> seen;
+    for (int i = 1; i <= 80; ++i) {
+        distant.set(at(60.0 + i));
+        if (i >= 45 && i <= 47) {
+            link.lose();
+        } else {
+            link.step();
+        }
+        link.mirror.interpolate(1.0 / replication::snapshot_rate);
+        if (i >= 30) {
+            seen.push_back(mirrored.get<world::Transform>()->position.x);
+        }
+    }
+    for (usize i = 1; i < seen.size(); ++i) {
+        INFO("Bild " << i << ": " << seen[i - 1] << " -> " << seen[i]);
+        CHECK(seen[i] >= seen[i - 1]);
+        CHECK(seen[i] - seen[i - 1] < 2.0);
+    }
+    CHECK(seen.back() > seen.front() + 40.0);
+}
+
 TEST_CASE("Welcome detects a different schema", "[replication]") {
     const auto types = make_types();
     const replication::Schema schema{types};
@@ -686,33 +726,225 @@ TEST_CASE("Client disconnects when the server replicates other components", "[re
     CHECK(session.client->state() == replication::ClientState::Disconnected);
 }
 
-TEST_CASE("Player actions survive encoding and reject a different map", "[replication]") {
+namespace {
+
+replication::Command make_command(u32 number, const input::ActionMap& map) {
+    replication::Command command{
+        .number = number, .yaw = 0.5f * static_cast<f32>(number), .pitch = -0.25f, .actions = {}};
+    command.actions.resize(map.actions().size());
+    command.actions[0] = {.x = 0.25f, .y = -1.0f, .down = true};
+    command.actions[4] = {.x = 1.0f, .down = true, .pressed = true};
+    command.actions[5] = {.released = true};
+    return command;
+}
+
+} // namespace
+
+TEST_CASE("Commands survive encoding and reject a different map", "[replication]") {
     const input::ActionMap map = input::ActionMap::standard();
-    std::vector<input::ActionValue> values(map.actions().size());
-    values[0] = {.x = 0.25f, .y = -1.0f, .down = true};
-    values[4] = {.x = 1.0f, .down = true, .pressed = true};
-    values[5] = {.released = true};
-    const std::vector<std::byte> message = replication::encode_actions(map.hash(), values);
-    CHECK(replication::game_message(message) == replication::GameMessage::Actions);
-    const auto decoded = replication::decode_actions(message, map.hash());
+    const std::vector<replication::Command> commands{make_command(7, map), make_command(8, map),
+                                                     make_command(9, map)};
+    const std::vector<std::byte> message = replication::encode_commands(map.hash(), commands);
+    CHECK(replication::game_message(message) == replication::GameMessage::Commands);
+    // Werte gehen nur mit, wenn sie nicht 0 sind: zwei Werte zu je 8 Bytes pro Befehl.
+    CHECK(message.size() == 8 + 3 * (12 + map.actions().size() + 2 * 8));
+    const auto decoded = replication::decode_commands(message, map.hash());
     REQUIRE(decoded.has_value());
-    REQUIRE(decoded->size() == values.size());
-    for (usize i = 0; i < values.size(); ++i) {
-        CHECK((*decoded)[i].x == values[i].x);
-        CHECK((*decoded)[i].y == values[i].y);
-        CHECK((*decoded)[i].down == values[i].down);
-        CHECK((*decoded)[i].pressed == values[i].pressed);
-        CHECK((*decoded)[i].released == values[i].released);
+    REQUIRE(decoded->size() == commands.size());
+    for (usize c = 0; c < commands.size(); ++c) {
+        const replication::Command& a = commands[c];
+        const replication::Command& b = (*decoded)[c];
+        CHECK(a.number == b.number);
+        CHECK(a.yaw == b.yaw);
+        CHECK(a.pitch == b.pitch);
+        REQUIRE(a.actions.size() == b.actions.size());
+        for (usize i = 0; i < a.actions.size(); ++i) {
+            CHECK(a.actions[i].x == b.actions[i].x);
+            CHECK(a.actions[i].y == b.actions[i].y);
+            CHECK(a.actions[i].down == b.actions[i].down);
+            CHECK(a.actions[i].pressed == b.actions[i].pressed);
+            CHECK(a.actions[i].released == b.actions[i].released);
+        }
     }
 
-    // Andere Belegung (Aktion umbenannt): abgelehnt.
+    // Andere Belegung (Aktion hinzugefügt): abgelehnt.
     input::ActionMap other = map;
     REQUIRE(other.add({.name = "tanzen"}).has_value());
     CHECK(other.hash() != map.hash());
-    CHECK_FALSE(replication::decode_actions(message, other.hash()).has_value());
-    // Abgeschnitten: abgelehnt.
+    CHECK_FALSE(replication::decode_commands(message, other.hash()).has_value());
+    // Abgeschnitten oder mit überzähligem Byte: abgelehnt.
     const std::span<const std::byte> cut{message.data(), message.size() - 1};
-    CHECK_FALSE(replication::decode_actions(cut, map.hash()).has_value());
+    CHECK_FALSE(replication::decode_commands(cut, map.hash()).has_value());
+    std::vector<std::byte> longer = message;
+    longer.push_back(std::byte{0});
+    CHECK_FALSE(replication::decode_commands(longer, map.hash()).has_value());
+    // Nummern rückwärts: abgelehnt.
+    const std::vector<replication::Command> backwards{make_command(9, map), make_command(8, map)};
+    CHECK_FALSE(replication::decode_commands(replication::encode_commands(map.hash(), backwards),
+                                             map.hash())
+                    .has_value());
+    // Nicht endlicher Blick: abgelehnt.
+    std::vector<replication::Command> broken{make_command(1, map)};
+    broken[0].yaw = std::nanf("");
+    CHECK_FALSE(
+        replication::decode_commands(replication::encode_commands(map.hash(), broken), map.hash())
+            .has_value());
+}
+
+TEST_CASE("Server limits commands to the action map", "[replication]") {
+    const input::ActionMap map = input::ActionMap::standard();
+    const auto move = map.find("move");
+    const auto jump = map.find("jump");
+    REQUIRE(move);
+    REQUIRE(jump);
+    replication::Command command = make_command(1, map);
+    command.actions[*move] = {.x = 3.0f, .y = 4.0f, .down = true};
+    command.actions[*jump] = {.x = 7.0f, .down = true};
+    command.pitch = 3.0f;
+    CHECK(replication::limit_command(command, map, 1.55f) == 3);
+    CHECK(command.actions[*move].x == Catch::Approx(0.6f));
+    CHECK(command.actions[*move].y == Catch::Approx(0.8f));
+    CHECK(command.actions[*jump].x == 1.0f);
+    CHECK(command.pitch == 1.55f);
+    // Diagonal mit WASD bleibt erlaubt.
+    replication::Command fine = make_command(2, map);
+    fine.actions[*move] = {.x = 0.70710677f, .y = 0.70710677f, .down = true};
+    fine.actions[4] = {};
+    CHECK(replication::limit_command(fine, map, 1.55f) == 0);
+}
+
+TEST_CASE("Command queue keeps order, repeats gaps and drops late commands", "[replication]") {
+    const input::ActionMap map = input::ActionMap::standard();
+    replication::CommandQueue queue{2, 4};
+    queue.push(make_command(11, map));
+    // Erst ab zwei wartenden Befehlen.
+    CHECK_FALSE(queue.next().has_value());
+    queue.push(make_command(10, map));
+    queue.push(make_command(10, map));
+    CHECK(queue.stats().dropped == 1);
+    auto first = queue.next();
+    REQUIRE(first);
+    CHECK(first->number == 10);
+    auto second = queue.next();
+    REQUIRE(second);
+    CHECK(second->number == 11);
+    // 12 fehlt: 11 gilt noch einmal unter der Nummer 12, ohne Flanken.
+    auto repeated = queue.next();
+    REQUIRE(repeated);
+    CHECK(repeated->number == 12);
+    CHECK(repeated->yaw == second->yaw);
+    CHECK(repeated->actions[4].down);
+    CHECK_FALSE(repeated->actions[4].pressed);
+    CHECK_FALSE(repeated->actions[5].released);
+    CHECK(queue.stats().repeated == 1);
+    // 12 kommt zu spät und wird verworfen, 13 gilt.
+    queue.push(make_command(12, map));
+    queue.push(make_command(13, map));
+    CHECK(queue.stats().dropped == 2);
+    auto next = queue.next();
+    REQUIRE(next);
+    CHECK(next->number == 13);
+    CHECK(queue.last() == 13);
+    // Überlauf: die ältesten gehen.
+    for (u32 n = 14; n < 20; ++n) {
+        queue.push(make_command(n, map));
+    }
+    CHECK(queue.size() == 4);
+    CHECK(queue.stats().overflow == 2);
+    auto after = queue.next();
+    REQUIRE(after);
+    CHECK(after->number == 16);
+}
+
+TEST_CASE("Owner state carries the exact figure state", "[replication]") {
+    const replication::OwnerState state{.command = 1234,
+                                        .queued = 3,
+                                        .position = {1234567.125, -3.0000001, 0.1},
+                                        .velocity = {1.5f, -9.81f, 0.25f},
+                                        .ground = 1,
+                                        .crouched = true,
+                                        .touching = true};
+    const auto message = replication::encode_owner(state);
+    CHECK(replication::game_message(message) == replication::GameMessage::Owner);
+    const auto decoded = replication::decode_owner(message);
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->command == 1234);
+    CHECK(decoded->queued == 3);
+    CHECK(decoded->position.x == state.position.x);
+    CHECK(decoded->position.y == state.position.y);
+    CHECK(decoded->position.z == state.position.z);
+    CHECK(decoded->velocity.y == state.velocity.y);
+    CHECK(decoded->ground == 1);
+    CHECK(decoded->crouched);
+    CHECK(decoded->touching);
+    CHECK_FALSE(
+        replication::decode_owner(std::span{message.data(), message.size() - 1}).has_value());
+    auto unknown = message;
+    unknown.back() = std::byte{8};
+    CHECK_FALSE(replication::decode_owner(unknown).has_value());
+}
+
+namespace {
+
+// Eine Figur, die nur in x läuft: Lage += Geschwindigkeit aus dem ersten Wert des Befehls.
+struct LineWorld {
+    replication::PredictedState state;
+
+    replication::PredictedState step(const replication::Command& command) {
+        state.velocity.x = command.actions.empty() ? 0.0f : command.actions[0].x;
+        state.position.x += static_cast<f64>(state.velocity.x) / 60.0;
+        return state;
+    }
+};
+
+replication::Command line_command(u32 number, f32 speed) {
+    return replication::Command{.number = number,
+                                .yaw = 0.0f,
+                                .pitch = 0.0f,
+                                .actions = {input::ActionValue{.x = speed, .down = true}}};
+}
+
+} // namespace
+
+TEST_CASE("Predictor keeps matching predictions and replays after a mismatch", "[replication]") {
+    replication::Predictor predictor;
+    LineWorld client;
+    LineWorld server;
+    std::vector<replication::PredictedState> server_states;
+    for (u32 n = 1; n <= 10; ++n) {
+        const auto command = line_command(n, 3.0f);
+        CHECK(predictor.next_number() == n);
+        predictor.record(command, client.step(command));
+        server_states.push_back(server.step(command));
+    }
+    const auto set = [&](const replication::PredictedState& state) { client.state = state; };
+    const auto step = [&](const replication::Command& command) { return client.step(command); };
+
+    // Gleicher Stand: keine Korrektur, bestätigte Befehle fallen weg.
+    CHECK_FALSE(predictor.reconcile(4, server_states[3], set, step));
+    CHECK(predictor.stats().pending == 6);
+    CHECK(predictor.stats().acknowledged == 4);
+    CHECK(predictor.recent(3).back().number == 10);
+    // Doppelt oder älter: nichts.
+    CHECK_FALSE(predictor.reconcile(3, server_states[2], set, step));
+
+    // Der Server wurde nach Befehl 6 um 1 m geschoben: Korrektur und Neurechnen von 7 bis 10.
+    replication::PredictedState pushed = server_states[5];
+    pushed.position.x += 1.0;
+    CHECK(predictor.reconcile(6, pushed, set, step));
+    CHECK(predictor.stats().corrections == 1);
+    CHECK(predictor.stats().replayed == 4);
+    CHECK(predictor.stats().last_correction == Catch::Approx(1.0));
+    const auto latest = predictor.latest();
+    REQUIRE(latest);
+    CHECK(latest->position.x == Catch::Approx(server_states[9].position.x + 1.0));
+    CHECK(client.state.position.x == Catch::Approx(server_states[9].position.x + 1.0));
+
+    // Kleine Abweichungen unter der Toleranz zählen nicht.
+    replication::PredictedState close = *latest;
+    close.position.x += 0.004;
+    CHECK_FALSE(predictor.reconcile(10, close, set, step));
+    CHECK(predictor.stats().corrections == 1);
 }
 
 TEST_CASE("Possess names the figure of a client", "[replication]") {
@@ -724,16 +956,4 @@ TEST_CASE("Possess names the figure of a client", "[replication]") {
     CHECK_FALSE(replication::decode_possess(std::span{message.data(), 4}).has_value());
     const std::array<std::byte, 1> unknown{std::byte{42}};
     CHECK_FALSE(replication::game_message(unknown).has_value());
-}
-
-TEST_CASE("View message carries yaw and pitch", "[replication]") {
-    const auto message = replication::encode_view(1.25f, -0.5f);
-    CHECK(replication::game_message(message) == replication::GameMessage::View);
-    const auto view = replication::decode_view(message);
-    REQUIRE(view.has_value());
-    CHECK(view->yaw == 1.25f);
-    CHECK(view->pitch == -0.5f);
-    CHECK_FALSE(replication::decode_view(std::span{message.data(), 5}).has_value());
-    const auto broken = replication::encode_view(std::nanf(""), 0.0f);
-    CHECK_FALSE(replication::decode_view(broken).has_value());
 }

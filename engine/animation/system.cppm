@@ -78,6 +78,9 @@ public:
     void set_parameter_sync(ParameterSync sync) noexcept {
         sync_ = sync;
     }
+    // Mit ParameterSync::Follow: Parameter dieses Animators setzt der Client selbst (eigene,
+    // vorhergesagte Figur, R5.3) und übernimmt sie nicht aus AnimatorParameters.
+    void set_local(u64 entity, bool local);
 
     // Einmal pro Bild nach update_transforms(); dt ist die Bildzeit in Sekunden.
     void update(world::World& world, f64 dt);
@@ -142,6 +145,7 @@ private:
     events::EventBus* events_ = nullptr;
     bool rendering_ = true;
     ParameterSync sync_ = ParameterSync::None;
+    std::vector<u64> local_;
     std::map<u64, Instance> instances_;
     std::vector<Instance*> active_;
     // Automaten (Kennung, Stand von Automat und Rig), deren Warnungen schon im Log stehen.

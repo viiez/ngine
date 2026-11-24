@@ -80,6 +80,7 @@ PhysicsWorld::Impl::Impl(world::World& w, jobs::JobSystem& j, PhysicsSettings s)
     terrain_state_id = w.component<world::TerrainState>();
     character_id = w.component<CharacterController>();
     motion_id = w.component<CharacterMotion>();
+    predicted_id = w.component<Predicted>();
     world_transform_id = w.component<world::WorldTransform>();
 }
 
@@ -287,6 +288,7 @@ void PhysicsWorld::Impl::destroy_body(std::map<u64, BodyRecord>::iterator it,
     body_interface().RemoveBody(id);
     body_interface().DestroyBody(id);
     entity_of_body.erase(id.GetIndexAndSequenceNumber());
+    loose_proxies.erase(id.GetIndexAndSequenceNumber());
     frozen.erase(entity);
     // Laufende Kontakte des Körpers enden mit ihm.
     for (auto pair = touching.begin(); pair != touching.end();) {
@@ -350,19 +352,61 @@ void PhysicsWorld::Impl::clear() {
 void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<TriggerLeft>& left,
                               f32 dt) {
     NGINE_PROFILE_ZONE("PhysicsWorld::sync");
-    std::vector<u64> current;
+    // Gewünschte Körper mit ihren Werten. Im Modus remote (Client, R5.3) wird Dynamisches
+    // kinematisch, und Figuren, die der Client nicht vorhersagt, werden kinematische Kapseln.
+    struct Wanted {
+        u64 entity = 0;
+        RigidBody body;
+        Collider collider;
+        // Stellvertreter auf einem Client: ohne Interpolation, das Transform kommt vom Server.
+        bool proxy = false;
+        // Stellvertreter eines Körpers, der auf dem Server dynamisch ist.
+        bool loose = false;
+    };
+    std::vector<Wanted> wanted;
+    const bool remote = settings.remote;
     world->each<const RigidBody, const Collider, const world::Transform>(
-        [&](world::Entity entity, const RigidBody&, const Collider&, const world::Transform&) {
+        [&](world::Entity entity, const RigidBody& body, const Collider& collider,
+            const world::Transform&) {
             // Eine Spielfigur ist ihr eigener Körper.
-            if (!world->has(entity.id(), character_id)) {
-                current.push_back(entity.id());
+            if (world->has(entity.id(), character_id)) {
+                return;
             }
+            Wanted entry{.entity = entity.id(), .body = body, .collider = collider};
+            if (remote && body.motion == MotionType::Dynamic) {
+                entry.body.motion = MotionType::Kinematic;
+                entry.proxy = true;
+                entry.loose = true;
+            }
+            wanted.push_back(entry);
         });
-    std::ranges::sort(current);
+    if (remote) {
+        world->each<const CharacterController, const world::Transform>(
+            [&](world::Entity entity, const CharacterController& controller,
+                const world::Transform&) {
+                if (world->has(entity.id(), predicted_id)) {
+                    return;
+                }
+                const f32 radius = std::max(controller.radius, 0.01f);
+                const f32 height = std::max(controller.height, 2.0f * radius);
+                wanted.push_back(Wanted{.entity = entity.id(),
+                                        .body = RigidBody{.motion = MotionType::Kinematic,
+                                                          .layer = PhysicsLayer::Character},
+                                        .collider = Collider{.shape = ShapeType::Capsule,
+                                                             .radius = radius,
+                                                             .half_height = 0.5f * height - radius,
+                                                             .offset = {0.0f, 0.5f * height, 0.0f}},
+                                        .proxy = true});
+            });
+    }
+    std::ranges::sort(wanted, {}, &Wanted::entity);
+    const auto wanted_entity = [&](u64 entity) {
+        return std::ranges::binary_search(wanted, entity, {}, &Wanted::entity);
+    };
 
     // Weggefallene Körper zuerst, in der Reihenfolge der Kennungen.
     for (auto it = bodies.begin(); it != bodies.end();) {
-        if (!std::ranges::binary_search(current, it->first)) {
+        if (!wanted_entity(it->first)) {
             auto next = std::next(it);
             destroy_body(it, ended, left);
             it = next;
@@ -372,38 +416,46 @@ void PhysicsWorld::Impl::sync(std::vector<ContactEnded>& ended, std::vector<Trig
     }
 
     // Interpolation für bewegliche Körper: Strukturänderung vor allen Zeigern in die Welt.
-    for (const u64 entity : current) {
-        if (bodies.contains(entity) || world->has(entity, interpolated_id)) {
+    for (const Wanted& entry : wanted) {
+        if (entry.proxy || bodies.contains(entry.entity) ||
+            world->has(entry.entity, interpolated_id)) {
             continue;
         }
-        const auto* body = static_cast<const RigidBody*>(world->get(entity, body_id));
-        if (body->motion != MotionType::Static) {
-            (void)world->ensure(entity, interpolated_id);
-            world->modified(entity, interpolated_id);
+        if (entry.body.motion != MotionType::Static) {
+            (void)world->ensure(entry.entity, interpolated_id);
+            world->modified(entry.entity, interpolated_id);
         }
     }
 
     usize added = 0;
-    for (const u64 entity : current) {
-        const auto* body = static_cast<const RigidBody*>(world->get(entity, body_id));
-        const auto* collider = static_cast<const Collider*>(world->get(entity, collider_id));
+    for (const Wanted& entry : wanted) {
+        const u64 entity = entry.entity;
         const auto* transform =
             static_cast<const world::Transform*>(world->get(entity, transform_id));
         auto found = bodies.find(entity);
         if (found != bodies.end()) {
             BodyRecord& record = found->second;
-            const bool rebuild = !same_settings(record.body, *body) ||
-                                 !same_collider(record.collider, *collider) ||
+            const bool rebuild = !same_settings(record.body, entry.body) ||
+                                 !same_collider(record.collider, entry.collider) ||
                                  !same(record.transform.scale, transform->scale);
             if (rebuild) {
                 destroy_body(found, ended, left);
             } else {
-                update_body(entity, record, *body, *transform, dt);
+                update_body(entity, record, entry.body, *transform, dt);
                 continue;
             }
         }
-        if (create_body(entity, *body, *collider, *transform)) {
+        if (create_body(entity, entry.body, entry.collider, *transform)) {
             ++added;
+            if (entry.loose) {
+                // Masse wie auf dem Server: angegeben oder aus der Form (Dichte von Wasser).
+                const JPH::BodyID id = bodies.at(entity).id;
+                f32 mass = entry.body.mass;
+                if (mass <= 0.0f) {
+                    mass = body_interface().GetShape(id)->GetMassProperties().mMass;
+                }
+                loose_proxies[id.GetIndexAndSequenceNumber()] = mass;
+            }
         }
     }
     if (added > 64) {
@@ -651,6 +703,14 @@ void PhysicsWorld::set_terrain_materials(const world::TerrainMaterials& table) {
 
 void PhysicsWorld::set_wait_for_terrain(bool wait) noexcept {
     impl_->settings.wait_for_terrain = wait;
+}
+
+void PhysicsWorld::set_remote(bool remote) noexcept {
+    impl_->settings.remote = remote;
+}
+
+bool PhysicsWorld::remote() const noexcept {
+    return impl_->settings.remote;
 }
 
 void PhysicsWorld::set_events(events::EventBus* bus) noexcept {

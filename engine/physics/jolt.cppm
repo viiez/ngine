@@ -632,12 +632,39 @@ JPH::RefConst<JPH::Shape> character_shape(f32 radius, f32 height) {
     return created(moved.Create(), "Figur");
 }
 
-// Figuren laufen nicht gegen Sensoren.
+// Figuren laufen nicht gegen Sensoren. Auf einem Client (R5.3) bremsen Stellvertreter leichter
+// dynamischer Körper (loose, Masse unter light_mass), die sich gerade bewegen, die vorhergesagte
+// Figur nicht: Sie stehen dort, wo sie vor rund 100 ms auf dem Server waren, und fliegende Kugeln
+// lösten sonst ständig Korrekturen aus. Ruhende und schwere Körper (Kisten) halten die Figur auf
+// wie auf dem Server, damit sie beim Schieben nicht hindurchläuft.
 class CharacterBodyFilter final : public JPH::BodyFilter {
 public:
+    CharacterBodyFilter() = default;
+    CharacterBodyFilter(const std::unordered_map<JPH::uint32, float>* loose, float light_mass)
+        : loose_{loose}, light_mass_{light_mass} {}
+
     bool ShouldCollideLocked(const JPH::Body& body) const override {
-        return !body.IsSensor();
+        if (body.IsSensor()) {
+            return false;
+        }
+        if (loose_ == nullptr || loose_->empty()) {
+            return true;
+        }
+        const auto found = loose_->find(body.GetID().GetIndexAndSequenceNumber());
+        if (found == loose_->end() || found->second >= light_mass_) {
+            return true;
+        }
+        return body.GetLinearVelocity().LengthSq() < moving_speed * moving_speed;
     }
+
+    // Ab dieser Geschwindigkeit gilt ein Stellvertreter als bewegt (m/s).
+    static constexpr float moving_speed = 0.3f;
+    // Leicht ist, was weniger als diesen Anteil der Masse der Figur hat.
+    static constexpr float light_share = 0.2f;
+
+private:
+    const std::unordered_map<JPH::uint32, float>* loose_ = nullptr;
+    float light_mass_ = 0.0f;
 };
 
 // Baut die Form eines Chunks aus seinem Netz (Positionen in Metern relativ zur Ecke) mit einem
@@ -682,6 +709,9 @@ struct PhysicsWorld::Impl {
     std::map<u64, BodyRecord> bodies;
     // Kennung des Körpers (Index und Folgenummer) zu Entity, für Kontakte.
     std::unordered_map<JPH::uint32, u64> entity_of_body;
+    // Stellvertreter dynamischer Körper auf einem Client mit ihrer Masse auf dem Server (Modus
+    // remote, CharacterBodyFilter).
+    std::unordered_map<JPH::uint32, float> loose_proxies;
     std::map<ShapeKey, JPH::Ref<JPH::Shape>> shape_cache;
     ShapeSource shape_source;
     // Paare in Berührung (a < b). Schlafen beide ein, meldet Jolt den Kontakt als gelöst; das Paar
@@ -701,6 +731,7 @@ struct PhysicsWorld::Impl {
     std::map<u64, CharacterRecord> characters;
     world::ComponentId character_id{};
     world::ComponentId motion_id{};
+    world::ComponentId predicted_id{};
     std::vector<CharacterLanded> landed_events;
     std::vector<CharacterStep> step_events;
     world::ComponentId terrain_state_id{};
@@ -773,6 +804,10 @@ struct PhysicsWorld::Impl {
     // Bewegt alle Figuren um dt (vor dem Schritt der Körper, damit Kisten den Schub im selben
     // Schritt spüren).
     void update_characters(f32 dt);
+    // Ein Schritt einer Figur; events: Landen und Schritte melden (nicht beim Neurechnen, R5.3).
+    void move_character(u64 entity, CharacterRecord& record, f32 dt, bool events);
+    // Ob sich die Figur in dieser Physik bewegt (im Modus remote nur mit Predicted).
+    [[nodiscard]] bool simulates_character(u64 entity) const;
 
     // --- Kollision des Terrains (R4.3) -----------------------------------------------------------
 

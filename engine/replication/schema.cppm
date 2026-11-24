@@ -15,7 +15,8 @@ import ngine.reflect;
 // derselben Registrierung; ein Hash darüber steht in der Willkommensnachricht.
 export namespace ngine::replication {
 
-inline constexpr u32 protocol_version = 2;
+// 3: Befehle pro festem Schritt und Stand der eigenen Figur (R5.3).
+inline constexpr u32 protocol_version = 3;
 
 // Wie eine Komponente auf die Leitung kommt.
 enum class Codec : u8 {
