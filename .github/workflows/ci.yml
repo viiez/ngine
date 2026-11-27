@@ -206,6 +206,30 @@ jobs:
           cat "$log"
           grep -q "steuert" "$log"
 
+      # Listen-Server (R5.5): Server und Client in einem Prozess mit zwei Skript-Welten, der
+      # Client des Hosts verbindet sich im Speicher und läuft die feste Spur; ein zweiter Prozess
+      # verbindet sich über UDP und bekommt eine neue Figur. Beide müssen laufen.
+      - name: Listen-Server und Client starten
+        if: ${{ !matrix.tsan }}
+        shell: bash
+        run: |
+          exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
+          [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
+          log="$RUNNER_TEMP/host.log"
+          "$exe" --host 27021 --headless --frames 2400 > "$log" 2>&1 &
+          host=$!
+          for i in $(seq 1 240); do
+            grep -q "Listen-Server bereit" "$log" && break
+            kill -0 "$host" 2>/dev/null || break
+            sleep 0.5
+          done
+          grep -q "Listen-Server bereit" "$log"
+          "$exe" --client 127.0.0.1:27021 --headless --frames 600
+          wait "$host"
+          cat "$log"
+          grep -q "(neu)" "$log"
+          grep -q "Figur ist .* gelaufen" "$log"
+
       - name: Server und ohne Fenster rechnen gleich
         if: ${{ !matrix.tsan }}
         shell: bash

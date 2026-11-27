@@ -306,7 +306,8 @@ public:
 
     // Ob ein laufendes Skript Spielersteuerung die Figur steuert.
     [[nodiscard]] bool scripted_player(world::Entity player) {
-        if (!scripts_running()) {
+        // Auf Clients läuft Spielersteuerung nicht (R5.5); die Vorhersage steuert in C++.
+        if (!scripts_running() || scripts_->role() == script::ScriptRole::Client) {
             return false;
         }
         const reflect::TypeInfo* type = types_.find("Spielersteuerung");

@@ -62,6 +62,10 @@
 //                   Welt des Servers mit Fenster, W/A/S/D, Maus, Shift, Leertaste, Strg und V wie
 //                   auf dem Spielplatz; F3 zeigt das Fenster „Netzwerk“. Mit --headless ohne
 //                   Fenster, die eigene Figur läuft die feste Spur (R5.1)
+//   --host [port]   Listen-Server (R5.5): Server und Client in einem Prozess, der Host spielt mit
+//                   Fenster wie --client und verbindet sich im Speicher; weitere Clients kommen
+//                   über UDP (Port, Standard 27020) mit --client. Mit --headless ohne Fenster, der
+//                   Client des Hosts läuft die feste Spur (mit --frames die Länge)
 //   --bots <n>      n Clients ohne Fenster in einem Prozess (Messung der Bandbreite, R5.2), zu
 //                   --client oder 127.0.0.1; mit --frames die Länge (Standard 30 s)
 //   --net-sim <ms> <prozent>  Latenz (zusätzliche Rundlaufzeit) und Verlust je Richtung simulieren
@@ -110,6 +114,7 @@ import sandbox.script_demo;
 import sandbox.net_demo;
 import sandbox.game_server;
 import app.net_client;
+import app.game_server;
 import ngine.net;
 import ngine.replication;
 import ngine.world;
@@ -131,8 +136,10 @@ namespace {
 
 #if NGINE_WITH_WINDOW
 
-// Fenster „Netzwerk“ des Clients (R5.2, seit R5.3 mit der Vorhersage).
-void network_window(const app::NetClient& net, const app::PredictionReport& prediction) {
+// Fenster „Netzwerk“ des Clients (R5.2, seit R5.3 mit der Vorhersage, seit R5.5 mit Ereignissen
+// und als Listen-Server mit den Spielern des Servers).
+void network_window(const app::NetClient& net, const app::PredictionReport& prediction,
+                    app::ListenServer* host) {
     namespace ui = ngine::editor_ui;
     if (!ui::begin_window("Netzwerk")) {
         ui::end_window();
@@ -193,6 +200,28 @@ void network_window(const app::NetClient& net, const app::PredictionReport& pred
                          "verfallen",
                          prediction.digs, terrain.predicted, terrain.confirmed, terrain.mismatched,
                          terrain.expired));
+    ui::separator();
+    // Ereignisse und Klänge der Skripte vom Server (R5.5).
+    const app::NetClient::EventStats& events = net.event_stats();
+    ui::text(std::format("Ereignisse {} ({} zugestellt, {} verworfen), Klänge {}", events.received,
+                         events.delivered, events.dropped, events.sounds));
+    if (host != nullptr) {
+        ui::separator();
+        app::ServerSession& session = host->session();
+        ui::text(std::format("Listen-Server{}: {} Spieler, {} Entities, Tick {}",
+                             session.port() ? std::format(" auf Port {}", *session.port())
+                                            : std::string{},
+                             session.players().player_count(),
+                             host->game().world().entity_count(), session.server().tick()));
+        for (const ngine::net::ConnectionId client : session.server().clients()) {
+            const ngine::replication::EncoderClientStats client_stats =
+                session.server().stats(client);
+            ui::text(std::format("  Client {}: Figur {}, {:.1f} KB/s, {} Entities", client,
+                                 session.players().figure_of(client),
+                                 static_cast<double>(client_stats.bytes_per_second) / 1024.0,
+                                 client_stats.entities));
+        }
+    }
     ui::end_window();
 }
 
@@ -218,6 +247,7 @@ struct Options {
     bool track = false;
     std::optional<ngine::u16> port;
     std::optional<std::string> client_address;
+    bool host = false;
     std::optional<ngine::u32> bots;
     std::optional<ngine::net::NetworkConditions> net_sim;
     std::optional<std::string> image_path;
@@ -264,6 +294,17 @@ Options parse_options(std::span<char*> args) {
             options.track = true;
         } else if (arg == "--client" && i + 1 < args.size()) {
             options.client_address = std::string{args[++i]};
+        } else if (arg == "--host") {
+            options.host = true;
+            if (i + 1 < args.size()) {
+                const std::string_view value{args[i + 1]};
+                ngine::u16 port = 0;
+                if (std::from_chars(value.data(), value.data() + value.size(), port).ec ==
+                    std::errc{}) {
+                    options.port = port;
+                    ++i;
+                }
+            }
         } else if (arg == "--bots" && i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             ngine::u32 count = 0;
@@ -407,6 +448,8 @@ Options parse_options(std::span<char*> args) {
 #if NGINE_WITH_WINDOW
 
 int run_windowed(const Options& options) {
+    // Client eines Servers oder Listen-Server (R5.2, R5.5): Die Szene spiegelt die Server-Welt.
+    const bool networked = options.client_address.has_value() || options.host;
     auto window = ngine::platform::Window::create({.title = "NGine Sandbox"});
     if (!window) {
         ngine::log::fatal("{}", window.error());
@@ -469,7 +512,7 @@ int run_windowed(const Options& options) {
             }
         } else {
             auto created =
-                options.client_address
+                networked
                     ? app::ModelScene::create_client(**device, (*device)->swapchain_format(),
                                                      sandbox_assets.scene_assets())
                 : options.playground
@@ -491,25 +534,56 @@ int run_windowed(const Options& options) {
             if (options.animators) {
                 scene->add_animated_crowd(*options.animators);
             }
-            if (!options.client_address) {
+            if (!networked) {
                 sandbox::report_load(scene->load_all(**device));
             }
         }
-        // Client mit Fenster (R5.2): Die Welt der Szene spiegelt die des Servers.
+        // Eingabe als Aktionen (R4.1); die Belegung lädt neu, wenn sich die Datei ändert.
+        app::InputBindings bindings;
+        ngine::input::ActionState actions{bindings.load()};
+        // Client mit Fenster (R5.2): Die Welt der Szene spiegelt die des Servers. Seit R5.5 mit
+        // Client-Skripten ([Client], [Everywhere]), die vor Replicated in die Registry kommen wie
+        // beim Server; als Listen-Server (--host) rechnet ein app::ListenServer die Welt des
+        // Servers im selben Prozess, mit dem Job-System der Szene, und der Host verbindet sich im
+        // Speicher.
         std::unique_ptr<ngine::replication::Schema> schema;
+        std::unique_ptr<app::ListenServer> listen_server;
         std::unique_ptr<app::NetClient> net;
         // Vorhersage der eigenen Figur (R5.3), sobald die Aktionen stehen.
         std::unique_ptr<app::PlayerPrediction> prediction;
-        if (options.client_address && scene) {
+        if (networked && scene) {
+            if (script_runtime) {
+                scene->enable_scripts(*script_runtime, &actions,
+                                      {.wait = true, .role = ngine::script::ScriptRole::Client});
+            }
             ngine::replication::register_types(scene->game().types());
             schema = std::make_unique<ngine::replication::Schema>(scene->game().types());
+            if (options.host) {
+                auto hosted = app::ListenServer::create(
+                    {.database = sandbox_assets.database(),
+                     .cache = sandbox_assets.cache(),
+                     .jobs = &scene->game().jobs(),
+                     .runtime = script_runtime.get(),
+                     .load = {},
+                     .port = options.port.value_or(app::default_game_port)});
+                if (!hosted) {
+                    ngine::log::fatal("{}", hosted.error());
+                    return 1;
+                }
+                listen_server = std::move(*hosted);
+            }
             auto connected =
-                app::NetClient::connect(scene->world(), *schema, *options.client_address);
+                listen_server
+                    ? app::NetClient::connect_local(scene->world(), *schema,
+                                                    listen_server->transport())
+                    : app::NetClient::connect(scene->world(), *schema, *options.client_address);
             if (!connected) {
                 ngine::log::fatal("{}", connected.error());
                 return 1;
             }
             net = std::move(*connected);
+            net->set_scripts(scene->scripts());
+            net->set_audio(scene->audio());
         }
         // Fenster „Netzwerk“ über die UI des Editors; der Kontext endet vor dem UiRenderer.
         std::unique_ptr<ngine::editor_ui::UiRenderer> ui_renderer;
@@ -534,9 +608,6 @@ int run_windowed(const Options& options) {
         ngine::render::GpuProfiler gpu_profiler{**device};
         ngine::u64 frame_count = 0;
         bool running = true;
-        // Eingabe als Aktionen (R4.1); die Belegung lädt neu, wenn sich die Datei ändert.
-        app::InputBindings bindings;
-        ngine::input::ActionState actions{bindings.load()};
         if (net) {
             app::NetClient* connection = net.get();
             prediction = std::make_unique<app::PlayerPrediction>(
@@ -544,7 +615,7 @@ int run_windowed(const Options& options) {
                 [connection](std::span<const std::byte> data) { connection->send_game(data); });
             prediction->set_terrain(&net->terrain());
         }
-        // Skripte aus assets/skripte, mit Hot Reload (R4.4); als Client rechnet sie der Server.
+        // Skripte aus assets/skripte, mit Hot Reload (R4.4); als Client nur die des Clients (oben).
         if (scene && script_runtime && !net) {
             scene->enable_scripts(*script_runtime, &actions);
         }
@@ -583,6 +654,9 @@ int run_windowed(const Options& options) {
                     running = false;
                 }
             } else if (net) {
+                if (listen_server) {
+                    (void)listen_server->advance(dt);
+                }
                 if (auto result = net->poll(); !result) {
                     ngine::log::error("{}", result.error());
                     running = false;
@@ -596,6 +670,7 @@ int run_windowed(const Options& options) {
                     prediction->handle_owner(owner);
                 }
                 net->client().mirror().interpolate(dt);
+                net->deliver();
                 prediction->look(actions);
                 scene->update_predicted(dt, prediction->figure());
                 prediction->update(dt);
@@ -638,7 +713,7 @@ int run_windowed(const Options& options) {
                     ui->begin_frame(static_cast<float>(extent.width),
                                     static_cast<float>(extent.height), dt);
                     if (show_network && net) {
-                        network_window(*net, prediction->report());
+                        network_window(*net, prediction->report(), listen_server.get());
                     }
                     ui_renderer->add_pass(graph, ui->end_frame(), backbuffer);
                 }
@@ -813,10 +888,25 @@ int main(int argc, char** argv) {
                                               .database = sandbox_assets.database(),
                                               .cache = sandbox_assets.cache()});
     } else if (options.bots) {
+        const sandbox::SandboxAssets sandbox_assets{options.no_cache};
+        const auto runtime = options.no_scripts ? nullptr : app::start_script_runtime();
         exit_code = sandbox::run_bots(options.client_address.value_or("127.0.0.1"), *options.bots,
-                                      options.frames.value_or(1800));
+                                      options.frames.value_or(1800), sandbox_assets.database(),
+                                      runtime.get());
     } else if (options.client_address && (options.headless || !NGINE_WITH_WINDOW)) {
-        exit_code = sandbox::run_game_client(*options.client_address, options.frames.value_or(300));
+        const sandbox::SandboxAssets sandbox_assets{options.no_cache};
+        const auto runtime = options.no_scripts ? nullptr : app::start_script_runtime();
+        exit_code = sandbox::run_game_client(*options.client_address, options.frames.value_or(300),
+                                             sandbox_assets.database(), sandbox_assets.cache(),
+                                             runtime.get());
+    } else if (options.host && (options.headless || !NGINE_WITH_WINDOW)) {
+        const sandbox::SandboxAssets sandbox_assets{options.no_cache};
+        const auto runtime = options.no_scripts ? nullptr : app::start_script_runtime();
+        exit_code = sandbox::run_listen_server({.frames = options.frames.value_or(600),
+                                                .port = options.port,
+                                                .database = sandbox_assets.database(),
+                                                .cache = sandbox_assets.cache(),
+                                                .runtime = runtime.get()});
     } else if (options.voxel_demo && options.headless) {
         exit_code = sandbox::run_voxel_demo_headless(options.frames.value_or(120), options.seed,
                                                      options.view);

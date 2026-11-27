@@ -6,7 +6,9 @@ module;
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <expected>
 #include <format>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -36,6 +38,7 @@ import ngine.core;
 import ngine.animation;
 import ngine.asset;
 import ngine.input;
+import ngine.jobs;
 import ngine.math;
 import ngine.net;
 import ngine.physics;
@@ -193,104 +196,237 @@ export int run_game_server(const GameServerOptions& options) {
     return 0;
 }
 
-// Client ohne Fenster (R5.1): verbindet, schickt pro festem Schritt einen Befehl aus der festen
-// Spur und meldet, wo seine Figur steht. Seit R5.2 mit der ganzen Welt als Delta, seit R5.3 mit
-// Vorhersage der eigenen Figur über app::GameWorld (Physik im Modus remote). Fehlschlag, wenn bis
-// zum Ende keine Figur kam oder sie sich nicht bewegt hat.
-export int run_game_client(const std::string& address, u64 frames) {
-    app::GameWorld game;
-    game.animation().set_rendering(false);
-    game.animation().set_parameter_sync(animation::ParameterSync::Follow);
-    replication::register_types(game.types());
-    const replication::Schema schema{game.types()};
-    world::World& world = game.world();
-    auto connected = app::NetClient::connect(world, schema, address);
-    if (!connected) {
-        log::error("{}", connected.error());
-        return 1;
+// Client ohne Fenster (R5.1): schickt pro festem Schritt einen Befehl aus der festen Spur und
+// meldet, wo seine Figur steht. Seit R5.2 mit der ganzen Welt als Delta, seit R5.3 mit Vorhersage
+// der eigenen Figur über app::GameWorld (Physik im Modus remote), seit R5.5 mit Client-Skripten
+// (dieselben Skript-Typen wie der Server, sonst passt das Schema nicht) und als Client des
+// Listen-Servers (--host --headless).
+class HeadlessClient {
+public:
+    HeadlessClient(const asset::AssetDatabase* database, const asset::AssetCache* cache,
+                   script::ScriptRuntime* runtime, jobs::JobSystem* jobs = nullptr)
+        : game_{{.database = database, .cache = cache, .jobs = jobs}},
+          actions_{input::ActionMap::standard()} {
+        game_.animation().set_rendering(false);
+        game_.animation().set_parameter_sync(animation::ParameterSync::Follow);
+        if (runtime != nullptr) {
+            game_.enable_scripts(*runtime, nullptr,
+                                 {.watch = false, .wait = true, .role = script::ScriptRole::Client});
+        }
+        replication::register_types(game_.types());
+        schema_ = std::make_unique<replication::Schema>(game_.types());
     }
-    app::NetClient& net = **connected;
-    input::ActionState actions{input::ActionMap::standard()};
-    app::PlayerPrediction prediction{
-        game, actions, [&net](std::span<const std::byte> data) { net.send_game(data); }};
-    prediction.set_terrain(&net.terrain());
-    TickClock clock;
-    std::optional<math::DVec3> first;
-    math::DVec3 last{};
-    u64 track_frame = 0;
-    for (u64 frame = 0; frame < frames; ++frame) {
+    HeadlessClient(const HeadlessClient&) = delete;
+    HeadlessClient& operator=(const HeadlessClient&) = delete;
+
+    [[nodiscard]] bool connect(const std::string& address) {
+        return adopt(app::NetClient::connect(game_.world(), *schema_, address));
+    }
+    [[nodiscard]] bool connect_local(net::Transport& server) {
+        return adopt(app::NetClient::connect_local(game_.world(), *schema_, server));
+    }
+
+    // Ein Bild; false bei einem Fehler der Verbindung.
+    [[nodiscard]] bool frame(u64 frame) {
+        app::NetClient& net = *net_;
         if (auto result = net.poll(); !result) {
             log::error("{}", result.error());
-            return 1;
+            return false;
         }
         if (net.disconnected()) {
             log::error("Keine Verbindung zum Server");
-            return 1;
+            return false;
         }
-        prediction.set_figure(net.figure(), net.figure_on_server(), net.client().mirror());
+        prediction_->set_figure(net.figure(), net.figure_on_server(), net.client().mirror());
         for (const replication::OwnerState& owner : net.owner_states()) {
-            prediction.handle_owner(owner);
+            prediction_->handle_owner(owner);
         }
         net.client().mirror().interpolate(1.0 / 60.0);
-        actions.begin_frame();
-        if (prediction.figure() != 0) {
+        net.deliver();
+        actions_.begin_frame();
+        if (prediction_->figure() != 0) {
             // Die Spur beginnt, sobald die Figur feststeht.
-            for (const platform::Event& event : scripted_events(track_frame++)) {
-                actions.handle(event);
+            for (const platform::Event& event : scripted_events(track_frame_++)) {
+                actions_.handle(event);
             }
         }
-        actions.end_frame(1.0f / 60.0f);
-        prediction.look(actions);
-        (void)game.update(1.0 / 60.0);
-        prediction.update(1.0f / 60.0f);
-        if (const auto* transform = prediction.figure() != 0
-                                        ? world.entity(prediction.figure()).get<world::Transform>()
-                                        : nullptr) {
-            if (!first) {
-                first = transform->position;
+        actions_.end_frame(1.0f / 60.0f);
+        prediction_->look(actions_);
+        (void)game_.update(1.0 / 60.0);
+        prediction_->update(1.0f / 60.0f);
+        world::World& world = game_.world();
+        if (const auto* transform =
+                prediction_->figure() != 0
+                    ? world.entity(prediction_->figure()).get<world::Transform>()
+                    : nullptr) {
+            if (!first_) {
+                first_ = transform->position;
             }
-            last = transform->position;
+            last_ = transform->position;
         }
-        if (frame % 60 == 59 && first) {
+        if (frame % 60 == 59 && first_) {
             log::info("Client: Figur {:.2f} m vom ersten Stand, {} Entities gespiegelt, Tick {}",
-                      math::length(last - *first), net.client().mirror().entity_count(),
+                      math::length(last_ - *first_), net.client().mirror().entity_count(),
                       net.client().mirror().last_tick());
         }
         if (frame % 180 == 179) {
             log::info("{}", net.report());
-            log::info("{}", app::describe_prediction(prediction.report()));
+            log::info("{}", app::describe_prediction(prediction_->report()));
+        }
+        return true;
+    }
+
+    // Trennt und prüft: Fehlschlag, wenn keine Figur kam oder sie sich nicht bewegt hat.
+    [[nodiscard]] int finish(const std::function<void()>& pump = {}) {
+        app::NetClient& net = *net_;
+        log::info("Client: {} Schnappschüsse angewendet", net.client().snapshots_applied());
+        log::info("{}", net.report());
+        log::info("{}", app::describe_prediction(prediction_->report()));
+        net.disconnect();
+        // Kurz weiterpollen, damit die Trennung beim Server ankommt.
+        for (int i = 0; i < 10; ++i) {
+            (void)net.poll();
+            if (pump) {
+                pump();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
+        if (net.figure_on_server() == 0 || !first_) {
+            log::error("Keine Figur vom Server bekommen");
+            return 1;
+        }
+        const f64 moved = math::length(last_ - *first_);
+        if (moved < 1.0) {
+            log::error("Die Figur hat sich nicht bewegt ({:.2f} m)", moved);
+            return 1;
+        }
+        log::info("Client: Figur ist {:.1f} m gelaufen (vorhergesagt)", moved);
+        return 0;
+    }
+
+    [[nodiscard]] app::NetClient& net() noexcept {
+        return *net_;
+    }
+    [[nodiscard]] app::GameWorld& game() noexcept {
+        return game_;
+    }
+
+private:
+    bool adopt(std::expected<std::unique_ptr<app::NetClient>, std::string> connected) {
+        if (!connected) {
+            log::error("{}", connected.error());
+            return false;
+        }
+        net_ = std::move(*connected);
+        net_->set_scripts(game_.scripts());
+        app::NetClient* net = net_.get();
+        prediction_ = std::make_unique<app::PlayerPrediction>(
+            game_, actions_, [net](std::span<const std::byte> data) { net->send_game(data); });
+        prediction_->set_terrain(&net_->terrain());
+        return true;
+    }
+
+    app::GameWorld game_;
+    std::unique_ptr<replication::Schema> schema_;
+    input::ActionState actions_;
+    // Vor der Vorhersage zerstört, die an der Welt hängt.
+    std::unique_ptr<app::PlayerPrediction> prediction_;
+    std::unique_ptr<app::NetClient> net_;
+    std::optional<math::DVec3> first_;
+    math::DVec3 last_{};
+    u64 track_frame_ = 0;
+};
+
+export int run_game_client(const std::string& address, u64 frames,
+                           const asset::AssetDatabase* database, const asset::AssetCache* cache,
+                           script::ScriptRuntime* runtime) {
+    HeadlessClient client{database, cache, runtime};
+    if (!client.connect(address)) {
+        return 1;
+    }
+    TickClock clock;
+    for (u64 frame = 0; frame < frames; ++frame) {
+        if (!client.frame(frame)) {
+            return 1;
         }
         clock.wait();
     }
-    log::info("Client: {} Schnappschüsse angewendet", net.client().snapshots_applied());
-    log::info("{}", net.report());
-    log::info("{}", app::describe_prediction(prediction.report()));
-    net.disconnect();
-    // Kurz weiterpollen, damit die Trennung beim Server ankommt.
-    for (int i = 0; i < 10; ++i) {
-        (void)net.poll();
-        std::this_thread::sleep_for(std::chrono::milliseconds{5});
-    }
-    if (net.figure_on_server() == 0 || !first) {
-        log::error("Keine Figur vom Server bekommen");
+    return client.finish();
+}
+
+export struct ListenServerOptions {
+    u64 frames = 600;
+    std::optional<u16> port;
+    const asset::AssetDatabase* database = nullptr;
+    const asset::AssetCache* cache = nullptr;
+    script::ScriptRuntime* runtime = nullptr;
+};
+
+// Listen-Server ohne Fenster (--host --headless, R5.5): Server und Client in einem Prozess mit
+// einem Job-System und zwei Skript-Welten; der Client verbindet sich im Speicher und läuft die
+// feste Spur. Weitere Clients kommen über UDP (Port, Standard 27020). Misst die Zeit der
+// Server-Bilder pro Bild des Hosts.
+export int run_listen_server(const ListenServerOptions& options) {
+    // Der Client zuerst: Seine Welt besitzt das Job-System, das der Server mitbenutzt.
+    HeadlessClient client{options.database, options.cache, options.runtime};
+    auto created = app::ListenServer::create({.database = options.database,
+                                              .cache = options.cache,
+                                              .jobs = &client.game().jobs(),
+                                              .runtime = options.runtime,
+                                              .load = {},
+                                              .port = options.port.value_or(app::default_game_port)});
+    if (!created) {
+        log::error("{}", created.error());
         return 1;
     }
-    const f64 moved = math::length(last - *first);
-    if (moved < 1.0) {
-        log::error("Die Figur hat sich nicht bewegt ({:.2f} m)", moved);
+    app::ListenServer& host = **created;
+    // Skripte laut stdout auf diese Zeile wartend (CI).
+    log::flush();
+    if (!client.connect_local(host.transport())) {
         return 1;
     }
-    log::info("Client: Figur ist {:.1f} m gelaufen (vorhergesagt)", moved);
-    return 0;
+    TickClock clock;
+    f64 server_ms = 0.0;
+    f64 server_max_ms = 0.0;
+    for (u64 frame = 0; frame < options.frames; ++frame) {
+        const auto start = std::chrono::steady_clock::now();
+        (void)host.advance(1.0 / 60.0);
+        const f64 ms =
+            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start)
+                .count();
+        server_ms += ms;
+        server_max_ms = std::max(server_max_ms, ms);
+        if (!client.frame(frame)) {
+            return 1;
+        }
+        clock.wait();
+    }
+    log::info("Listen-Server: Server-Bilder im Mittel {:.2f} ms pro Bild des Hosts, höchstens "
+              "{:.2f} ms; {} Client(s), {} Entities auf dem Server, {} gespiegelt",
+              server_ms / static_cast<f64>(std::max<u64>(options.frames, 1)), server_max_ms,
+              host.session().players().player_count(), host.game().world().entity_count(),
+              client.net().client().mirror().entity_count());
+    const int result = client.finish([&] { (void)host.advance(1.0 / 60.0); });
+    log::info("Prüfsumme der Lagen auf dem Server: {:016x}",
+              physics::checksum(host.game().world()));
+    return result;
 }
 
 namespace {
 
 // Ein Bot: eigene Welt, eigene Verbindung, läuft die feste Spur versetzt und im Kreis.
+// Die Skript-Typen kommen vor Replicated in die Registry, wie beim Server (R5.5).
 struct Bot {
-    reflect::TypeRegistry types = app::make_client_types();
-    std::unique_ptr<world::World> world = std::make_unique<world::World>(types);
-    std::unique_ptr<replication::Schema> schema = std::make_unique<replication::Schema>(types);
+    explicit Bot(script::ScriptRuntime* runtime, const asset::AssetDatabase* database)
+        : types{app::make_game_types()},
+          scripts{app::make_client_scripts(runtime, types, database)},
+          world{(replication::register_types(types), std::make_unique<world::World>(types))},
+          schema{std::make_unique<replication::Schema>(types)} {}
+
+    reflect::TypeRegistry types;
+    std::unique_ptr<script::ScriptSystem> scripts;
+    std::unique_ptr<world::World> world;
+    std::unique_ptr<replication::Schema> schema;
     std::unique_ptr<app::NetClient> net;
     input::ActionState actions{input::ActionMap::standard()};
     u64 offset = 0;
@@ -303,10 +439,11 @@ struct Bot {
 
 // count Clients ohne Fenster in einem Prozess (R5.2): messen Bandbreite pro Client. Fehlschlag,
 // wenn einer keine Figur bekommt oder getrennt wird.
-export int run_bots(const std::string& address, u32 count, u64 frames) {
+export int run_bots(const std::string& address, u32 count, u64 frames,
+                    const asset::AssetDatabase* database, script::ScriptRuntime* runtime) {
     std::vector<std::unique_ptr<Bot>> bots;
     for (u32 i = 0; i < count; ++i) {
-        auto bot = std::make_unique<Bot>();
+        auto bot = std::make_unique<Bot>(runtime, database);
         auto connected = app::NetClient::connect(*bot->world, *bot->schema, address);
         if (!connected) {
             log::error("Bot {}: {}", i + 1, connected.error());

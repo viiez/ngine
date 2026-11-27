@@ -57,7 +57,7 @@ public class Schritte : Script
             return;
         }
         float volume = MathF.Min(Rennen + height * 0.1f, 1.5f);
-        Play(Get<Transform>().Position, material, volume);
+        Play(Read<Transform>().Position, material, volume);
     }
 
     private void Play(DVec3 position, uint material, float volume)

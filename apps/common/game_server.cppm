@@ -37,6 +37,7 @@ import ngine.core;
 import ngine.animation;
 import ngine.asset;
 import ngine.audio;
+import ngine.filesystem;
 import ngine.input;
 import ngine.jobs;
 import ngine.math;
@@ -64,6 +65,31 @@ export reflect::TypeRegistry make_client_types() {
     reflect::TypeRegistry types = make_game_types();
     replication::register_types(types);
     return types;
+}
+
+// Skripte für einen Client ohne Spielwelt (Bots, R5.5): Seine Registry braucht dieselben
+// Skript-Typen wie die des Servers, sonst passt das Schema nicht, sobald Skripte repliziert werden.
+// Die Skripte laufen nicht; das System muss die Registry überleben lassen (vor ihr enden).
+// nullptr ohne Laufzeit oder Projekt.
+export std::unique_ptr<script::ScriptSystem>
+make_client_scripts(script::ScriptRuntime* runtime, reflect::TypeRegistry& types,
+                    const asset::AssetDatabase* database) {
+    if (runtime == nullptr || database == nullptr) {
+        return nullptr;
+    }
+    const std::string project = filesystem::join(database->root(), "skripte/Skripte.csproj");
+    if (!filesystem::exists(project)) {
+        return nullptr;
+    }
+    auto scripts = std::make_unique<script::ScriptSystem>(
+        *runtime, types,
+        script::ScriptSystemDesc{.project = project,
+                                 .cache_dir = filesystem::join(database->root(), ".cache/skripte"),
+                                 .build = false,
+                                 .watch = false,
+                                 .role = script::ScriptRole::Client});
+    scripts->start(true);
+    return scripts;
 }
 
 // Komponenten, deren Entities jeder Client sieht, egal wie weit weg.
