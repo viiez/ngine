@@ -550,6 +550,16 @@ ScriptRole ScriptSystem::role() const noexcept {
     return impl_->desc.role;
 }
 
+void ScriptSystem::set_role(ScriptRole role) {
+    if (impl_->desc.role == role) {
+        return;
+    }
+    verify(!active(), "Die Rolle der Skripte wechselt nur, solange sie nicht laufen");
+    impl_->select();
+    impl_->desc.role = role;
+    impl_->runtime->set_role(role);
+}
+
 void ScriptSystem::select() {
     impl_->select();
 }

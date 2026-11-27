@@ -489,6 +489,17 @@ ScriptRole ScriptRuntime::role() const noexcept {
     return found != impl_->domains.end() ? found->second : ScriptRole::Local;
 }
 
+void ScriptRuntime::set_role(ScriptRole role) {
+    const u32 domain = script_domain();
+    const auto found = impl_->domains.find(domain);
+    if (found == impl_->domains.end() || domain == 0) {
+        return;
+    }
+    found->second = role;
+    select_domain(domain);
+    set_script_client(role == ScriptRole::Client);
+}
+
 usize ScriptRuntime::domain_count() const noexcept {
     return impl_->domains.size() - 1;
 }

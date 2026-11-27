@@ -2,6 +2,7 @@ module;
 
 #include <format>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -18,6 +19,9 @@ import ngine.edit;
 import ngine.editor_ui;
 import ngine.script;
 import editor.scene_tree;
+import editor.listen_play;
+import ngine.input;
+import app.model_scene;
 
 namespace editor {
 
@@ -101,10 +105,52 @@ public:
         }
         log::info("Spielen");
     }
+    // Spielen als Listen-Server (R5.5): Szene, Aktionen und Optionen für den Server.
+    app::ModelScene* scene = nullptr;
+    input::ActionState* actions = nullptr;
+    ListenPlayDesc listen_desc;
+    std::unique_ptr<ListenPlay> listen;
+    // Szenenbaum und Inspector zeigen die Welt des Servers statt der des Clients.
+    bool show_server = false;
+
+    void start_hosted(edit::SceneDocument& document, edit::Gizmo& gizmo) {
+        if (scene == nullptr || actions == nullptr || document.playing()) {
+            return;
+        }
+        gizmo.reset();
+        if (auto result = document.begin_play(); !result) {
+            log::error("{}", result.error());
+            return;
+        }
+        auto started = ListenPlay::start(*scene, document, *actions, listen_desc);
+        if (!started) {
+            log::error("Spielen als Listen-Server: {}", started.error());
+            (void)document.end_play();
+            return;
+        }
+        listen = std::move(*started);
+        paused = false;
+        show_server = false;
+        if (scripts != nullptr) {
+            scripts->set_active(true);
+        }
+        log::info("Spielen als Listen-Server");
+    }
+    [[nodiscard]] bool hosting() const noexcept {
+        return listen != nullptr;
+    }
+    // Dokument für Szenenbaum und Inspector: beim Listen-Server wahlweise das des Servers.
+    [[nodiscard]] edit::SceneDocument& shown(edit::SceneDocument& document) noexcept {
+        return listen && show_server ? listen->server_document() : document;
+    }
+
     void stop(edit::SceneDocument& document) {
         if (scripts != nullptr) {
             scripts->set_active(false);
         }
+        // Erst der Server, dann kommt die Welt aus der Sicherung.
+        listen.reset();
+        show_server = false;
         if (auto result = document.end_play(); !result) {
             log::error("{}", result.error());
             return;
@@ -236,6 +282,12 @@ public:
             if (ui::menu_item(playing ? "Stoppen" : "Spielen", "F5")) {
                 targets.play.toggle(document, targets.gizmo);
             }
+            if (ui::menu_item("Spielen als Listen-Server", {}, nullptr,
+                              !playing && targets.play.scene != nullptr)) {
+                targets.play.start_hosted(document, targets.gizmo);
+            }
+            ui::menu_item("Welt des Servers zeigen", {}, &targets.play.show_server,
+                          targets.play.hosting());
             ui::menu_item("Pause", {}, &targets.play.paused, playing);
             if (ui::menu_item("Einzelschritt", {}, nullptr, playing)) {
                 targets.play.request_step();

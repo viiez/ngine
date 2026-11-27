@@ -1,6 +1,7 @@
 module;
 
 #include <algorithm>
+#include <unordered_map>
 #include <cstddef>
 #include <expected>
 #include <memory>
@@ -326,6 +327,60 @@ Result<void> SceneDocument::end_play() {
     notify(PlayStateChanged{.playing = false});
     notify(EntityChanged{});
     return result;
+}
+
+Result<usize> SceneDocument::copy_play_backup(world::World& target) const {
+    if (!play_backup_) {
+        return std::unexpected(std::string{"Es läuft kein Spiel"});
+    }
+    if (&target == world_) {
+        return std::unexpected(std::string{"Die Sicherung gehört in eine andere Welt"});
+    }
+    const EntitySnapshot& backup = *play_backup_;
+    std::unordered_map<EntityId, u64> created;
+    std::vector<u64> fresh;
+    fresh.reserve(backup.nodes.size());
+    for (usize i = 0; i < backup.nodes.size(); ++i) {
+        fresh.push_back(target.create().id());
+    }
+    std::ranges::sort(fresh);
+    for (usize i = 0; i < backup.nodes.size(); ++i) {
+        created.emplace(backup.nodes[i].id, fresh[i]);
+    }
+    Result<usize> result = backup.nodes.size();
+    for (usize i = 0; i < backup.nodes.size(); ++i) {
+        const EntitySnapshot::Node& node = backup.nodes[i];
+        if (node.parent != 0) {
+            if (const auto parent = created.find(node.parent); parent != created.end()) {
+                target.set_parent(fresh[i], parent->second);
+            }
+        }
+        for (const EntitySnapshot::Component& component : node.components) {
+            const reflect::TypeInfo* type = target.types().find_id(component.type);
+            if (type == nullptr) {
+                continue;
+            }
+            const world::ComponentId id = target.component(*type);
+            void* data = target.ensure(fresh[i], id);
+            if (auto restored = restore(data, *type, component.bytes); !restored && result) {
+                result = std::unexpected(restored.error());
+            }
+            target.modified(fresh[i], id);
+        }
+        if (node.terrain_deltas) {
+            world::set_terrain_deltas(target.entity(fresh[i]), node.terrain_deltas);
+        }
+    }
+    return result;
+}
+
+Result<void> SceneDocument::clear_while_playing() {
+    if (!play_backup_) {
+        return std::unexpected(std::string{"Es läuft kein Spiel"});
+    }
+    destroy_all();
+    notify(DocumentReset{});
+    return {};
 }
 
 } // namespace ngine::edit

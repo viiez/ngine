@@ -47,6 +47,8 @@
 //   --no-ini        Lage der Fenster weder laden noch speichern (für automatische Tests)
 //   --play <n>      gleich spielen und nach n Frames stoppen (für automatische Tests: die Welt
 //                   muss danach unverändert gespeichert werden)
+//   --host-play <n> wie --play, aber als Listen-Server (R5.5, Port 27020 bzw. --port)
+//   --port <n>      Port für „Spielen als Listen-Server“ (Standard 27020)
 //   --assets <pfad> Asset-Ordner
 //   --shaders <pfad> Quellordner der Shader für Hot Reload
 //   --insert <pfad> Modell oder Prefab aus dem Asset-Ordner beim Start einfügen wie per Ziehen
@@ -84,6 +86,7 @@ import ngine.rhi.vulkan;
 import ngine.world;
 import ngine.editor_ui;
 import app.model_scene;
+import app.net_client;
 import app.input_bindings;
 import app.paths;
 import app.player;
@@ -126,6 +129,9 @@ struct Options {
     bool terrain = false;
     std::optional<u64> frames;
     std::optional<u64> play_frames;
+    // Spielen als Listen-Server (R5.5).
+    bool host_play = false;
+    std::optional<u16> port;
     bool vsync = true;
     bool baseline = false;
     bool ini = true;
@@ -153,12 +159,21 @@ Options parse_options(std::span<char*> args) {
             options.terrain = true;
         } else if (arg == "--insert" && i + 1 < args.size()) {
             options.insert_path = std::string{args[++i]};
-        } else if ((arg == "--frames" || arg == "--play") && i + 1 < args.size()) {
+        } else if ((arg == "--frames" || arg == "--play" || arg == "--host-play") &&
+                   i + 1 < args.size()) {
             const std::string_view value{args[++i]};
             u64 frames = 0;
             if (std::from_chars(value.data(), value.data() + value.size(), frames).ec ==
                 std::errc{}) {
                 (arg == "--frames" ? options.frames : options.play_frames) = frames;
+                options.host_play = options.host_play || arg == "--host-play";
+            }
+        } else if (arg == "--port" && i + 1 < args.size()) {
+            const std::string_view value{args[++i]};
+            u16 port = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), port).ec ==
+                std::errc{}) {
+                options.port = port;
             }
         } else if (arg == "--no-vsync") {
             options.vsync = false;
@@ -325,6 +340,8 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         edit::SceneDocument document{(*scene)->world(), &bus};
         document.set_prefabs((*scene)->prefabs().lookup());
         edit::Selection selection{&bus};
+        // Auswahl in der Welt des Servers beim Spielen als Listen-Server (R5.5).
+        edit::Selection server_selection{nullptr};
         editor::SceneTreePanel tree_panel;
         editor::InspectorPanel inspector_panel;
         const events::Subscription on_reset =
@@ -408,6 +425,13 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
         f32 frame_dt = 0.0f;
         PlayControls play;
         play.scripts = (*scene)->scripts();
+        play.scene = scene->get();
+        play.actions = &actions;
+        play.listen_desc = {.database = database ? &*database : nullptr,
+                            .cache = cache ? &*cache : nullptr,
+                            .runtime = script_runtime.get(),
+                            .port = options.port.value_or(app::default_game_port)};
+        bool show_network = true;
         EditorMenu menu{options.scene_path.value_or("szene.json")};
         MenuTargets targets{.document = document,
                             .selection = selection,
@@ -545,15 +569,23 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                 }
                 ui::end_window();
             }
+            // Spielen als Listen-Server (R5.5): Fenster „Netzwerk“ mit den Spielern des Servers.
+            if (play.hosting() && show_network) {
+                play.listen->draw_window(&show_network);
+            }
             if (panels.tree) {
                 if (ui::begin_window(tree_window, &panels.tree)) {
-                    tree_panel.draw(document, selection);
+                    tree_panel.draw(play.shown(document), play.hosting() && play.show_server
+                                                              ? server_selection
+                                                              : selection);
                 }
                 ui::end_window();
             }
             if (panels.inspector) {
                 if (ui::begin_window(inspector_window, &panels.inspector)) {
-                    inspector_panel.draw(document, selection);
+                    inspector_panel.draw(play.shown(document), play.hosting() && play.show_server
+                                                                   ? server_selection
+                                                                   : selection);
                 }
                 ui::end_window();
             }
@@ -688,7 +720,14 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
 
             // Spielen: Systeme der Szene laufen lassen. Danach Weltlagen und Hilfslinien samt
             // Texten in der Welt, damit die UI die Texte dieses Frames zeichnet.
-            if (document.playing()) {
+            if (document.playing() && play.hosting()) {
+                // Als Listen-Server rechnet der Server; die Szene spiegelt ihn (R5.5).
+                if (!play.listen->frame(dt, play.paused)) {
+                    play.stop(document);
+                } else if (script::ScriptSystem* scripts = (*scene)->scripts()) {
+                    scripts->runtime().store_fields();
+                }
+            } else if (document.playing()) {
                 world::Simulation& simulation = (*scene)->simulation();
                 simulation.set_paused(play.paused);
                 if (std::exchange(play.step_requested, false)) {
@@ -737,12 +776,14 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
             window->set_text_input(context.wants_text_input());
 
             actions.end_frame(dt);
-            (*scene)->set_player_enabled(document.playing());
+            (*scene)->set_player_enabled(document.playing() && !play.hosting());
             (*scene)->set_audio_active(document.playing());
-            if (player_capture && actions.pressed("throw")) {
-                (*scene)->throw_ball();
+            if (!play.hosting()) {
+                if (player_capture && actions.pressed("throw")) {
+                    (*scene)->throw_ball();
+                }
+                (*scene)->update(dt, app::fly_input(actions), app::player_controls(actions));
             }
-            (*scene)->update(dt, app::fly_input(actions), app::player_controls(actions));
 
             if (auto frame = (*device)->begin_frame()) {
                 gpu_profiler.begin_frame(*frame);
@@ -787,7 +828,9 @@ int run(const Options& options, const std::shared_ptr<log::RingSink>& log_ring) 
                    static_cast<bool>(app::find_player(document.world()));
         };
 
-        if (options.play_frames) {
+        if (options.play_frames && options.host_play) {
+            play.start_hosted(document, tools.gizmo);
+        } else if (options.play_frames) {
             play.start(document, tools.gizmo);
         }
         if (options.terrain) {

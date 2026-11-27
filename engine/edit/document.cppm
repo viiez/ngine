@@ -227,10 +227,23 @@ public:
     [[nodiscard]] bool playing() const noexcept {
         return play_backup_.has_value();
     }
-    // Befehle, Undo und Redo sind gesperrt (während des Spielens).
+    // Befehle, Undo und Redo sind gesperrt (während des Spielens oder gesperrt).
     [[nodiscard]] bool read_only() const noexcept {
-        return playing();
+        return playing() || locked_;
     }
+    // Nur lesbar, ohne zu spielen (R5.5: Ansicht der Server-Welt beim Spielen als Listen-Server).
+    void set_locked(bool locked) noexcept {
+        locked_ = locked;
+    }
+
+    // --- Spielen als Listen-Server (R5.5, ADR 0055) ---
+    // Legt die gesicherte Welt (nach begin_play()) in target an, mit Eltern, allen Komponenten,
+    // die die Registry von target kennt, und den Deltas der Terrains. Liefert die Zahl der
+    // Entities. target ist eine andere Welt (die des Servers).
+    Result<usize> copy_play_backup(world::World& target) const;
+    // Leert die Welt während des Spielens (sie wird zum Spiegel des Clients); end_play() stellt
+    // sie wie sonst aus der Sicherung wieder her.
+    Result<void> clear_while_playing();
 
     // --- Ereignisse ---
     [[nodiscard]] events::EventBus* bus() const noexcept {
@@ -257,6 +270,7 @@ private:
     EntityId next_id_ = 1;
     std::string path_;
     std::optional<EntitySnapshot> play_backup_;
+    bool locked_ = false;
     world::PrefabLookup prefabs_;
 };
 

@@ -267,6 +267,11 @@ jobs:
           xvfb-run -a "$exe" --frames 60 --no-ini --play 30 --scene "$RUNNER_TEMP/szene-a.json" \
             --save "$RUNNER_TEMP/szene-c.json"
           cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-c.json"
+          # Seit R5.5: als Listen-Server spielen (Server aus der Sicherung, Welt des Dokuments als
+          # Spiegel des Clients) und stoppen; die Welt muss danach ebenso unverändert sein.
+          xvfb-run -a "$exe" --frames 120 --no-ini --host-play 90 --port 27022 \
+            --scene "$RUNNER_TEMP/szene-a.json" --save "$RUNNER_TEMP/szene-h.json"
+          cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-h.json"
           # Seit R2.4: Modell aus dem Asset-Ordner einfügen (wie Ziehen aus dem Browser) und
           # speichern; die Szene verweist über die Asset-ID darauf und übersteht Öffnen und
           # Speichern textgleich.

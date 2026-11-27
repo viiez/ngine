@@ -150,6 +150,9 @@ public:
     void store_fields();
     void load_fields();
     [[nodiscard]] ScriptRole role() const noexcept;
+    // Andere Rolle, z. B. im Editor beim Spielen als Listen-Server (R5.5); nur, solange keine
+    // Skripte laufen (nicht aktiv).
+    void set_role(ScriptRole role);
     // Wählt die eigene Skript-Welt der Laufzeit für Aufrufe an runtime() (macht runtime() auch).
     void select();
     // FixedUpdate bzw. Update aller Skripte, wenn aktiv, gebunden und geladen.

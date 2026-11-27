@@ -144,6 +144,8 @@ public:
     void destroy_domain(u32 domain);
     [[nodiscard]] u32 domain() const noexcept;
     [[nodiscard]] ScriptRole role() const noexcept;
+    // Andere Rolle für die gewählte Skript-Welt (ohne laufende Instanzen).
+    void set_role(ScriptRole role);
     [[nodiscard]] usize domain_count() const noexcept;
     // Meldet die Klassen der schon geladenen Assembly in der Registry der gewählten Welt an.
     [[nodiscard]] Result<void> adopt_scripts();
