@@ -4,8 +4,8 @@
 // und mit quantisierten Transforms. Der Client spiegelt das in seine eigene Welt und zeichnet
 // Bewegungen interpoliert (:snapshot). Seit R5.1 dazu die Eingabe der Spieler und welche Figur ein
 // Client steuert (:input), seit R5.3 Befehle pro festem Schritt und die Vorhersage der eigenen
-// Figur
-// (:prediction).
+// Figur (:prediction), seit R5.4 die Deltas des Terrains (:terrain). :wire hält die gemeinsamen
+// Bausteine der Kodierung und exportiert nichts.
 export module ngine.replication;
 
 export import :schema;
@@ -13,3 +13,5 @@ export import :snapshot;
 export import :session;
 export import :input;
 export import :prediction;
+export import :terrain;
+export import :wire;

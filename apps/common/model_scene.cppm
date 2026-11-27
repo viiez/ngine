@@ -955,14 +955,13 @@ private:
     // auftragen. Gehalten gräbt es alle 0,15 s weiter.
     void update_dig(f32 dt, world::Entity player, const PlayerView& view,
                     const PlayerControls& controls) {
-        dig_cooldown_ = std::max(dig_cooldown_ - dt, 0.0f);
-        if (!controls.dig || dig_cooldown_ > 0.0f) {
+        if (!dig_timer_.ready(dt, controls.dig)) {
             return;
         }
         const auto* input = player.get<PlayerInput>();
         if (const auto target = app::dig_target(world_, player, view, physics_)) {
             app::dig(*target, *input, controls.run);
-            dig_cooldown_ = 0.15f;
+            dig_timer_.used();
         }
     }
 
@@ -1114,7 +1113,7 @@ private:
     // Spielfigur (R4.3): aktiv, Flugmodus, Abklingzeit des Grabens.
     bool player_enabled_ = false;
     bool fly_ = false;
-    f32 dig_cooldown_ = 0.0f;
+    DigTimer dig_timer_;
     // Lage der Kamera im letzten update() (Figur oder freie Kamera) und Ausgang für Würfe.
     DVec3 view_position_{0.0, 0.0, 0.0};
     math::Quat view_rotation_{0.0f, 0.0f, 0.0f, 1.0f};

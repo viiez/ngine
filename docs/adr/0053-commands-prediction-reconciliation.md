@@ -68,7 +68,10 @@ reagieren, mit derselben Physik ([ADR 0045](0045-physics-jolt-double-precision.m
 - Die eigene Figur reagiert ohne Verzögerung; der Client läuft dem Server um die halbe
   Rundlaufzeit plus zwei Schritte voraus, ohne Uhrenabgleich.
 - Verlorene Befehle kosten nichts, solange eine der drei Kopien ankommt; fehlen alle, wiederholt
-  der Server den letzten, und der Client wird höchstens einmal korrigiert.
+  der Server den letzten, und der Client wird höchstens einmal korrigiert. Ergänzt mit R5.4: Nach
+  15 Wiederholungen in Folge (250 ms) gilt der letzte ohne Eingabe und ohne neue Nummer, und der
+  nächste Befehl, der kommt, gilt. Sonst lief die Schlange nach einem Stau des Servers dem Client
+  davon, verwarf alle seine Befehle als zu alt, und die Figur lief und grub mit dem letzten weiter.
 - Bleibende Unterschiede zwischen Skript und C++ oder zwischen Compilern zeigt die Zahl der
   Korrekturen (Fenster „Netzwerk“, Log); die Toleranz verdeckt Rundung in der letzten Stelle.
 - Fremde Körper stehen auf dem Client in der Vergangenheit; wer gegen eine bewegte Kiste läuft,

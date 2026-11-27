@@ -40,6 +40,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R5.1](R5.1-server-mit-spielwelt.md) | Konstruktion | Server mit Spielwelt | abgeschlossen |
 | [R5.2](R5.2-replikation.md) | Konstruktion | Replikation | abgeschlossen |
 | [R5.3](R5.3-vorhersage.md) | Konstruktion | Vorhersage der Spielfigur | abgeschlossen |
+| [R5.4](R5.4-terrain-uebers-netz.md) | Konstruktion | Terrain übers Netz | abgeschlossen |
 
 ## Vorlage
 

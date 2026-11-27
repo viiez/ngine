@@ -33,8 +33,12 @@ module;
 // Seit R5.2 repliziert der Server die ganze Welt (ADR 0052): jede Entity mit Komponenten, die die
 // Reflection als repliziert markiert, als Delta gegen den letzten bestätigten Stand jedes Clients,
 // aus 150 m um seine Figur und höchstens 64 KB/s. Terrain und Sonne sehen alle. Die Parameter der
-// Automaten gehen mit (AnimatorParameters), damit fremde Figuren auf Clients laufen. Deltas des
-// Terrains folgen in R5.4.
+// Automaten gehen mit (AnimatorParameters), damit fremde Figuren auf Clients laufen.
+//
+// Seit R5.4 graben Clients über die Aktion dig in ihren Befehlen: Der Server wirft den Strahl aus
+// dem Auge ihrer Figur (Skript Spielersteuerung bzw. GameWorld::dig_players()) und schickt die
+// geänderten Deltas der Chunks mit den Schnappschüssen an alle Clients (replication::TerrainSender,
+// ADR 0054), die in 150 m sofort, den Rest nach Abstand mit 128 KB/s.
 //
 // Clients ohne Fenster (--client --headless) und Bots (--bots) stehen ebenfalls hier; die Sandbox
 // mit Fenster als Client steht in main.cpp.
@@ -143,6 +147,9 @@ struct Player {
     std::vector<input::ActionValue> latest;
     // Ob in diesem Bild ein Befehl galt (dann geht der Stand der Figur an den Client).
     bool processed = false;
+    // Seit der letzten Nachricht des Terrains galt ein Befehl mit dig: Der Client wartet auf die
+    // Bestätigung seiner vorhergesagten Pinsel (R5.4).
+    bool dug = false;
     // Schritte, seit die Figur zuletzt einen beweglichen Körper berührte, rückwärts gezählt
     // (Einordnen von Korrekturen beim Client: Berührung in den letzten 15 Schritten).
     u32 touch_steps = 0;
@@ -235,14 +242,9 @@ public:
                 view->yaw = command->yaw;
                 view->pitch = std::clamp(command->pitch, -app::max_pitch, app::max_pitch);
             }
-            // Löcher im Terrain kämen nicht bei den Clients an (Terrain-Deltas übers Netz folgen
-            // in R5.4), Figuren und Kisten fielen für sie durch den Boden: bis dahin kein Graben.
+            // Graben (R5.4): Ziel, Reichweite und Takt bestimmt der Server aus seiner Figur.
             if (dig_ && *dig_ < player.latest.size() && player.latest[*dig_].down) {
-                player.latest[*dig_] = {};
-                if (!dig_warned_) {
-                    log::info("Server: Graben von Clients ist bis R5.4 abgeschaltet");
-                    dig_warned_ = true;
-                }
+                player.dug = true;
             }
             if (throw_ && *throw_ < player.latest.size() && player.latest[*throw_].pressed) {
                 throw_ball(player.figure);
@@ -284,6 +286,38 @@ public:
             (void)server_->send(client, replication::encode_owner(state),
                                 net::Delivery::Unreliable);
         }
+    }
+
+    // Mit jedem Schnappschuss (R5.4): Stand aller Terrains an den Sender, dann jedem Client die
+    // geänderten Deltas mit der Bestätigung seines letzten Befehls.
+    void send_terrain() {
+        world::World& world = game_->world();
+        std::vector<u64> terrains;
+        world.each<const world::Terrain>([&](world::Entity entity, const world::Terrain&) {
+            auto deltas = world::terrain_deltas(entity);
+            if (!deltas) {
+                // Noch ohne Laufzeitdaten; kommt mit dem nächsten update_terrains().
+                return;
+            }
+            terrains.push_back(entity.id());
+            terrain_.update_terrain(entity.id(), std::move(deltas),
+                                    world::terrain_world(entity, math::DVec3{0.0, 0.0, 0.0}));
+        });
+        terrain_.retain_terrains(terrains);
+        for (auto& [client, player] : players_) {
+            const world::Entity figure = world.entity(player.figure);
+            const auto* transform = figure ? figure.get<world::WorldTransform>() : nullptr;
+            terrain_.set_focus(client, transform != nullptr ? std::optional{transform->position()}
+                                                            : std::nullopt);
+            for (const auto& message : terrain_.encode(client, player.commands.last(), player.dug)) {
+                (void)server_->send(client, message, net::Delivery::Reliable);
+            }
+            player.dug = false;
+        }
+    }
+
+    [[nodiscard]] const replication::TerrainSender& terrain() const noexcept {
+        return terrain_;
     }
 
     // Kugel aus dem Auge der Figur in Blickrichtung, wie ModelScene::throw_ball() lokal.
@@ -335,15 +369,20 @@ public:
                 transform != nullptr ? transform->position - spawn_ : math::DVec3{};
             const replication::EncoderClientStats stats = server_->stats(client);
             const replication::CommandQueueStats& commands = player.commands.stats();
+            const replication::TerrainClientStats terrain = terrain_.stats(client);
             log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Nachrichten, {} abgelehnt, "
-                      "{} begrenzt; Befehle {} verarbeitet, {} wiederholt, {} verworfen, {} "
-                      "übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} Entities, {} "
-                      "warten, {} ohne Basis",
+                      "{} begrenzt; Befehle {} verarbeitet, {} wiederholt ({} ohne Eingabe), {} "
+                      "verworfen, {} übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} Entities, {} "
+                      "warten, {} ohne Basis; Terrain {} Chunks, {:.1f} KB, Beitritt {:.1f} KB{}, {} "
+                      "vorgemerkt",
                       client, figure ? figure.name() : std::string_view{"fehlt"}, math::length(at),
                       player.messages, player.rejected, player.limited, commands.processed,
-                      commands.repeated, commands.dropped, commands.overflow,
+                      commands.repeated, commands.idle, commands.dropped, commands.overflow,
                       player.commands.size(), static_cast<f64>(stats.bytes_per_second) / 1024.0,
-                      stats.last_bytes, stats.entities, stats.waiting, stats.full);
+                      stats.last_bytes, stats.entities, stats.waiting, stats.full, terrain.chunks,
+                      static_cast<f64>(terrain.bytes) / 1024.0,
+                      static_cast<f64>(terrain.join_bytes) / 1024.0,
+                      terrain.complete ? "" : " (Umgebung unvollständig)", terrain.pending);
         }
     }
 
@@ -372,6 +411,7 @@ private:
         log::info("Client {} steuert {} ({})", client, world.entity(player.figure).name(),
                   player.spawned ? "neu" : "aus der Szene");
         players_.emplace(client, std::move(player));
+        terrain_.add_client(client);
     }
 
     void leave(net::ConnectionId client, Player& player) {
@@ -392,6 +432,7 @@ private:
                 motion->jump = false;
             }
         }
+        terrain_.remove_client(client);
         log::info("Client {} hat das Spiel verlassen ({} Befehle)", client,
                   player.commands.stats().processed);
     }
@@ -407,9 +448,9 @@ private:
     std::optional<usize> look_;
     std::optional<usize> dig_;
     std::optional<usize> throw_;
-    bool dig_warned_ = false;
     u32 spawned_ = 0;
     std::map<net::ConnectionId, Player> players_;
+    replication::TerrainSender terrain_;
 };
 
 } // namespace
@@ -516,6 +557,7 @@ export int run_game_server(const GameServerOptions& options) {
             players.update_focus();
             server.send_snapshot();
             players.send_owner_states();
+            players.send_terrain();
             snapshot_bytes = std::max(snapshot_bytes, server.last_snapshot_size());
         }
         const f64 ms =
@@ -573,6 +615,7 @@ export int run_game_client(const std::string& address, u64 frames) {
     input::ActionState actions{input::ActionMap::standard()};
     app::PlayerPrediction prediction{
         game, actions, [&net](std::span<const std::byte> data) { net.send_game(data); }};
+    prediction.set_terrain(&net.terrain());
     TickClock clock;
     std::optional<math::DVec3> first;
     math::DVec3 last{};
@@ -672,6 +715,8 @@ export int run_bots(const std::string& address, u32 count, u64 frames) {
             return 1;
         }
         bot->net = std::move(*connected);
+        // Bots haben kein Terrain; die Deltas zählen nur für die Bandbreite (R5.4).
+        bot->net->set_apply_terrain(false);
         bot->offset = static_cast<u64>(i) * 97;
         bots.push_back(std::move(bot));
     }

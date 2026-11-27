@@ -1,5 +1,6 @@
 module;
 
+#include <array>
 #include <cstddef>
 #include <expected>
 #include <memory>
@@ -18,6 +19,7 @@ import :grid;
 import :chunk;
 import :edit;
 import :generator;
+import :lod;
 
 // Änderungen am Terrain als Deltas gegenüber der prozeduralen Grundwelt (VOX-06, R3.4, ADR 0042).
 // Nur Chunks der Stufe 0 haben Deltas; grobe Stufen rechnen sie beim Erzeugen ein. So überleben
@@ -83,13 +85,55 @@ private:
 // werden geteilt: Befehle für Undo halten alte und neue Fassungen, Jobs eine Momentaufnahme.
 using DeltaMap = std::unordered_map<ChunkCoord, std::shared_ptr<const ChunkDelta>, ChunkCoordHash>;
 
+// Index der Deltas für grobe Stufen (TD-41, R5.4): Für jeden groben Chunk der Stufen 1 bis
+// max_lod_level die geänderten Samples der Stufe 0, die auf seinem Raster liegen (Lage im groben
+// Chunk und Wert), getrennt nach dem Chunk der Stufe 0, aus dem sie kommen. Ein grober Chunk liest
+// so nur seinen Eintrag statt jedes Delta Sample für Sample. Jedes Sample des groben Rasters gehört
+// zu genau einem Chunk der Stufe 0, die Reihenfolge der Quellen zählt also nicht.
+struct CoarseSample {
+    // Chunk::index() im groben Chunk.
+    u16 index = 0;
+    Sample sample;
+};
+
+struct CoarseSource {
+    ChunkCoord source;
+    std::shared_ptr<const std::vector<CoarseSample>> samples;
+};
+
+class CoarseDeltas {
+public:
+    // Quellen eines groben Chunks (Stufe 1 bis max_lod_level); nullptr ohne.
+    [[nodiscard]] const std::vector<CoarseSource>* find(ChunkCoord coarse) const;
+    // Ersetzt die Samples, die der Chunk source (Stufe 0) beiträgt; delta nullptr oder leer
+    // entfernt sie.
+    void put(ChunkCoord source, const ChunkDelta* delta);
+    void clear();
+    // Grobe Chunks mit Einträgen über alle Stufen.
+    [[nodiscard]] usize size() const noexcept;
+
+private:
+    std::array<std::unordered_map<ChunkCoord, std::vector<CoarseSource>, ChunkCoordHash>,
+               max_lod_level>
+        levels_;
+};
+
+// Deltas eines Terrains mit ihrem Index, unveränderlich, sobald jemand sie teilt.
+struct DeltaState {
+    DeltaMap map;
+    CoarseDeltas coarse;
+};
+
 // Rechnet die Deltas in einen frisch aus dem Generator gefüllten Chunk beliebiger Stufe ein. Auf
 // Stufe 0 gelten die geänderten Samples. Ein grober Chunk übernimmt ein geändertes Sample der
 // Stufe 0, das auf seinem Raster liegt: Nahe der Oberfläche (Abstand unter max_distance) dessen
 // Abstand in seinen Schritten; weiter weg bleibt sein eigener Wert, wenn er auf derselben Seite
 // liegt, sonst der größte Abstand, den die Stufe 0 kennt. Was kleiner als ein Schritt der Stufe
 // ist, verschwindet in der Ferne wie beim Generator.
+// Der Weg ohne Index läuft für grobe Chunks über alle Deltas (bis R5.4; Vergleich in Tests).
 void apply_deltas(const DeltaMap& deltas, ChunkCoord coord, Chunk& chunk);
+// Dasselbe Ergebnis über den Index der groben Stufen (TD-41).
+void apply_deltas(const DeltaState& deltas, ChunkCoord coord, Chunk& chunk);
 
 // Änderung eines Chunks: Delta vorher und nachher (nullptr: keines). Grundlage für Undo.
 struct DeltaChange {
@@ -126,7 +170,11 @@ public:
 
     // Alle Deltas, unveränderlich; nie nullptr.
     [[nodiscard]] std::shared_ptr<const DeltaMap> snapshot() const noexcept {
-        return map_;
+        return {state_, &state_->map};
+    }
+    // Deltas mit dem Index der groben Stufen, unveränderlich; nie nullptr (für Jobs).
+    [[nodiscard]] std::shared_ptr<const DeltaState> state() const noexcept {
+        return state_;
     }
     // Ersetzt alle Deltas (Laden, Ende des Spielens). nullptr leert.
     void assign(std::shared_ptr<const DeltaMap> deltas);
@@ -134,7 +182,7 @@ public:
     [[nodiscard]] std::shared_ptr<const ChunkDelta> find(ChunkCoord coord) const;
     // Chunks mit Delta und Größe aller kodierten Deltas in Bytes.
     [[nodiscard]] usize size() const noexcept {
-        return map_->size();
+        return state_->map.size();
     }
     [[nodiscard]] usize encoded_bytes() const noexcept;
     // Erhöht sich mit jeder Änderung.
@@ -155,14 +203,14 @@ public:
     SampleBox restore(ChunkStore& store, std::span<const DeltaChange> changes, bool after);
 
 private:
-    DeltaMap& writable();
+    DeltaState& writable();
     void put(ChunkCoord coord, std::shared_ptr<const ChunkDelta> delta);
     // Chunk der Grundwelt (Stufe 0); die letzten werden zwischengespeichert, weil ein Pinselstrich
     // über viele Frames dieselben Chunks ändert.
     const Chunk& base(ChunkCoord coord);
 
     Generator generator_;
-    std::shared_ptr<DeltaMap> map_;
+    std::shared_ptr<DeltaState> state_;
     u64 version_ = 0;
     std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> base_cache_;
     std::vector<ChunkCoord> base_order_;

@@ -157,7 +157,9 @@ export struct GameWorldDesc {
     // Worker des Job-Systems; ohne Angabe so viele, wie der Rechner Kerne hat.
     std::optional<u32> worker_count;
     // Die Physik wartet auf die Formen der Chunks und das Terrain auf seine Netze, damit das
-    // Ergebnis nicht von der Zahl der Threads abhängt (ohne Fenster und auf dem Server).
+    // Ergebnis nicht von der Zahl der Threads abhängt (ohne Fenster und auf dem Server). Nach
+    // Pinseln wartet keiner von beiden: Bis die neuen Formen und groben Stufen fertig sind, gelten
+    // die alten (R5.4, sonst hält jeder Pinsel den Server an).
     bool deterministic = false;
 };
 
@@ -184,6 +186,7 @@ public:
         animation_->set_events(&events_);
         physics_.set_terrain_materials(terrain_materials_.table());
         physics_.set_wait_for_terrain(deterministic_);
+        physics_.set_wait_for_rebuilds(false);
         // Feste Simulation mit Interpolation: Kreisbahnen laufen bei jeder Bildrate gleich schnell
         // und ruckeln trotzdem nicht (R4.1).
         simulation_.add<Orbit, world::Transform>("Kreisbahnen",
@@ -207,6 +210,7 @@ public:
             if (scripts_) {
                 scripts_->run(script::ScriptPhase::Frame, world_.time().delta);
             }
+            dig_players(world_.time().delta);
         });
         physics_.set_events(&events_);
         physics::add_to(simulation_, physics_);
@@ -411,7 +415,8 @@ public:
             scripts_->update();
         }
         (void)world::update_transforms(world_);
-        (void)world::update_terrains(world_, jobs_, {.wait = deterministic_});
+        (void)world::update_terrains(world_, jobs_,
+                                     {.wait = deterministic_, .wait_for_edits = false});
         const u32 steps = simulation_.advance(dt);
         update_animation(dt);
         return steps;
@@ -475,7 +480,29 @@ private:
     struct PlayerSlot {
         u64 figure = 0;
         input::ActionState* actions = nullptr;
+        // Graben ohne Skript (R5.4), wie Grabpause im Skript.
+        DigTimer dig;
     };
+
+    // Graben der Figuren mit eigenen Aktionen, die kein Skript steuert (R5.4): wie das Skript
+    // Spielersteuerung nach den festen Schritten eines Bildes, mit fast auftragen.
+    void dig_players(f32 dt) {
+        for (PlayerSlot& slot : players_) {
+            world::Entity figure = world_.entity(slot.figure);
+            if (!figure || !figure.alive() || scripted_player(figure)) {
+                continue;
+            }
+            if (!slot.dig.ready(dt, slot.actions->down("dig"))) {
+                continue;
+            }
+            const auto* input = figure.get<PlayerInput>();
+            const auto target = figure_dig_target(world_, figure, physics_);
+            if (input != nullptr && target) {
+                dig(*target, *input, slot.actions->down("fast"));
+                slot.dig.used();
+            }
+        }
+    }
 
     reflect::TypeRegistry types_;
     world::World world_;

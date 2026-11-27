@@ -153,6 +153,9 @@ struct TerrainUpdate {
     std::span<const math::DVec3> observers;
     // Warten, bis endlose Terrains zu den Beobachtern passen (Bilder, Tests, Server beim Start).
     bool wait = false;
+    // Mit wait auch warten, bis grobe Stufen geänderte Deltas zeigen. Aus, kommen sie im
+    // Hintergrund (Server, R5.4).
+    bool wait_for_edits = true;
 };
 
 // Hält alle Terrains der Welt aktuell: legt TerrainState an, erzeugt die Chunks neu, wenn sich

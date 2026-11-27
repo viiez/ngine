@@ -705,6 +705,10 @@ void PhysicsWorld::set_wait_for_terrain(bool wait) noexcept {
     impl_->settings.wait_for_terrain = wait;
 }
 
+void PhysicsWorld::set_wait_for_rebuilds(bool wait) noexcept {
+    impl_->settings.wait_for_rebuilds = wait;
+}
+
 void PhysicsWorld::set_remote(bool remote) noexcept {
     impl_->settings.remote = remote;
 }

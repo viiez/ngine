@@ -295,6 +295,9 @@ void PhysicsWorld::Impl::sync_terrains() {
     const std::vector<math::DVec3> anchors = terrain_anchors();
     f64 build_ms = 0.0;
     u32 built = 0;
+    // Ohne wait_for_rebuilds wartet der Schritt nur auf Chunks ohne Form; ändert sich ein Netz mit
+    // Form (Graben), bleibt die alte, bis die neue fertig ist (R5.4).
+    bool missing = false;
     for (const Live& l : live) {
         TerrainRecord& terrain = terrains[l.entity];
         if (terrain.data_id != l.data->id) {
@@ -326,6 +329,9 @@ void PhysicsWorld::Impl::sync_terrains() {
             if (!current && !building) {
                 start_build(chunk, mesh);
             }
+            if (!current && chunk.body.IsInvalid()) {
+                missing = true;
+            }
         }
         // Formen ohne Bedarf oder ohne Netz fallen nach einer Weile weg.
         for (auto it = terrain.chunks.begin(); it != terrain.chunks.end();) {
@@ -345,7 +351,7 @@ void PhysicsWorld::Impl::sync_terrains() {
         }
     }
 
-    if (settings.wait_for_terrain) {
+    if (settings.wait_for_terrain && (missing || settings.wait_for_rebuilds)) {
         jobs->wait(terrain_jobs);
     }
     // Fertige Formen einsetzen, in der Reihenfolge der Terrains und Chunks.

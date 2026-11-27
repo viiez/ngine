@@ -238,10 +238,120 @@ void apply_deltas(const DeltaMap& deltas, ChunkCoord coord, Chunk& chunk) {
     }
 }
 
+// --- Index der groben Stufen (TD-41) -------------------------------------------------------------
+
+const std::vector<CoarseSource>* CoarseDeltas::find(ChunkCoord coarse) const {
+    if (coarse.level == 0 || coarse.level > max_lod_level) {
+        return nullptr;
+    }
+    const auto& level = levels_[coarse.level - 1];
+    const auto it = level.find(coarse);
+    return it == level.end() ? nullptr : &it->second;
+}
+
+void CoarseDeltas::put(ChunkCoord source, const ChunkDelta* delta) {
+    // Samples des Deltas auf dem Raster jeder Stufe, nach grobem Chunk.
+    std::array<std::vector<CoarseSample>, max_lod_level> raster;
+    std::array<ChunkCoord, max_lod_level> coarse{};
+    for (u8 level = 1; level <= max_lod_level; ++level) {
+        coarse[level - 1] = {static_cast<i32>(floor_div(source.x, i64{1} << level)),
+                             static_cast<i32>(floor_div(source.y, i64{1} << level)),
+                             static_cast<i32>(floor_div(source.z, i64{1} << level)), level};
+    }
+    if (delta != nullptr && !delta->empty()) {
+        const i64 ox = chunk_origin(source.x);
+        const i64 oy = chunk_origin(source.y);
+        const i64 oz = chunk_origin(source.z);
+        delta->for_each([&](usize index, Sample edited) {
+            const auto i = static_cast<i64>(index);
+            const i64 ax = ox + i % chunk_voxels;
+            const i64 ay = oy + (i / chunk_voxels) % chunk_voxels;
+            const i64 az = oz + i / (i64{chunk_voxels} * chunk_voxels);
+            for (u8 level = 1; level <= max_lod_level; ++level) {
+                const i64 step = i64{1} << level;
+                if (ax % step != 0 || ay % step != 0 || az % step != 0) {
+                    // Liegt es nicht auf diesem Raster, dann auch auf keinem gröberen.
+                    break;
+                }
+                const ChunkCoord c = coarse[level - 1];
+                const i64 x = ax - chunk_origin(c.x, level);
+                const i64 y = ay - chunk_origin(c.y, level);
+                const i64 z = az - chunk_origin(c.z, level);
+                raster[level - 1].push_back(
+                    {static_cast<u16>(Chunk::index(static_cast<u32>(x / step),
+                                                   static_cast<u32>(y / step),
+                                                   static_cast<u32>(z / step))),
+                     edited});
+            }
+        });
+    }
+    for (u8 level = 1; level <= max_lod_level; ++level) {
+        auto& table = levels_[level - 1];
+        const ChunkCoord c = coarse[level - 1];
+        std::vector<CoarseSample>& samples = raster[level - 1];
+        auto it = table.find(c);
+        if (it != table.end()) {
+            std::erase_if(it->second,
+                          [&](const CoarseSource& entry) { return entry.source == source; });
+        }
+        if (!samples.empty()) {
+            samples.shrink_to_fit();
+            if (it == table.end()) {
+                it = table.try_emplace(c).first;
+            }
+            it->second.push_back(
+                {source, std::make_shared<const std::vector<CoarseSample>>(std::move(samples))});
+        } else if (it != table.end() && it->second.empty()) {
+            table.erase(it);
+        }
+    }
+}
+
+void CoarseDeltas::clear() {
+    for (auto& level : levels_) {
+        level.clear();
+    }
+}
+
+usize CoarseDeltas::size() const noexcept {
+    usize count = 0;
+    for (const auto& level : levels_) {
+        count += level.size();
+    }
+    return count;
+}
+
+void apply_deltas(const DeltaState& deltas, ChunkCoord coord, Chunk& chunk) {
+    if (deltas.map.empty()) {
+        return;
+    }
+    if (coord.level == 0 || coord.level > max_lod_level) {
+        apply_deltas(deltas.map, coord, chunk);
+        return;
+    }
+    const std::vector<CoarseSource>* sources = deltas.coarse.find(coord);
+    if (sources == nullptr) {
+        return;
+    }
+    const i64 step = i64{1} << coord.level;
+    std::span<Sample> samples;
+    for (const CoarseSource& source : *sources) {
+        for (const CoarseSample& s : *source.samples) {
+            if (samples.empty()) {
+                samples = chunk.expand();
+            }
+            samples[s.index] = coarse_sample(samples[s.index], s.sample, step);
+        }
+    }
+    if (!samples.empty()) {
+        chunk.compact();
+    }
+}
+
 // --- TerrainDeltas -------------------------------------------------------------------------------
 
 TerrainDeltas::TerrainDeltas(const GeneratorDesc& generator)
-    : generator_{generator}, map_{std::make_shared<DeltaMap>()} {}
+    : generator_{generator}, state_{std::make_shared<DeltaState>()} {}
 
 void TerrainDeltas::set_generator(const GeneratorDesc& generator) {
     generator_ = Generator{generator};
@@ -252,43 +362,55 @@ void TerrainDeltas::set_generator(const GeneratorDesc& generator) {
 
 void TerrainDeltas::assign(std::shared_ptr<const DeltaMap> deltas) {
     // Eigene Tabelle; die Einträge teilen sich beide.
-    map_ = deltas ? std::make_shared<DeltaMap>(*deltas) : std::make_shared<DeltaMap>();
-    std::erase_if(*map_, [](const auto& entry) { return !entry.second || entry.second->empty(); });
+    auto state = std::make_shared<DeltaState>();
+    if (deltas) {
+        state->map = *deltas;
+    }
+    std::erase_if(state->map,
+                  [](const auto& entry) { return !entry.second || entry.second->empty(); });
+    for (const auto& [coord, delta] : state->map) {
+        state->coarse.put(coord, delta.get());
+    }
+    state_ = std::move(state);
     ++version_;
 }
 
 void TerrainDeltas::clear() {
-    map_ = std::make_shared<DeltaMap>();
+    state_ = std::make_shared<DeltaState>();
     ++version_;
 }
 
 std::shared_ptr<const ChunkDelta> TerrainDeltas::find(ChunkCoord coord) const {
-    const auto it = map_->find(coord);
-    return it == map_->end() ? nullptr : it->second;
+    const auto it = state_->map.find(coord);
+    return it == state_->map.end() ? nullptr : it->second;
 }
 
 usize TerrainDeltas::encoded_bytes() const noexcept {
     usize bytes = 0;
-    for (const auto& entry : *map_) {
+    for (const auto& entry : state_->map) {
         bytes += entry.second->bytes().size();
     }
     return bytes;
 }
 
-DeltaMap& TerrainDeltas::writable() {
+DeltaState& TerrainDeltas::writable() {
     // Hält ein Job oder Befehl noch eine Momentaufnahme, bleibt sie unverändert. Kopien der
     // Momentaufnahme entstehen nur in diesem Thread, also kann use_count() höchstens zu groß sein.
-    if (map_.use_count() > 1) {
-        map_ = std::make_shared<DeltaMap>(*map_);
+    if (state_.use_count() > 1) {
+        state_ = std::make_shared<DeltaState>(*state_);
     }
-    return *map_;
+    return *state_;
 }
 
 void TerrainDeltas::put(ChunkCoord coord, std::shared_ptr<const ChunkDelta> delta) {
     if (delta && !delta->empty()) {
-        writable().insert_or_assign(coord, std::move(delta));
-    } else if (map_->contains(coord)) {
-        writable().erase(coord);
+        DeltaState& state = writable();
+        state.coarse.put(coord, delta.get());
+        state.map.insert_or_assign(coord, std::move(delta));
+    } else if (state_->map.contains(coord)) {
+        DeltaState& state = writable();
+        state.coarse.put(coord, nullptr);
+        state.map.erase(coord);
     }
 }
 
@@ -308,7 +430,7 @@ const Chunk& TerrainDeltas::base(ChunkCoord coord) {
 
 void TerrainDeltas::build(ChunkCoord coord, Chunk& out) const {
     generator_.fill(coord, out);
-    apply_deltas(*map_, coord, out);
+    apply_deltas(*state_, coord, out);
 }
 
 TerrainEdit TerrainDeltas::apply(ChunkStore& store, const Brush& brush, bool loaded_only) {

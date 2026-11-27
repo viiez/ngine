@@ -269,17 +269,67 @@ export std::optional<DigTarget> dig_target(world::World& world, world::Entity pl
     return DigTarget{.terrain = entity, .point = hit->point};
 }
 
-// Trägt am Ziel eine Kugel ab (oder mit add auf).
-export void dig(const DigTarget& target, const PlayerInput& input, bool add) {
-    world::Entity terrain = target.terrain;
-    const DVec3 center = world::terrain_voxels(terrain, target.point);
-    const voxel::Brush brush{
+// Ziel des Grabens wie im Skript Spielersteuerung (R5.4): Strahl aus dem Auge der Figur (Transform,
+// nicht die gezeichnete Lage) in ihrem Blick, so lang wie dig_reach. So graben Server und
+// Vorhersage des Clients nach demselben Befehl an derselben Stelle; die Kamera zählt nicht.
+export std::optional<DigTarget> figure_dig_target(world::World& world, world::Entity player,
+                                                  const physics::PhysicsWorld& physics) {
+    const auto* input = player.get<PlayerInput>();
+    const auto* transform = player.get<world::Transform>();
+    if (input == nullptr || transform == nullptr) {
+        return std::nullopt;
+    }
+    f32 eye = input->eye_height;
+    const auto* controller = player.get<physics::CharacterController>();
+    const auto* motion = player.get<physics::CharacterMotion>();
+    if (controller != nullptr && motion != nullptr && motion->crouched && controller->height > 0) {
+        eye *= controller->crouch_height / controller->height;
+    }
+    const DVec3 origin = transform->position + DVec3{0.0, static_cast<f64>(eye), 0.0};
+    const Vec3 forward = view_rotation(*input) * Vec3{0.0f, 0.0f, -1.0f};
+    const auto hit = physics.raycast(origin, forward, input->dig_reach, {.ignore = player.id()});
+    if (!hit) {
+        return std::nullopt;
+    }
+    const world::Entity entity = world.entity(hit->entity);
+    if (!entity || !entity.has<world::Terrain>()) {
+        return std::nullopt;
+    }
+    return DigTarget{.terrain = entity, .point = hit->point};
+}
+
+// Pinsel am Ziel: Kugel mit dig_radius abtragen (oder mit add Erde auftragen).
+export voxel::Brush dig_brush(const DigTarget& target, const PlayerInput& input, bool add) {
+    const DVec3 center = world::terrain_voxels(target.terrain, target.point);
+    return voxel::Brush{
         .mode = add ? voxel::BrushMode::Add : voxel::BrushMode::Remove,
         .center = {static_cast<f32>(center.x), static_cast<f32>(center.y),
                    static_cast<f32>(center.z)},
         .radius = static_cast<f32>(static_cast<f64>(input.dig_radius) / voxel::voxel_size),
         .material = voxel::earth};
-    (void)world::edit_terrain(terrain, brush);
 }
+
+// Trägt am Ziel eine Kugel ab (oder mit add auf).
+export void dig(const DigTarget& target, const PlayerInput& input, bool add) {
+    (void)world::edit_terrain(target.terrain, dig_brush(target, input, add));
+}
+
+// Takt des Grabens bei gehaltener Taste, wie Grabpause im Skript Spielersteuerung: nach einem
+// Pinselstrich pause Sekunden nichts. Gezählt wird in f32 wie im Skript, damit Server und
+// Vorhersage im selben Befehl graben (R5.4).
+export struct DigTimer {
+    f32 pause = 0.15f;
+    f32 cooldown = 0.0f;
+
+    // Einmal pro Bild bzw. festem Schritt: ob jetzt gegraben werden darf.
+    [[nodiscard]] bool ready(f32 dt, bool down) {
+        cooldown = std::max(cooldown - dt, 0.0f);
+        return down && cooldown <= 0.0f;
+    }
+    // Nach einem Pinselstrich, der etwas getroffen hat.
+    void used() {
+        cooldown = pause;
+    }
+};
 
 } // namespace app
