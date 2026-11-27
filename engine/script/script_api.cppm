@@ -22,11 +22,16 @@ struct ScriptFieldDesc {
     f64 min = 0.0;
     f64 max = 0.0;
     f64 step = 0.0;
+    // 1: [Local], bleibt bei replizierten Skript-Komponenten auf dem Server (R5.5).
+    i32 local = 0;
+    i32 reserved = 0;
 };
 
 struct ScriptApi {
     // Index des Typs in der Registry oder -1.
-    i32 (*register_script)(const u8* name, i32 length, const ScriptFieldDesc* fields, i32 count);
+    // replicated = 1: [Replicated], die Komponente geht mit den Schnappschüssen (R5.5).
+    i32 (*register_script)(const u8* name, i32 length, const ScriptFieldDesc* fields, i32 count,
+                           i32 replicated);
     // Offset eines Feldes; field = -1 liefert die Größe des Typs.
     i64 (*field_offset)(i32 type, i32 field);
     void* (*prototype)(i32 type);
@@ -45,5 +50,8 @@ usize migrate_script_types();
 // Skript-Typen in der Reihenfolge ihrer Anmeldung (aktuelle, nicht ersetzte).
 [[nodiscard]] const std::vector<const reflect::TypeInfo*>& registered_script_types() noexcept;
 void clear_registered_script_types();
+
+// Vergisst den Zustand einer Skript-Welt in dieser Partition (R5.5).
+void drop_script_domain(u32 domain);
 
 } // namespace ngine::script

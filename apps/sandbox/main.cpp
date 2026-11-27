@@ -109,7 +109,7 @@ import ngine.asset;
 import sandbox.script_demo;
 import sandbox.net_demo;
 import sandbox.game_server;
-import sandbox.net_client;
+import app.net_client;
 import ngine.net;
 import ngine.replication;
 import ngine.world;
@@ -132,7 +132,7 @@ namespace {
 #if NGINE_WITH_WINDOW
 
 // Fenster „Netzwerk“ des Clients (R5.2, seit R5.3 mit der Vorhersage).
-void network_window(const sandbox::NetClient& net, const app::PredictionReport& prediction) {
+void network_window(const app::NetClient& net, const app::PredictionReport& prediction) {
     namespace ui = ngine::editor_ui;
     if (!ui::begin_window("Netzwerk")) {
         ui::end_window();
@@ -497,14 +497,14 @@ int run_windowed(const Options& options) {
         }
         // Client mit Fenster (R5.2): Die Welt der Szene spiegelt die des Servers.
         std::unique_ptr<ngine::replication::Schema> schema;
-        std::unique_ptr<sandbox::NetClient> net;
+        std::unique_ptr<app::NetClient> net;
         // Vorhersage der eigenen Figur (R5.3), sobald die Aktionen stehen.
         std::unique_ptr<app::PlayerPrediction> prediction;
         if (options.client_address && scene) {
             ngine::replication::register_types(scene->game().types());
             schema = std::make_unique<ngine::replication::Schema>(scene->game().types());
             auto connected =
-                sandbox::NetClient::connect(scene->world(), *schema, *options.client_address);
+                app::NetClient::connect(scene->world(), *schema, *options.client_address);
             if (!connected) {
                 ngine::log::fatal("{}", connected.error());
                 return 1;
@@ -538,7 +538,7 @@ int run_windowed(const Options& options) {
         app::InputBindings bindings;
         ngine::input::ActionState actions{bindings.load()};
         if (net) {
-            sandbox::NetClient* connection = net.get();
+            app::NetClient* connection = net.get();
             prediction = std::make_unique<app::PlayerPrediction>(
                 scene->game(), actions,
                 [connection](std::span<const std::byte> data) { connection->send_game(data); });

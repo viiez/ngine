@@ -95,6 +95,8 @@ struct ScriptSystemDesc {
     // Geänderte .cs-Dateien neu bauen und laden (Hot Reload).
     bool watch = true;
     std::string dotnet = "dotnet";
+    // Wo die Welt läuft (R5.5): ohne Netz alle Skripte, sonst nur die ihrer Rolle.
+    ScriptRole role = ScriptRole::Local;
 };
 
 struct ScriptStatus {
@@ -138,6 +140,18 @@ public:
                     const world::TerrainMaterials* materials = nullptr);
     // Animation für die Skripte (R4.6); nullptr löst sie.
     void bind_animation(animation::AnimationSystem* animation);
+    // Netz für die Skripte auf dem Server (R5.5, Net.Broadcast, Einmal-Klänge); muss gebunden
+    // bleiben, bis nullptr es löst.
+    void bind_net(const ScriptNet* net);
+    // Ereignis vom Server an die Skripte einer Entity (R5.5, OnNetEvent), wenn aktiv.
+    void deliver_net_event(u64 entity, std::string_view name, f32 value);
+    // Felder der laufenden Skripte in ihre Komponenten bzw. aus ihnen (R5.5: replizierte
+    // Skript-Komponenten vor und nach einem Schnappschuss).
+    void store_fields();
+    void load_fields();
+    [[nodiscard]] ScriptRole role() const noexcept;
+    // Wählt die eigene Skript-Welt der Laufzeit für Aufrufe an runtime() (macht runtime() auch).
+    void select();
     // FixedUpdate bzw. Update aller Skripte, wenn aktiv, gebunden und geladen.
     void run(ScriptPhase phase, f32 delta);
     // Hängt FixedUpdate als feste Stufe (vor der Physik, wenn vor physics::add_to() gerufen) und
@@ -151,6 +165,7 @@ public:
     void validate();
 
     [[nodiscard]] const ScriptStatus& status() const noexcept;
+    // Laufzeit mit der Skript-Welt dieses Systems gewählt.
     [[nodiscard]] ScriptRuntime& runtime() noexcept;
 
 private:

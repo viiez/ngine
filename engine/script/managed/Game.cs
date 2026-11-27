@@ -21,6 +21,7 @@ public unsafe struct GameApi
     public delegate* unmanaged<uint, ulong> FootstepSound;
     public delegate* unmanaged<ulong, byte*, int, int, float, int> AnimSet;
     public delegate* unmanaged<ulong, byte*, int, int> AnimState;
+    public delegate* unmanaged<ulong, ulong, byte*, int, float, int> NetSend;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -63,17 +64,36 @@ public struct NativeShape
 // oder doppelt zählt. Bewegungen der Maus (look) gehören nach Update.
 public static unsafe class Input
 {
-    public static bool Down(string action) => Get(action).Down != 0;
-    public static bool Pressed(string action) => Get(action).Pressed != 0;
-    public static bool Released(string action) => Get(action).Released != 0;
+    public static bool Down(string action) => Get(Host.Current, action).Down != 0;
+    public static bool Pressed(string action) => Get(Host.Current, action).Pressed != 0;
+    public static bool Released(string action) => Get(Host.Current, action).Released != 0;
     // Achse (x) bzw. zwei Achsen (x, y), z. B. "move".
     public static Vec2 Value(string action)
     {
-        NativeAction value = Get(action);
+        NativeAction value = Get(Host.Current, action);
         return new Vec2(value.X, value.Y);
     }
 
-    private static NativeAction Get(string action)
+    // Aktionen einer anderen Entity, meist einer Spielfigur (R5.5, TD-66): Auf dem Server die des
+    // Spielers, dem die Figur gehört, ohne Netz die allgemeinen. So sieht z. B. eine Laterne die
+    // Taste des Spielers, der vor ihr steht.
+    public static EntityInput For(Entity entity) => new(entity.Id);
+
+    public readonly struct EntityInput
+    {
+        private readonly ulong entity;
+        internal EntityInput(ulong entity) { this.entity = entity; }
+        public bool Down(string action) => Get(entity, action).Down != 0;
+        public bool Pressed(string action) => Get(entity, action).Pressed != 0;
+        public bool Released(string action) => Get(entity, action).Released != 0;
+        public Vec2 Value(string action)
+        {
+            NativeAction value = Get(entity, action);
+            return new Vec2(value.X, value.Y);
+        }
+    }
+
+    private static NativeAction Get(ulong entity, string action)
     {
         var api = Host.Api;
         NativeAction value = default;
@@ -85,7 +105,7 @@ public static unsafe class Input
         int length = Encoding.UTF8.GetBytes(action, buffer);
         fixed (byte* text = buffer)
         {
-            api->Game.Action(Host.Current, text, length, &value);
+            api->Game.Action(entity, text, length, &value);
         }
         return value;
     }
@@ -385,6 +405,37 @@ public static class AnimationExtensions
     public static string GetAnimState(this Entity entity) => Animation.State(entity);
 }
 
+// Skripte im Netz (R5.5). Auf dem Server schicken Skripte Ereignisse an Clients; dort kommen sie
+// als Script.OnNetEvent an den Skripten derselben Entity an ([Client] oder [Everywhere]). Ohne
+// Netz und auf Clients tut Senden nichts.
+public static unsafe class Net
+{
+    public static NetRole Role => Host.Role;
+    public static bool IsServer => Host.Role == NetRole.Server;
+    public static bool IsClient => Host.Role == NetRole.Client;
+
+    // An alle Clients, die entity gerade sehen (Relevanz wie die Schnappschüsse), zuverlässig.
+    public static bool Broadcast(Entity entity, string name, float value = 0.0f) => Send(entity, 0, name, value);
+
+    // An den Spieler, dem die Figur player gehört.
+    public static bool Send(Entity player, Entity entity, string name, float value = 0.0f) =>
+        player.Id != 0 && Send(entity, player.Id, name, value);
+
+    private static bool Send(Entity entity, ulong player, string name, float value)
+    {
+        var api = Host.Api;
+        if (api == null)
+        {
+            return false;
+        }
+        byte[] bytes = Encoding.UTF8.GetBytes(name);
+        fixed (byte* text = bytes)
+        {
+            return api->Game.NetSend(entity.Id, player, text, bytes.Length, value) == 1;
+        }
+    }
+}
+
 // Ereignisse der Physik und der Animation für Skripte; Werte wie EventKind in game_api.cppm.
 public enum EventKind
 {
@@ -395,6 +446,7 @@ public enum EventKind
     Landed,
     Step,
     Animation,
+    Net,
 }
 
 [StructLayout(LayoutKind.Sequential)]

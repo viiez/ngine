@@ -14,9 +14,10 @@ module;
 // Verbindung eines Clients zum Server mit Spielwelt (R5.2): Transport, Replikation in die eigene
 // Welt, welche Figur ihm gehört, Befehle zum Server und der Stand der eigenen Figur zurück (R5.3),
 // seit R5.4 die Deltas des Terrains (replication::TerrainReceiver).
-// Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client --headless) und die Bots
-// (--bots) teilen das.
-export module sandbox.net_client;
+// Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client --headless), die Bots
+// (--bots) und seit R5.5 der Client des Listen-Servers (Sandbox --host, Editor) teilen das; bis
+// R5.4 stand es in der Sandbox.
+export module app.net_client;
 
 import ngine.core;
 import ngine.input;
@@ -24,7 +25,7 @@ import ngine.net;
 import ngine.replication;
 import ngine.world;
 
-namespace sandbox {
+namespace app {
 
 using namespace ngine;
 
@@ -54,6 +55,24 @@ public:
         }
         client->address_ = target;
         log::info("Verbinde zu {}", target);
+        return client;
+    }
+
+    // Verbindung im Speicher zum Transport eines Servers im selben Prozess (R5.5, Listen-Server).
+    // world, schema und server müssen den Client überleben.
+    [[nodiscard]] static std::expected<std::unique_ptr<NetClient>, std::string>
+    connect_local(world::World& world, const replication::Schema& schema,
+                  net::Transport& server) {
+        auto transport = net::Transport::create();
+        if (!transport) {
+            return std::unexpected(transport.error());
+        }
+        auto client =
+            std::unique_ptr<NetClient>{new NetClient{std::move(*transport), world, schema}};
+        if (auto result = client->client_.connect_local(server); !result) {
+            return std::unexpected(result.error());
+        }
+        client->address_ = "Speicher";
         return client;
     }
 
@@ -222,4 +241,4 @@ private:
     f32 pitch_ = 0.0f;
 };
 
-} // namespace sandbox
+} // namespace app

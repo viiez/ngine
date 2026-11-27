@@ -156,6 +156,9 @@ export struct GameWorldDesc {
     const asset::AssetCache* cache = nullptr;
     // Worker des Job-Systems; ohne Angabe so viele, wie der Rechner Kerne hat.
     std::optional<u32> worker_count;
+    // Fremdes Job-System, das die Welt überleben muss (R5.5: Server- und Client-Welt eines
+    // Listen-Servers teilen sich die Worker); worker_count gilt dann nicht.
+    jobs::JobSystem* jobs = nullptr;
     // Die Physik wartet auf die Formen der Chunks und das Terrain auf seine Netze, damit das
     // Ergebnis nicht von der Zahl der Threads abhängt (ohne Fenster und auf dem Server). Nach
     // Pinseln wartet keiner von beiden: Bis die neuen Formen und groben Stufen fertig sind, gelten
@@ -175,14 +178,17 @@ export class GameWorld {
 public:
     explicit GameWorld(GameWorldDesc desc = {})
         : types_{make_game_types()}, world_{types_},
-          jobs_{jobs::JobSystemDesc{.worker_count = desc.worker_count}},
-          resources_{std::make_unique<asset::ResourceManager>(desc.database, &jobs_)},
-          prefabs_{*resources_}, simulation_{world_, jobs_}, shapes_{desc.database, desc.cache},
-          physics_{world_, jobs_}, database_{desc.database}, terrain_materials_{desc.database},
+          own_jobs_{desc.jobs == nullptr ? std::make_unique<jobs::JobSystem>(jobs::JobSystemDesc{
+                                               .worker_count = desc.worker_count})
+                                         : nullptr},
+          jobs_{desc.jobs != nullptr ? desc.jobs : own_jobs_.get()},
+          resources_{std::make_unique<asset::ResourceManager>(desc.database, jobs_)},
+          prefabs_{*resources_}, simulation_{world_, *jobs_}, shapes_{desc.database, desc.cache},
+          physics_{world_, *jobs_}, database_{desc.database}, terrain_materials_{desc.database},
           deterministic_{desc.deterministic} {
         animation::register_loaders(*resources_, desc.cache);
         animation::register_graph_loader(*resources_);
-        animation_ = std::make_unique<animation::AnimationSystem>(*resources_, &jobs_);
+        animation_ = std::make_unique<animation::AnimationSystem>(*resources_, jobs_);
         animation_->set_events(&events_);
         physics_.set_terrain_materials(terrain_materials_.table());
         physics_.set_wait_for_terrain(deterministic_);
@@ -366,7 +372,7 @@ public:
             }
         }
         if (!loaded) {
-            const PlaygroundLayout layout = build_playground(world_, origin, jobs_);
+            const PlaygroundLayout layout = build_playground(world_, origin, *jobs_);
             (void)spawn_figure(layout.spawn);
             const asset::AssetId lantern = asset_id("prefabs/laterne.prefab");
             if (const world::Prefab* prefab = lantern != 0 ? prefabs_.get(lantern) : nullptr) {
@@ -415,7 +421,7 @@ public:
             scripts_->update();
         }
         (void)world::update_transforms(world_);
-        (void)world::update_terrains(world_, jobs_,
+        (void)world::update_terrains(world_, *jobs_,
                                      {.wait = deterministic_, .wait_for_edits = false});
         const u32 steps = simulation_.advance(dt);
         update_animation(dt);
@@ -442,7 +448,7 @@ public:
         return world_;
     }
     [[nodiscard]] jobs::JobSystem& jobs() noexcept {
-        return jobs_;
+        return *jobs_;
     }
     [[nodiscard]] asset::ResourceManager& resources() noexcept {
         return *resources_;
@@ -506,7 +512,8 @@ private:
 
     reflect::TypeRegistry types_;
     world::World world_;
-    jobs::JobSystem jobs_;
+    std::unique_ptr<jobs::JobSystem> own_jobs_;
+    jobs::JobSystem* jobs_;
     // Nach den Jobs angelegt, deshalb vor ihnen zerstört: Laufende Ladevorgänge müssen fertig sein.
     std::unique_ptr<asset::ResourceManager> resources_;
     PrefabLibrary prefabs_;

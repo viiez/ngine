@@ -28,6 +28,39 @@ public static unsafe class Host
     private static readonly List<ScriptClass> classes = new();
     private static int tick;
 
+    // Skript-Welten (R5.5): Jedes ScriptSystem der Engine ist eine; die gewählte bestimmt
+    // Typ-Indizes, Instanzen und Zeit. 0 ist die Welt ohne ScriptSystem.
+    internal static int Domain;
+    internal static NetRole Role = NetRole.Local;
+    private static readonly Dictionary<int, (float Delta, double Elapsed)> times = new();
+
+    [UnmanagedCallersOnly]
+    public static void SelectDomain(int domain, int role)
+    {
+        if (domain != Domain)
+        {
+            times[Domain] = (Time.Delta, Time.Elapsed);
+            (float delta, double elapsed) = times.TryGetValue(domain, out var saved) ? saved : (0.0f, 0.0);
+            Time.Delta = delta;
+            Time.Elapsed = elapsed;
+            Domain = domain;
+            // Typen neu nachschlagen: Jede Welt hat ihre eigene Registry.
+            ++World.Generation;
+        }
+        Role = (NetRole)role;
+    }
+
+    // Vergisst eine Skript-Welt; ihre Instanzen hat ResetInstances schon gestoppt.
+    [UnmanagedCallersOnly]
+    public static void ForgetDomain(int domain)
+    {
+        foreach (ScriptClass cls in classes)
+        {
+            cls.Forget(domain);
+        }
+        times.Remove(domain);
+    }
+
     [UnmanagedCallersOnly]
     public static int Initialize(NativeApi* native, int size)
     {
@@ -226,7 +259,7 @@ public static unsafe class Host
             List<Script> order = runOrder;
             foreach (ScriptClass cls in classes)
             {
-                if (cls.TypeIndex < 0)
+                if (cls.TypeIndex < 0 || !cls.RunsAs(Role))
                 {
                     continue;
                 }
@@ -366,6 +399,13 @@ public static unsafe class Host
                         break;
                     case EventKind.Step:
                         Each(e.A, s => s.OnStep(e.Point, e.Material, e.Value != 0));
+                        break;
+                    case EventKind.Net:
+                        if (byEntity.ContainsKey(e.A))
+                        {
+                            string name = Encoding.UTF8.GetString(e.Text, e.TextLength);
+                            Each(e.A, s => s.OnNetEvent(name, e.Value));
+                        }
                         break;
                     case EventKind.Animation:
                         if (byEntity.ContainsKey(e.A))

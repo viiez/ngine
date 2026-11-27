@@ -102,6 +102,8 @@ public:
 
     // Verbindet zu "adresse:port".
     [[nodiscard]] Result<void> connect(std::string_view address);
+    // Verbindung im Speicher zum Transport eines Servers im selben Prozess (R5.5).
+    [[nodiscard]] Result<void> connect_local(net::Transport& server);
     // Wendet Schnappschüsse an, bestätigt sie und hängt Nutzdaten des Servers an received an. Ein
     // Fehler (anderes Schema, kaputter Schnappschuss) trennt die Verbindung.
     [[nodiscard]] Result<void> poll(std::vector<Received>& received);

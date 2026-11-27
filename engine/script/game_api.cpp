@@ -1,5 +1,6 @@
 module;
 
+#include <map>
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -37,6 +38,7 @@ struct Context {
     audio::AudioEngine* audio_engine = nullptr;
     const world::TerrainMaterials* materials = nullptr;
     animation::AnimationSystem* animation = nullptr;
+    const ScriptNet* net = nullptr;
     std::vector<events::Subscription> subscriptions;
     std::vector<NativeEvent> events;
     // Ereignisse der Animation: Entity des Animators und Name, bis zur Zustellung.
@@ -44,9 +46,14 @@ struct Context {
     std::vector<std::string> delivered_names;
 };
 
+// Zustand pro Skript-Welt (R5.5, script_domain() aus :world_api).
+std::map<u32, Context>& contexts() {
+    static std::map<u32, Context> instances;
+    return instances;
+}
+
 Context& context() {
-    static Context instance;
-    return instance;
+    return contexts()[script_domain()];
 }
 
 std::string_view text(const u8* data, i32 length) {
@@ -178,13 +185,19 @@ audio::AudioBus bus_of(i32 bus) {
 }
 
 i32 api_sound_play(u64 sound, const f64* position, i32 bus, f32 volume, f32 pitch) {
-    audio::AudioSystem* system = context().audio;
-    if (system == nullptr) {
-        return 0;
-    }
+    const Context& c = context();
+    audio::AudioSystem* system = c.audio;
     std::optional<math::DVec3> at;
     if (position != nullptr) {
         at = dvec3(position);
+    }
+    if (system == nullptr) {
+        // Auf dem Server (kein Audio-Gerät): Einmal-Klang für die Clients in Hörweite (R5.5).
+        if (c.net != nullptr && c.net->sound && sound != 0) {
+            c.net->sound(sound, at, bus_of(bus), volume, pitch);
+            return 1;
+        }
+        return 0;
     }
     return system->play_at(
                sound, at,
@@ -294,6 +307,15 @@ i32 api_anim_state(u64 entity, u8* out, i32 capacity) {
 
 } // namespace
 
+i32 api_net_send(u64 entity, u64 player, const u8* name, i32 length, f32 value) {
+    const Context& c = context();
+    if (c.net == nullptr || !c.net->event) {
+        return 0;
+    }
+    c.net->event(entity, player, text(name, length), value);
+    return 1;
+}
+
 GameApi make_game_api() {
     return GameApi{
         .action = api_action,
@@ -309,7 +331,12 @@ GameApi make_game_api() {
         .footstep_sound = api_footstep_sound,
         .anim_set = api_anim_set,
         .anim_state = api_anim_state,
+        .net_send = api_net_send,
     };
+}
+
+void bind_script_net(const ScriptNet* net) {
+    context().net = net;
 }
 
 void set_script_input_fixed(bool fixed) {
@@ -430,6 +457,12 @@ std::vector<NativeEvent> take_script_animation_events() {
         }
     }
     return result;
+}
+
+void drop_game_domain(u32 domain) {
+    if (domain != 0) {
+        contexts().erase(domain);
+    }
 }
 
 } // namespace ngine::script

@@ -135,6 +135,16 @@ Result<void> Client::connect(std::string_view address) {
     return {};
 }
 
+Result<void> Client::connect_local(net::Transport& server) {
+    auto connection = transport_->connect_local(server);
+    if (!connection) {
+        return std::unexpected(connection.error());
+    }
+    connection_ = *connection;
+    state_ = ClientState::Connecting;
+    return {};
+}
+
 Result<void> Client::poll(std::vector<Received>& received) {
     NGINE_PROFILE_ZONE("replication::Client::poll");
     events_.clear();

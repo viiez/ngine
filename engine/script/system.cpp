@@ -268,6 +268,8 @@ std::string ScriptBuilder::assembly_path() const {
 
 struct ScriptSystem::Impl {
     ScriptRuntime* runtime = nullptr;
+    // Eigene Skript-Welt der Laufzeit (R5.5); vor jedem Aufruf gewählt.
+    u32 domain = 0;
     reflect::TypeRegistry* types = nullptr;
     ScriptSystemDesc desc;
     std::optional<ScriptBuilder> builder;
@@ -306,7 +308,12 @@ struct ScriptSystem::Impl {
         }
     }
 
+    void select() const {
+        runtime->select_domain(domain);
+    }
+
     bool reload(std::string_view assembly) {
+        select();
         if (runtime->scripts_loaded()) {
             runtime->store_fields();
             const auto unloaded = runtime->unload_scripts();
@@ -356,6 +363,7 @@ struct ScriptSystem::Impl {
         if (!active || world == nullptr || !runtime->scripts_loaded()) {
             return;
         }
+        select();
         if (auto ran = runtime->run(phase, delta);
             !ran && reported_generation != status.generation) {
             reported_generation = status.generation;
@@ -370,6 +378,7 @@ ScriptSystem::ScriptSystem(ScriptRuntime& runtime, reflect::TypeRegistry& types,
     impl_->runtime = &runtime;
     impl_->types = &types;
     impl_->desc = std::move(desc);
+    impl_->domain = runtime.create_domain(impl_->desc.role);
     runtime.use_types(&types);
     if (!impl_->desc.project.empty()) {
         impl_->builder.emplace(
@@ -384,14 +393,32 @@ ScriptSystem::ScriptSystem(ScriptRuntime& runtime, reflect::TypeRegistry& types,
 ScriptSystem::~ScriptSystem() {
     impl_->builder.reset(); // wartet auf einen laufenden Bau
     bind(nullptr);
-    if (impl_->runtime->scripts_loaded()) {
+    impl_->select();
+    // Gibt es noch andere Skript-Welten (R5.5), bleiben die Skripte für sie geladen.
+    if (impl_->runtime->scripts_loaded() && impl_->runtime->domain_count() <= 1) {
         static_cast<void>(impl_->runtime->unload_scripts());
     }
     impl_->runtime->use_types(nullptr);
+    impl_->runtime->destroy_domain(impl_->domain);
 }
 
 void ScriptSystem::start(bool wait) {
     if (!impl_->builder) {
+        return;
+    }
+    impl_->select();
+    // Eine andere Skript-Welt hat die Assembly schon geladen (R5.5, Listen-Server): Nur ihre
+    // Klassen hier anmelden. Bauen und Beobachten macht die Welt, die zuerst geladen hat; lädt sie
+    // neu, meldet die Laufzeit die Klassen in allen Welten neu an.
+    if (impl_->runtime->scripts_loaded()) {
+        if (auto adopted = impl_->runtime->adopt_scripts(); !adopted) {
+            log::error("Skripte: {}", adopted.error());
+            return;
+        }
+        impl_->status.generation = 1;
+        for (const reflect::TypeInfo* type : impl_->runtime->script_types()) {
+            impl_->status.classes.push_back(type->name);
+        }
         return;
     }
     // Die Anordnung der Structs in NGine.Scripting muss zur Engine passen (gleicher Build).
@@ -428,6 +455,7 @@ void ScriptSystem::update() {
     if (!impl_->builder) {
         return;
     }
+    impl_->select();
     if (impl_->watcher && !impl_->sdk_missing) {
         bool changed = false;
         for (const filesystem::FileEvent& event : impl_->watcher->poll()) {
@@ -464,6 +492,7 @@ void ScriptSystem::rebuild() {
 void ScriptSystem::bind(world::World* world, const input::ActionState* actions,
                         const physics::PhysicsWorld* physics, events::EventBus* bus) {
     impl_->world = world;
+    impl_->select();
     impl_->runtime->bind_world(world);
     impl_->runtime->bind_input(actions);
     if (world == nullptr) {
@@ -473,16 +502,56 @@ void ScriptSystem::bind(world::World* world, const input::ActionState* actions,
 }
 
 void ScriptSystem::bind_input(u64 entity, const input::ActionState* actions) {
+    impl_->select();
     impl_->runtime->bind_input(entity, actions);
 }
 
 void ScriptSystem::bind_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                               const world::TerrainMaterials* materials) {
+    impl_->select();
     impl_->runtime->bind_audio(audio, engine, materials);
 }
 
 void ScriptSystem::bind_animation(animation::AnimationSystem* animation) {
+    impl_->select();
     impl_->runtime->bind_animation(animation);
+}
+
+void ScriptSystem::bind_net(const ScriptNet* net) {
+    impl_->select();
+    impl_->runtime->bind_net(net);
+}
+
+void ScriptSystem::deliver_net_event(u64 entity, std::string_view name, f32 value) {
+    if (!impl_->active || impl_->world == nullptr) {
+        return;
+    }
+    impl_->select();
+    if (auto delivered = impl_->runtime->deliver_net_event(entity, name, value); !delivered) {
+        log::error("Skripte: {}", delivered.error());
+    }
+}
+
+void ScriptSystem::store_fields() {
+    impl_->select();
+    if (impl_->runtime->scripts_loaded()) {
+        impl_->runtime->store_fields();
+    }
+}
+
+void ScriptSystem::load_fields() {
+    impl_->select();
+    if (impl_->runtime->scripts_loaded()) {
+        impl_->runtime->load_fields();
+    }
+}
+
+ScriptRole ScriptSystem::role() const noexcept {
+    return impl_->desc.role;
+}
+
+void ScriptSystem::select() {
+    impl_->select();
 }
 
 void ScriptSystem::run(ScriptPhase phase, f32 delta) {
@@ -499,6 +568,7 @@ void ScriptSystem::add_to(world::Simulation& simulation) {
 }
 
 void ScriptSystem::set_active(bool active) {
+    impl_->select();
     if (impl_->active && !active && impl_->runtime->scripts_loaded()) {
         impl_->runtime->reset_instances();
     }
@@ -507,6 +577,7 @@ void ScriptSystem::set_active(bool active) {
 }
 
 void ScriptSystem::validate() {
+    impl_->select();
     if (!impl_->active) {
         impl_->runtime->validate();
     }
@@ -521,6 +592,7 @@ const ScriptStatus& ScriptSystem::status() const noexcept {
 }
 
 ScriptRuntime& ScriptSystem::runtime() noexcept {
+    impl_->select();
     return *impl_->runtime;
 }
 

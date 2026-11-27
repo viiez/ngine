@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <format>
@@ -163,4 +164,86 @@ TEST_CASE("Transport listens only once", "[net]") {
     auto server = make_transport();
     REQUIRE(server->listen(0));
     CHECK_FALSE(server->listen(0));
+}
+
+// Verbindung im Speicher (R5.5, Listen-Server): Der Server lauscht zugleich über UDP, der Client im
+// selben Prozess hängt über ein Paar ohne Netz an ihm.
+TEST_CASE("Transport pairs connect in memory next to a UDP client", "[net]") {
+    auto server = make_transport();
+    auto host = make_transport();
+    auto remote = make_transport();
+    const auto port = server->listen(0);
+    REQUIRE(port);
+    const auto local = host->connect_local(*server);
+    REQUIRE(local);
+    CHECK_FALSE(server->connect_local(*server));
+    const auto udp = remote->connect(std::format("127.0.0.1:{}", *port));
+    REQUIRE(udp);
+
+    std::vector<net::Event> server_events;
+    std::vector<net::Event> host_events;
+    std::vector<net::Event> remote_events;
+    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
+        remote->poll(remote_events);
+        return count_events<net::event::Connected>(server_events) == 2 &&
+               count_events<net::event::Connected>(host_events) == 1 &&
+               count_events<net::event::Connected>(remote_events) == 1;
+    }));
+    REQUIRE(host->connections() == std::vector<net::ConnectionId>{*local});
+    REQUIRE(server->connections().size() == 2);
+    // Welche Verbindung des Servers der Host ist, zeigt seine erste Nachricht.
+    net::ConnectionId host_on_server = 0;
+
+    // Beide Richtungen, zuverlässig und unzuverlässig.
+    for (int i = 0; i < 50; ++i) {
+        REQUIRE(host->send(*local, bytes(std::format("Host {}", i)), net::Delivery::Reliable));
+    }
+    REQUIRE(host->send(*local, bytes("schnell"), net::Delivery::Unreliable));
+    server_events.clear();
+    std::vector<std::string> from_host;
+    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
+        for (net::Event& e : server_events) {
+            if (auto* message = std::get_if<net::event::Message>(&e)) {
+                host_on_server = message->connection;
+                from_host.push_back(text(message->data));
+            }
+        }
+        server_events.clear();
+        return from_host.size() == 51;
+    }));
+    for (int i = 0; i < 50; ++i) {
+        CHECK(from_host[static_cast<usize>(i)] == std::format("Host {}", i));
+    }
+    CHECK(from_host.back() == "schnell");
+
+    REQUIRE(server->send(host_on_server, bytes("Antwort"), net::Delivery::Reliable));
+    host_events.clear();
+    REQUIRE(pump(*server, server_events, *host, host_events,
+                 [&] { return count_events<net::event::Message>(host_events) == 1; }));
+    CHECK(server->stats(host_on_server).ping_ms >= 0);
+
+    // Trennt der Host, merkt es der Server; der UDP-Client bleibt.
+    host->disconnect(*local);
+    server_events.clear();
+    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
+        return count_events<net::event::Disconnected>(server_events) == 1;
+    }));
+    CHECK(server->connections().size() == 1);
+    CHECK(remote->send(*udp, bytes("noch da"), net::Delivery::Reliable));
+
+    // Andersherum: Der Server trennt ein neues Paar, der Client merkt es.
+    const auto again = host->connect_local(*server);
+    REQUIRE(again);
+    host_events.clear();
+    server_events.clear();
+    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
+        return count_events<net::event::Connected>(server_events) == 1 &&
+               count_events<net::event::Connected>(host_events) == 1;
+    }));
+    const auto& connected = std::get<net::event::Connected>(server_events.front());
+    server->disconnect(connected.connection);
+    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
+        return count_events<net::event::Disconnected>(host_events) == 1;
+    }));
+    CHECK(host->connections().empty());
 }

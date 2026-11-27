@@ -36,9 +36,16 @@ struct Context {
     std::map<std::vector<i32>, std::unique_ptr<CachedQuery>> queries;
 };
 
+u32 active_domain = 0;
+
+// Zustand pro Skript-Welt; Knoten einer std::map bewegen sich nicht, Verweise bleiben gültig.
+std::map<u32, Context>& contexts() {
+    static std::map<u32, Context> instances;
+    return instances;
+}
+
 Context& context() {
-    static Context instance;
-    return instance;
+    return contexts()[active_domain];
 }
 
 std::string_view text(const u8* data, i32 length) {
@@ -336,6 +343,20 @@ void apply_script_commands() {
     Context& c = context();
     if (c.commands) {
         c.commands->apply();
+    }
+}
+
+u32 script_domain() noexcept {
+    return active_domain;
+}
+
+void set_script_domain(u32 domain) noexcept {
+    active_domain = domain;
+}
+
+void drop_world_domain(u32 domain) {
+    if (domain != 0) {
+        contexts().erase(domain);
     }
 }
 

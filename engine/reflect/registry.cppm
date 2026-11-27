@@ -141,8 +141,12 @@ public:
         const TypeInfo* type = nullptr;
         std::optional<Range> range;
         Hint hint = Hint::None;
+        // Bleibt lokal, auch wenn der Typ repliziert wird (R5.5, [Local] an Skript-Feldern).
+        bool local = false;
     };
-    TypeInfo& add_composite(std::string_view name, std::span<const CompositeField> fields);
+    // replicated: Der Typ geht mit den Schnappschüssen (R5.5, [Replicated] an Skript-Klassen).
+    TypeInfo& add_composite(std::string_view name, std::span<const CompositeField> fields,
+                            bool replicated = false);
     // Vorlage eines zusammengesetzten Typs; wer sie ändert, ändert die Standardwerte.
     [[nodiscard]] static void* composite_prototype(const TypeInfo& type);
     // Nimmt einen Typ aus der Suche nach Name und Kennung. Er bleibt gültig (Zeiger, Index), und
