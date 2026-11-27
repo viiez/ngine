@@ -36,6 +36,7 @@ export module app.game_server;
 import ngine.core;
 import ngine.animation;
 import ngine.asset;
+import ngine.audio;
 import ngine.input;
 import ngine.jobs;
 import ngine.math;
@@ -293,6 +294,15 @@ public:
         const auto found = players_.find(client);
         return found != players_.end() ? found->second.figure : 0;
     }
+    // Client, dem die Figur gehört; nullopt, wenn sie keinem gehört.
+    [[nodiscard]] std::optional<net::ConnectionId> client_of(u64 figure) const {
+        for (const auto& [client, player] : players_) {
+            if (player.figure == figure) {
+                return client;
+            }
+        }
+        return std::nullopt;
+    }
 
     // Eine Zeile pro Spieler für den Statusbericht.
     void report() const {
@@ -396,6 +406,19 @@ export struct ServerFrameStats {
     usize snapshot_bytes = 0;
 };
 
+// Ereignisse und Einmal-Klänge der Skripte (R5.5), seit dem letzten Statusbericht.
+export struct ServerNetStats {
+    u64 events = 0;
+    usize event_bytes = 0;
+    u64 sounds = 0;
+    usize sound_bytes = 0;
+    // Net.Send an eine Figur, die keinem Spieler gehört.
+    u64 unowned = 0;
+};
+
+// Hörweite eines Einmal-Klangs vom Server in Metern (Reichweite der Effekte).
+export inline constexpr f64 sound_range = 50.0;
+
 // Transport, Replikation und Spieler über einer Spielwelt (R5.5). Gehört dem Thread der Welt.
 export class ServerSession {
 public:
@@ -414,6 +437,11 @@ public:
 
     ServerSession(const ServerSession&) = delete;
     ServerSession& operator=(const ServerSession&) = delete;
+    ~ServerSession() {
+        if (script::ScriptSystem* scripts = game_->scripts()) {
+            scripts->bind_net(nullptr);
+        }
+    }
 
     // Nimmt Clients über UDP an (0 wählt einen freien Port). Verbindungen im Speicher
     // (Transport::connect_local) gehen auch ohne.
@@ -449,6 +477,10 @@ public:
         players_.track_contacts();
         if (frame_ % 2 == 0) {
             players_.update_focus();
+            // Felder replizierter Skripte in ihre Komponenten, damit der Schnappschuss sie sieht.
+            if (script::ScriptSystem* scripts = game_->scripts()) {
+                scripts->store_fields();
+            }
             server_.send_snapshot();
             players_.send_owner_states();
             players_.send_terrain();
@@ -477,8 +509,73 @@ public:
                   stats.active_bodies, stats.characters, server_.entity_count(),
                   stats_.count > 0 ? stats_.total_ms / static_cast<f64>(stats_.count) : 0.0,
                   stats_.max_ms, stats_.snapshot_bytes);
+        if (net_stats_.events > 0 || net_stats_.sounds > 0 || net_stats_.unowned > 0) {
+            const f64 seconds = static_cast<f64>(std::max<u64>(stats_.count, 1)) / 60.0;
+            log::info("  Skripte: {} Ereignisse ({:.2f} KB/s), {} Klänge ({:.2f} KB/s) an Clients, "
+                      "{} an Figuren ohne Spieler",
+                      net_stats_.events,
+                      static_cast<f64>(net_stats_.event_bytes) / 1024.0 / seconds,
+                      net_stats_.sounds,
+                      static_cast<f64>(net_stats_.sound_bytes) / 1024.0 / seconds,
+                      net_stats_.unowned);
+        }
         players_.report();
         stats_ = {};
+        net_stats_ = {};
+    }
+
+    // Was die Skripte seit dem letzten Statusbericht an Clients geschickt haben.
+    [[nodiscard]] const ServerNetStats& net_stats() const noexcept {
+        return net_stats_;
+    }
+
+    // Net.Broadcast (player 0) und Net.Send der Skripte: an Clients, die die Entity kennen, bzw.
+    // an den Spieler der Figur player. Zugestellt im Takt des nächsten Schnappschusses.
+    void send_event(u64 entity, u64 player, std::string_view name, f32 value) {
+        const auto message = replication::encode_event({.tick = server_.tick() + 1,
+                                                        .entity = entity,
+                                                        .value = value,
+                                                        .name = std::string{name}});
+        const auto deliver = [&](net::ConnectionId client) {
+            if (server_.send(client, message, net::Delivery::Reliable)) {
+                ++net_stats_.events;
+                net_stats_.event_bytes += message.size();
+            }
+        };
+        if (player != 0) {
+            const auto client = players_.client_of(player);
+            if (!client) {
+                ++net_stats_.unowned;
+                return;
+            }
+            deliver(*client);
+            return;
+        }
+        for (const net::ConnectionId client : server_.clients()) {
+            if (server_.relevant(client, entity)) {
+                deliver(client);
+            }
+        }
+    }
+
+    // Audio.Play der Skripte ohne Audio-Gerät: an Clients in Hörweite, ohne Ort an alle.
+    void send_sound(u64 sound, std::optional<math::DVec3> position, audio::AudioBus bus,
+                    f32 volume, f32 pitch) {
+        const auto message = replication::encode_sound({.tick = server_.tick() + 1,
+                                                        .sound = sound,
+                                                        .position = position,
+                                                        .bus = static_cast<u8>(bus),
+                                                        .volume = volume,
+                                                        .pitch = pitch});
+        for (const net::ConnectionId client : server_.clients()) {
+            if (position && !server_.near(client, *position, sound_range)) {
+                continue;
+            }
+            if (server_.send(client, message, net::Delivery::Unreliable)) {
+                ++net_stats_.sounds;
+                net_stats_.sound_bytes += message.size();
+            }
+        }
     }
 
     [[nodiscard]] u64 frames() const noexcept {
@@ -514,6 +611,16 @@ private:
           server_{*transport_, game.world(), *schema_}, scene_figure_{find_player(game.world())},
           players_{game, server_, scene_figure_, spawn} {
         server_.set_global(global_components(game.types()));
+        net_.event = [this](u64 entity, u64 player, std::string_view name, f32 value) {
+            send_event(entity, player, name, value);
+        };
+        net_.sound = [this](u64 sound, std::optional<math::DVec3> position, audio::AudioBus bus,
+                            f32 volume, f32 pitch) {
+            send_sound(sound, position, bus, volume, pitch);
+        };
+        if (script::ScriptSystem* scripts = game.scripts()) {
+            scripts->bind_net(&net_);
+        }
     }
 
     GameWorld* game_;
@@ -526,6 +633,8 @@ private:
     std::vector<replication::Received> received_;
     u64 frame_ = 0;
     ServerFrameStats stats_;
+    ServerNetStats net_stats_;
+    script::ScriptNet net_;
 };
 
 // Wie ein Listen-Server seine Welt bekommt.
@@ -555,7 +664,9 @@ public:
         game.animation().set_rendering(false);
         game.animation().set_parameter_sync(animation::ParameterSync::Publish);
         if (desc.runtime != nullptr) {
-            game.enable_scripts(*desc.runtime, nullptr, {.watch = false, .wait = true});
+            game.enable_scripts(
+                *desc.runtime, nullptr,
+                {.watch = false, .wait = true, .role = script::ScriptRole::Server});
         }
         math::DVec3 spawn{};
         if (desc.load) {

@@ -137,6 +137,11 @@ public:
     void set_focus(u32 client, std::optional<math::DVec3> focus);
     // Der Client hat den Schnappschuss tick angewendet.
     void acknowledge(u32 client, u32 tick);
+    // Ist entity jetzt für client relevant (Ereignisse der Skripte, R5.5)? Wie beim Schnappschuss:
+    // ohne Mittelpunkt, ohne Lage oder mit globaler Komponente immer, sonst bis zur Reichweite.
+    [[nodiscard]] bool relevant(u32 client, u64 entity) const;
+    // Ist position für client in Reichweite radius (Hörweite eines Klangs)?
+    [[nodiscard]] bool near(u32 client, const math::DVec3& position, f64 radius) const;
 
     // Liest die Welt für den Schnappschuss tick (aufsteigend, ab 1).
     void capture(u32 tick);
@@ -195,6 +200,8 @@ public:
     [[nodiscard]] u64 local_id(u64 server_id) const noexcept;
     [[nodiscard]] usize entity_count() const noexcept;
     [[nodiscard]] u32 last_tick() const noexcept;
+    // Gezeichnete Zeit in Ticks des Servers (nach interpolate(); Takt der Ereignisse, R5.5).
+    [[nodiscard]] f64 render_tick() const noexcept;
     [[nodiscard]] MirrorStats stats() const noexcept;
     // Der zuletzt angewendete Stand (z. B. für Vergleiche mit dem Server in Tests).
     [[nodiscard]] const View& view() const noexcept;

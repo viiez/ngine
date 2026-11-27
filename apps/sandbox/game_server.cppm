@@ -117,7 +117,7 @@ export int run_game_server(const GameServerOptions& options) {
     // Skripte aus dem Cache; mit .NET-SDK baut der Server sie vorher, wenn sie veraltet sind.
     // Gewartet wird, damit die Szene ihre Skript-Komponenten kennt.
     if (runtime) {
-        game.enable_scripts(*runtime, nullptr, {.watch = false, .wait = true});
+        game.enable_scripts(*runtime, nullptr, {.watch = false, .wait = true, .role = script::ScriptRole::Server});
     }
     const auto loading = std::chrono::steady_clock::now();
     math::DVec3 spawn{};

@@ -211,7 +211,8 @@ internal sealed unsafe class ScriptClass
             Name = type.Name,
             Fields = fields.ToArray(),
             Placement = placement,
-            Replicated = type.GetCustomAttribute<ReplicatedAttribute>() != null,
+            // Skripte, die auf Clients laufen, brauchen ihre Komponente dort: Sie geht immer mit.
+            Replicated = placement != NetPlacement.Server || type.GetCustomAttribute<ReplicatedAttribute>() != null,
         };
     }
 

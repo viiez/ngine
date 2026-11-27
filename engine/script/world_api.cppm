@@ -55,5 +55,11 @@ void apply_script_commands();
 void set_script_domain(u32 domain) noexcept;
 // Vergisst den Zustand einer Skript-Welt in dieser Partition.
 void drop_world_domain(u32 domain);
+// Skripte eines Clients: Schreiben in replizierte Komponenten warnt (einmal pro Typ), außer
+// während store_fields() (set_script_storing).
+void set_script_client(bool client) noexcept;
+void set_script_storing(bool storing) noexcept;
+// Typen, für die schon gewarnt wurde (Tests).
+[[nodiscard]] usize script_write_warnings() noexcept;
 
 } // namespace ngine::script

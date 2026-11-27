@@ -20,6 +20,10 @@ module;
 //             f32 vx, vy, vz, u8 Boden, u8 Flags (1 geduckt, 2 berührt Körper): Stand der eigenen
 //             Figur nach diesem Befehl.
 //   Terrain:  Deltas eines Terrains (R5.4), Format in :terrain.
+//   Event:    u32 Tick, u64 Kennung der Entity auf dem Server, f32 Wert, u8 Länge des Namens, dann
+//             der Name in UTF-8 (R5.5, Net.Broadcast/Net.Send der Skripte), zuverlässig.
+//   Sound:    u32 Tick, u64 Asset-ID des Klangs, u8 Flags (1 Ort folgt), bei 1 f64 x, y, z, u8 Bus,
+//             f32 Lautstärke, f32 Tonhöhe (R5.5, Audio.Play auf dem Server), unzuverlässig.
 //
 // Zahlen stehen in Little Endian. Bis R5.2 gingen pro Bild die Aktionen (Actions) und der Blick
 // (View) einzeln; seit R5.3 ist ein Befehl alles, was eine Figur in einem festen Schritt braucht,
@@ -42,6 +46,10 @@ enum class GameMessage : u8 {
     Owner = 3,
     // Server an Client: geänderte Deltas eines Terrains (R5.4, :terrain), zuverlässig.
     Terrain = 4,
+    // Server an Client: Ereignis eines Skripts für eine Entity (R5.5), zuverlässig.
+    Event = 5,
+    // Server an Client: Einmal-Klang in Hörweite (R5.5), unzuverlässig.
+    Sound = 6,
 };
 
 // So viele Befehle trägt eine Nachricht höchstens; der Client schickt die neuesten drei.
@@ -93,6 +101,39 @@ struct OwnerState {
 
 [[nodiscard]] std::vector<std::byte> encode_owner(const OwnerState& state);
 [[nodiscard]] Result<OwnerState> decode_owner(std::span<const std::byte> data);
+
+// Länge eines Ereignisnamens in Bytes höchstens.
+inline constexpr usize max_event_name = 64;
+
+// Ereignis eines Skripts (Net.Broadcast, Net.Send), zugestellt im Takt der Interpolation.
+struct NetEvent {
+    // Tick des Servers, zu dem das Ereignis gilt.
+    u32 tick = 0;
+    // Entity auf dem Server; der Client sucht ihren Spiegel.
+    u64 entity = 0;
+    f32 value = 0.0f;
+    std::string name;
+};
+
+// Name wird auf max_event_name Bytes gekürzt.
+[[nodiscard]] std::vector<std::byte> encode_event(const NetEvent& event);
+[[nodiscard]] Result<NetEvent> decode_event(std::span<const std::byte> data);
+
+// Einmal-Klang, den ein Skript auf dem Server abgespielt hat.
+struct NetSound {
+    u32 tick = 0;
+    // Asset-ID des Klangs.
+    u64 sound = 0;
+    // Ohne Ort ein Klang ohne Raum (z. B. Oberfläche).
+    std::optional<math::DVec3> position;
+    // audio::AudioBus als Zahl.
+    u8 bus = 0;
+    f32 volume = 1.0f;
+    f32 pitch = 1.0f;
+};
+
+[[nodiscard]] std::vector<std::byte> encode_sound(const NetSound& sound);
+[[nodiscard]] Result<NetSound> decode_sound(std::span<const std::byte> data);
 
 struct CommandQueueStats {
     u64 received = 0;

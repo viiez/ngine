@@ -452,6 +452,7 @@ u32 ScriptRuntime::create_domain(ScriptRole role) {
     const u32 id = impl_->next_domain++;
     impl_->domains.emplace(id, role);
     select_domain(id);
+    set_script_client(role == ScriptRole::Client);
     return id;
 }
 
@@ -586,7 +587,9 @@ void ScriptRuntime::bind_animation(animation::AnimationSystem* animation) {
 
 void ScriptRuntime::store_fields() {
     NGINE_PROFILE_ZONE("ScriptRuntime::store_fields");
+    set_script_storing(true);
     (void)impl_->managed.store_fields();
+    set_script_storing(false);
 }
 
 void ScriptRuntime::load_fields() {
@@ -612,6 +615,7 @@ Result<bool> ScriptRuntime::unload_scripts() {
     // Alle Skript-Welten (R5.5): Felder in die Komponenten, Instanzen stoppen, damit keine Welt den
     // alten Kontext festhält. Die gewählte Welt macht das Entladen selbst.
     const u32 selected = domain();
+    set_script_storing(true);
     for (const auto& [id, role] : impl_->domains) {
         if (id == selected) {
             continue;
@@ -625,6 +629,7 @@ Result<bool> ScriptRuntime::unload_scripts() {
     }
     select_domain(selected);
     const i32 result = impl_->managed.unload_scripts();
+    set_script_storing(false);
     if (result < 0) {
         return std::unexpected("Skripte lassen sich nicht entladen");
     }

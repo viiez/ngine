@@ -460,6 +460,10 @@ u32 Mirror::last_tick() const noexcept {
     return impl_->last_tick;
 }
 
+f64 Mirror::render_tick() const noexcept {
+    return impl_->render_tick;
+}
+
 MirrorStats Mirror::stats() const noexcept {
     return impl_->stats;
 }

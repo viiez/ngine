@@ -17,7 +17,8 @@ export namespace ngine::replication {
 
 // 3: Befehle pro festem Schritt und Stand der eigenen Figur (R5.3).
 // 4: Deltas des Terrains (GameMessage::Terrain, R5.4).
-inline constexpr u32 protocol_version = 4;
+// 5: Ereignisse und Einmal-Klänge der Skripte (GameMessage::Event, GameMessage::Sound, R5.5).
+inline constexpr u32 protocol_version = 5;
 
 // Wie eine Komponente auf die Leitung kommt.
 enum class Codec : u8 {

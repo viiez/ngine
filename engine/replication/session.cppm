@@ -63,6 +63,14 @@ public:
     [[nodiscard]] usize entity_count() const noexcept {
         return encoder_.entity_count();
     }
+    // Siehe SnapshotEncoder::relevant() und SnapshotEncoder::near().
+    [[nodiscard]] bool relevant(net::ConnectionId client, u64 entity) const {
+        return encoder_.relevant(client, entity);
+    }
+    [[nodiscard]] bool near(net::ConnectionId client, const math::DVec3& position,
+                            f64 radius) const {
+        return encoder_.near(client, position, radius);
+    }
 
 private:
     net::Transport* transport_;

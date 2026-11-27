@@ -59,6 +59,13 @@ constexpr usize owner_size = 1 + 4 + 1 + 3 * 8 + 3 * 4 + 1 + 1;
 constexpr u8 owner_crouched = 1;
 constexpr u8 owner_touching = 2;
 
+// Art, Tick, Entity, Wert, Länge des Namens.
+constexpr usize event_header = 1 + 4 + 8 + 4 + 1;
+// Art, Tick, Klang, Flags; Bus, Lautstärke, Tonhöhe.
+constexpr usize sound_header = 1 + 4 + 8 + 1;
+constexpr usize sound_tail = 1 + 4 + 4;
+constexpr u8 sound_positioned = 1;
+
 } // namespace
 
 std::optional<GameMessage> game_message(std::span<const std::byte> data) noexcept {
@@ -67,7 +74,8 @@ std::optional<GameMessage> game_message(std::span<const std::byte> data) noexcep
     }
     const auto kind = static_cast<GameMessage>(data[0]);
     if (kind == GameMessage::Commands || kind == GameMessage::Possess ||
-        kind == GameMessage::Owner || kind == GameMessage::Terrain) {
+        kind == GameMessage::Owner || kind == GameMessage::Terrain ||
+        kind == GameMessage::Event || kind == GameMessage::Sound) {
         return kind;
     }
     return std::nullopt;
@@ -343,6 +351,97 @@ std::optional<Command> CommandQueue::next() {
     ++stats_.processed;
     last_ = command;
     return command;
+}
+
+std::vector<std::byte> encode_event(const NetEvent& event) {
+    const usize length = std::min(event.name.size(), max_event_name);
+    std::vector<std::byte> out;
+    out.reserve(event_header + length);
+    out.push_back(static_cast<std::byte>(GameMessage::Event));
+    put<u32>(out, event.tick);
+    put<u64>(out, event.entity);
+    put_f32(out, event.value);
+    out.push_back(static_cast<std::byte>(length));
+    for (usize i = 0; i < length; ++i) {
+        out.push_back(static_cast<std::byte>(event.name[i]));
+    }
+    return out;
+}
+
+Result<NetEvent> decode_event(std::span<const std::byte> data) {
+    if (data.size() < event_header || game_message(data) != GameMessage::Event) {
+        return std::unexpected("Ereignis: Nachricht ist zu kurz oder hat die falsche Art");
+    }
+    const usize length = static_cast<u8>(data[event_header - 1]);
+    if (length > max_event_name || data.size() != event_header + length) {
+        return std::unexpected("Ereignis: Länge des Namens passt nicht");
+    }
+    NetEvent event;
+    event.tick = get<u32>(data, 1);
+    event.entity = get<u64>(data, 5);
+    event.value = get_f32(data, 13);
+    if (!std::isfinite(event.value)) {
+        return std::unexpected("Ereignis: kein endlicher Wert");
+    }
+    event.name.resize(length);
+    for (usize i = 0; i < length; ++i) {
+        event.name[i] = static_cast<char>(data[event_header + i]);
+    }
+    return event;
+}
+
+std::vector<std::byte> encode_sound(const NetSound& sound) {
+    std::vector<std::byte> out;
+    out.reserve(sound_header + 3 * 8 + sound_tail);
+    out.push_back(static_cast<std::byte>(GameMessage::Sound));
+    put<u32>(out, sound.tick);
+    put<u64>(out, sound.sound);
+    out.push_back(static_cast<std::byte>(sound.position ? sound_positioned : 0));
+    if (sound.position) {
+        put<u64>(out, std::bit_cast<u64>(sound.position->x));
+        put<u64>(out, std::bit_cast<u64>(sound.position->y));
+        put<u64>(out, std::bit_cast<u64>(sound.position->z));
+    }
+    out.push_back(static_cast<std::byte>(sound.bus));
+    put_f32(out, sound.volume);
+    put_f32(out, sound.pitch);
+    return out;
+}
+
+Result<NetSound> decode_sound(std::span<const std::byte> data) {
+    if (data.size() < sound_header || game_message(data) != GameMessage::Sound) {
+        return std::unexpected("Klang: Nachricht ist zu kurz oder hat die falsche Art");
+    }
+    const u8 flags = static_cast<u8>(data[sound_header - 1]);
+    if ((flags & ~sound_positioned) != 0) {
+        return std::unexpected("Klang: unbekannte Flags");
+    }
+    const bool positioned = (flags & sound_positioned) != 0;
+    if (data.size() != sound_header + (positioned ? 3 * 8 : 0) + sound_tail) {
+        return std::unexpected("Klang: Nachricht hat die falsche Länge");
+    }
+    NetSound sound;
+    sound.tick = get<u32>(data, 1);
+    sound.sound = get<u64>(data, 5);
+    usize offset = sound_header;
+    if (positioned) {
+        const math::DVec3 position{std::bit_cast<f64>(get<u64>(data, offset)),
+                                   std::bit_cast<f64>(get<u64>(data, offset + 8)),
+                                   std::bit_cast<f64>(get<u64>(data, offset + 16))};
+        if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+            !std::isfinite(position.z)) {
+            return std::unexpected("Klang: kein endlicher Ort");
+        }
+        sound.position = position;
+        offset += 3 * 8;
+    }
+    sound.bus = static_cast<u8>(data[offset]);
+    sound.volume = get_f32(data, offset + 1);
+    sound.pitch = get_f32(data, offset + 5);
+    if (!std::isfinite(sound.volume) || !std::isfinite(sound.pitch)) {
+        return std::unexpected("Klang: keine endlichen Werte");
+    }
+    return sound;
 }
 
 } // namespace ngine::replication

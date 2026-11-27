@@ -6,6 +6,7 @@ module;
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,9 +35,15 @@ struct Context {
     // Komponente pro Index in der Registry; 0 heißt noch nicht nachgeschlagen.
     std::vector<world::ComponentId> components;
     std::map<std::vector<i32>, std::unique_ptr<CachedQuery>> queries;
+    // Skripte eines Clients (R5.5): Schreiben in replizierte Komponenten warnt einmal pro Typ.
+    bool client = false;
+    std::set<u32> warned;
 };
 
 u32 active_domain = 0;
+// Während store_fields() und dem Entladen schreiben die Skripte ihre eigenen Komponenten; das
+// zählt nicht als Schreiben eines Client-Skripts.
+bool storing_fields = false;
 
 // Zustand pro Skript-Welt; Knoten einer std::map bewegen sich nicht, Verweise bleiben gültig.
 std::map<u32, Context>& contexts() {
@@ -116,6 +123,22 @@ i32 api_type_index(const u8* name, i32 length) {
     return type != nullptr ? static_cast<i32>(type->index) : -1;
 }
 
+// Ein Client-Skript schreibt eine replizierte Komponente: Der Server bestimmt sie, der nächste
+// geänderte Stand überschreibt den Wert (R5.5). Einmal pro Typ ins Log.
+void check_client_write(i32 type) {
+    Context& c = context();
+    if (!c.client || storing_fields) {
+        return;
+    }
+    const reflect::TypeInfo* info = type_at(type);
+    if (info == nullptr || !info->replicated || !c.warned.insert(info->index).second) {
+        return;
+    }
+    log::warn("Client-Skript schreibt {} (repliziert): Der Server bestimmt den Wert, sein nächster "
+              "Stand überschreibt ihn",
+              info->name);
+}
+
 void* api_get(u64 entity, i32 type, i32 write) {
     if (!live(entity)) {
         return nullptr;
@@ -128,6 +151,7 @@ void* api_get(u64 entity, i32 type, i32 write) {
     if (write == 0) {
         return const_cast<void*>(w.get(entity, component));
     }
+    check_client_write(type);
     void* data = w.get_mut(entity, component);
     w.modified(entity, component);
     return data;
@@ -150,6 +174,7 @@ i32 api_set(u64 entity, i32 type, const void* value) {
     }
     const auto* source = static_cast<const std::byte*>(value);
     if (live(entity) && c.world->has(entity, component)) {
+        check_client_write(type);
         copy_visible(*info, static_cast<std::byte*>(c.world->get_mut(entity, component)), source);
         c.world->modified(entity, component);
         return 0;
@@ -352,6 +377,18 @@ u32 script_domain() noexcept {
 
 void set_script_domain(u32 domain) noexcept {
     active_domain = domain;
+}
+
+void set_script_client(bool client) noexcept {
+    context().client = client;
+}
+
+void set_script_storing(bool storing) noexcept {
+    storing_fields = storing;
+}
+
+usize script_write_warnings() noexcept {
+    return context().warned.size();
 }
 
 void drop_world_domain(u32 domain) {

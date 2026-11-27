@@ -146,6 +146,9 @@ export struct ScriptOptions {
     bool wait = false;
     // Skripte laufen sofort (Spiel, Server); sonst erst nach scripts()->set_active() (Editor).
     bool active = true;
+    // Welche Klassen laufen (R5.5): ohne Netz alle, auf dem Server die ohne [Client], auf dem
+    // Client die mit [Client] oder [Everywhere].
+    script::ScriptRole role = script::ScriptRole::Local;
 };
 
 export struct GameWorldDesc {
@@ -268,7 +271,8 @@ public:
                                      .cache_dir =
                                          filesystem::join(database_->root(), ".cache/skripte"),
                                      .build = options.build,
-                                     .watch = options.watch});
+                                     .watch = options.watch,
+                                     .role = options.role});
         actions_ = actions;
         scripts_->bind(&world_, actions, &physics_, &events_);
         scripts_->bind_animation(animation_.get());
