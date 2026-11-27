@@ -650,3 +650,43 @@ TEST_CASE("Realtime null device mixes in its own thread", "[audio]") {
     CHECK(stats.mixer.blocks > 0);
     CHECK(stats.mixer.dropped_commands == 0);
 }
+
+TEST_CASE("Sounds without a voice for 30 seconds are released", "[audio]") {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    audio::register_types(types);
+    world::World world{types};
+    asset::ResourceManager resources;
+    audio::register_loaders(resources);
+    const u64 shot = asset::generated_id("klick");
+    const u64 loop = asset::generated_id("summen");
+    resources.add<audio::Sound>(shot, memory_sound(sine(48000, 0.05)));
+    resources.add<audio::Sound>(loop, memory_sound(sine(48000, 0.5)));
+    audio::AudioEngine engine{manual()};
+    audio::AudioSystem system{engine, resources};
+    system.set_fallback_listener(math::Affine{});
+    world::Entity hum = world.create("Summen");
+    hum.set(audio::AudioSource{.sound = loop, .loop = true, .spatial = false});
+    system.update(world, 1.0 / 60.0);
+    CHECK(system.play_at(shot, std::nullopt));
+    CHECK(system.stats().loaded_sounds == 2);
+
+    // Der Einmal-Klang endet; die Schleife spielt weiter.
+    auto* device = engine.manual_device();
+    for (i32 i = 0; i < 4; ++i) {
+        device->render(1024);
+    }
+    system.update(world, 20.0);
+    CHECK(system.stats().one_shots == 0);
+    CHECK(system.stats().loaded_sounds == 2);
+    system.update(world, 11.0);
+    CHECK(system.stats().loaded_sounds == 1);
+    CHECK(system.stats().released == 1);
+    CHECK(system.playing(hum.id()));
+
+    // Wieder gespielt, wird er neu geladen.
+    CHECK(system.play_at(shot, std::nullopt));
+    CHECK(system.stats().loaded_sounds == 2);
+    CHECK(system.stats().one_shots == 1);
+    CHECK(system.stats().pending == 0);
+}

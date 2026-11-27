@@ -29,7 +29,8 @@
         "Laterne": {
           "An": true,
           "Flackern": 0.15,
-          "Reichweite": 4.0
+          "Reichweite": 4.0,
+          "Klick": 5328789037175742962
         }
       }
     },

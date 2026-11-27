@@ -49,6 +49,7 @@ AudioSystem::Choice AudioSystem::choose(u64 sound) {
     u64 id = sound;
     const asset::AssetInfo* info = database_ != nullptr ? database_->find(sound) : nullptr;
     if (info != nullptr && info->type == asset::AssetType::SoundSet) {
+        touch(sound);
         auto [it, added] = sets_.try_emplace(sound);
         if (added) {
             it->second = resources_->load<SoundSet>(sound);
@@ -63,6 +64,7 @@ AudioSystem::Choice AudioSystem::choose(u64 sound) {
         }
         // Alle Klänge des Satzes vorladen, damit die nächste Wahl schon bereit ist.
         for (const u64 member : set->sounds) {
+            touch(member);
             if (!sounds_.contains(member)) {
                 sounds_.emplace(member, resources_->load<Sound>(member));
             }
@@ -75,6 +77,7 @@ AudioSystem::Choice AudioSystem::choose(u64 sound) {
         choice.pitch =
             1.0f + std::clamp(set->pitch_variation, 0.0f, 1.0f) * (2.0f * random() - 1.0f);
     }
+    touch(id);
     auto [it, added] = sounds_.try_emplace(id);
     if (added || !it->second) {
         it->second = resources_->load<Sound>(id);
@@ -103,6 +106,7 @@ VoiceMix AudioSystem::mix_for(const EmitterPose& pose, bool spatial, f32 volume,
 void AudioSystem::update(world::World& world, f64 dt) {
     ++frame_;
     dt_ = dt;
+    time_ += std::max(dt, 0.0);
     pending_ = 0;
     engine_->update();
 
@@ -209,6 +213,40 @@ void AudioSystem::update(world::World& world, f64 dt) {
     });
 
     update_one_shots();
+    release_unused();
+}
+
+void AudioSystem::release_unused() {
+    // Was eine Stimme spielt, bleibt (die Stimme liest seine Samples).
+    for (const auto& [entity, source] : sources_) {
+        if (source.voice.valid() && source.playing_sound != 0) {
+            touch(source.playing_sound);
+            touch(source.sound);
+        }
+    }
+    for (const OneShot& shot : one_shots_) {
+        touch(shot.sound);
+        if (shot.playing_sound != 0) {
+            touch(shot.playing_sound);
+        }
+    }
+    const auto stale = [&](u64 id) {
+        const auto used = last_used_.find(id);
+        return used == last_used_.end() || time_ - used->second > release_after_;
+    };
+    const auto release = [&](auto& cache) {
+        for (auto it = cache.begin(); it != cache.end();) {
+            if (stale(it->first) && it->second.state() != asset::ResourceState::Loading) {
+                last_used_.erase(it->first);
+                it = cache.erase(it);
+                ++released_;
+            } else {
+                ++it;
+            }
+        }
+    };
+    release(sets_);
+    release(sounds_);
 }
 
 void AudioSystem::update_one_shots() {
@@ -232,6 +270,7 @@ void AudioSystem::update_one_shots() {
             }
             shot.variation_volume = choice.volume;
             shot.variation_pitch = choice.pitch;
+            shot.playing_sound = choice.id;
             shot.voice = engine_->play(
                 *choice.sound,
                 PlayParams{.bus = shot.params.bus,
@@ -291,8 +330,12 @@ void AudioSystem::stop_all() {
 }
 
 AudioSystemStats AudioSystem::stats() const noexcept {
-    AudioSystemStats stats{
-        .sources = sources_.size(), .one_shots = one_shots_.size(), .pending = pending_};
+    AudioSystemStats stats{.sources = sources_.size(),
+                           .one_shots = one_shots_.size(),
+                           .pending = pending_,
+                           .loaded_sounds = sounds_.size(),
+                           .loaded_sets = sets_.size(),
+                           .released = released_};
     for (const auto& [entity, source] : sources_) {
         if (engine_->playing(source.voice)) {
             ++stats.playing;

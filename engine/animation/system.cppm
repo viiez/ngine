@@ -133,6 +133,10 @@ private:
         bool posed = false;
         std::vector<const std::string*> fired;
         u64 seen = 0;
+        // Zähler der Auslöser wie AnimatorParameters::triggers (R5.5): auf dem Server gezählt, auf
+        // dem Client der zuletzt übernommene Stand.
+        u32 triggers = 0;
+        bool triggers_seen = false;
     };
 
     void prepare(Instance& instance);

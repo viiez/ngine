@@ -106,6 +106,10 @@ private:
             ui::text(std::format("Quellen in der Welt: {}, spielen {}, Einmal-Klänge {}, laden {}",
                                  world_stats.sources, world_stats.playing, world_stats.one_shots,
                                  world_stats.pending));
+            ui::text(std::format("Geladen: {} Klänge, {} Klangsätze; freigegeben {} (nach 30 s "
+                                 "ohne Stimme)",
+                                 world_stats.loaded_sounds, world_stats.loaded_sets,
+                                 world_stats.released));
         }
         ui::separator();
         ui::checkbox("Reichweiten im Viewport", show_ranges_);

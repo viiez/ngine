@@ -597,3 +597,73 @@ TEST_CASE("Many animators run in parallel jobs", "[animation][jobs]") {
         CHECK(std::memcmp(a.data(), b.data(), a.size_bytes()) == 0);
     }
 }
+
+TEST_CASE("Trigger counters reach followers between snapshots", "[animation]") {
+    reflect::TypeRegistry types;
+    world::register_types(types);
+    animation::register_types(types);
+    asset::ResourceManager resources;
+    animation::register_loaders(resources);
+    animation::register_graph_loader(resources);
+    const u64 model_id = asset::generated_id("test-knochen");
+    const u64 graph_id = asset::generated_id("test-automat");
+    auto rig = animation::make_rig(two_bones());
+    REQUIRE(rig);
+    resources.add<animation::Rig>(model_id, *rig);
+    resources.add<animation::AnimGraph>(graph_id, walk_graph(model_id));
+
+    // Server zählt, Client folgt; Schnappschüsse kopieren AnimatorParameters.
+    world::World server_world{types};
+    world::World client_world{types};
+    animation::AnimationSystem server{resources};
+    animation::AnimationSystem client{resources};
+    server.set_parameter_sync(animation::ParameterSync::Publish);
+    client.set_parameter_sync(animation::ParameterSync::Follow);
+    world::Entity on_server = server_world.create("Figur");
+    on_server.set(world::Transform{}).set(animation::Animator{.graph = graph_id});
+    world::Entity on_client = client_world.create("Figur");
+    on_client.set(world::Transform{}).set(animation::Animator{.graph = graph_id});
+    const auto frame = [&](bool snapshot) {
+        server.update(server_world, 1.0 / 60.0);
+        if (snapshot) {
+            on_client.set(*on_server.get<animation::AnimatorParameters>());
+        }
+        client.update(client_world, 1.0 / 60.0);
+    };
+    frame(true);
+    frame(true);
+    CHECK(on_server.get<animation::AnimatorParameters>()->triggers == 0);
+    CHECK(client.state(on_client.id()) == "Boden");
+
+    // Ausgelöst zwischen zwei Schnappschüssen: Auf dem Server ist der Auslöser im nächsten Bild
+    // verbraucht, der Zähler auf Platz 2 (Los) bleibt.
+    CHECK(server.set_trigger(on_server.id(), "Los"));
+    frame(false);
+    frame(false);
+    CHECK(on_server.get<animation::AnimatorParameters>()->triggers == (1u << 16));
+    for (int i = 0; i < 40; ++i) {
+        frame(true);
+    }
+    CHECK(server.state(on_server.id()) == "Sprung");
+    CHECK(client.state(on_client.id()) == "Sprung");
+
+    // Ein neuer Folger übernimmt den Stand, ohne alte Auslöser noch einmal auszulösen.
+    animation::AnimationSystem late{resources};
+    late.set_parameter_sync(animation::ParameterSync::Follow);
+    world::World late_world{types};
+    world::Entity on_late = late_world.create("Figur");
+    on_late.set(world::Transform{})
+        .set(animation::Animator{.graph = graph_id})
+        .set(*on_server.get<animation::AnimatorParameters>());
+    for (int i = 0; i < 10; ++i) {
+        late.update(late_world, 1.0 / 60.0);
+    }
+    CHECK(late.state(on_late.id()) == "Boden");
+
+    // Der Zähler läuft nach 255 über, ohne die anderen Plätze zu berühren.
+    for (int i = 0; i < 256; ++i) {
+        CHECK(server.set_trigger(on_server.id(), "Los"));
+    }
+    frame(false);
+    CHECK(on_server.get<animation::AnimatorParameters>()->triggers == (1u << 16));
+}

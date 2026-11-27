@@ -8,6 +8,9 @@ namespace Spiel;
 // terrain/standard.terrain-materials), auf Körpern wie Kisten und der Ebene aus AufKoerpern.
 // Hat die Figur einen Animator (R4.6), setzen die Ereignisse Fuss_links und Fuss_rechts der Clips
 // die Schritte, und OnStep der Physik schweigt.
+// Im Netz (R5.5) läuft das Skript nur auf Clients ([Client]): Jeder Client rechnet die Automaten
+// aller Figuren und hört ihre Schritte im Takt ihrer Animation, ohne ein Byte im Netz.
+[Client]
 public class Schritte : Script
 {
     // Darunter (m/s auf der Ebene) zählen Fußereignisse nicht, z. B. beim Überblenden zum Stehen.

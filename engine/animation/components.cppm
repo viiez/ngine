@@ -35,12 +35,16 @@ struct Animator {
 // Parameter des Automaten nach ihrem Platz im Automaten (R5.2): Der Server schreibt sie nach jedem
 // Bild, Clients übernehmen sie vor dem nächsten (AnimationSystem::set_parameter_sync()). So laufen
 // fremde Figuren auf dem Client im selben Zustand, ohne dass dort ein Skript rechnet. Vier Plätze
-// reichen für die Figuren; Auslöser gehen nicht mit, weil sie im Bild verbraucht werden.
+// reichen für die Figuren. Auslöser werden im Bild verbraucht; für sie zählt der Server (R5.5,
+// TD-61) in triggers ein Byte pro Platz hoch, und der Client löst aus, wenn sich sein Byte ändert.
+// So springt eine fremde Figur auch, wenn zwischen zwei Schnappschüssen ausgelöst wurde.
 struct AnimatorParameters {
     f32 p0 = 0.0f;
     f32 p1 = 0.0f;
     f32 p2 = 0.0f;
     f32 p3 = 0.0f;
+    // Byte i zählt die Auslöser auf Platz i (mit Überlauf).
+    u32 triggers = 0;
 
     friend bool operator==(const AnimatorParameters&, const AnimatorParameters&) = default;
 };

@@ -178,6 +178,28 @@ def hum(rng):
     return out
 
 
+def click(rng):
+    """Schalter der Laterne (R5.5): kurzes metallisches Klicken."""
+    n = int(0.08 * RATE)
+    f1, f2 = 2400.0, 3700.0
+    hp = Filter(1500, high=True)
+    out = []
+    for i in range(n):
+        t = i / RATE
+        ring = (math.sin(2 * math.pi * f1 * t) + 0.6 * math.sin(2 * math.pi * f2 * t)) * envelope(
+            t, 0.0005, 0.012)
+        snap = hp(rng.uniform(-1, 1)) * envelope(t, 0.0002, 0.004)
+        out.append(0.6 * ring + 0.9 * snap)
+    return out
+
+
+def write_click():
+    """Eigener Zufall, damit die übrigen Klänge gleich bleiben."""
+    path = os.path.join(ROOT, "welt", "klick.wav")
+    write_wav(path, click(random.Random(5505)))
+    return path
+
+
 def crossfade_loop(samples, overlap):
     body = samples[:len(samples) - overlap]
     tail = samples[len(samples) - overlap:]
@@ -212,6 +234,9 @@ def main():
         path = write_long(base, samples) if long else (write_wav(base + ".wav", samples) or
                                                       base + ".wav")
         print(f"{os.path.relpath(path, ROOT)}: {meta(path)}")
+
+    path = write_click()
+    print(f"{os.path.relpath(path, ROOT)}: {meta(path)}")
 
     for material, asset_id in sets.items():
         print(f"schritte/{material}.soundset: {asset_id}")
