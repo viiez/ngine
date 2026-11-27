@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <format>
+#include <map>
 #include <memory>
 #include <span>
 #include <string>
@@ -31,9 +32,14 @@ struct Context {
     std::vector<const reflect::TypeInfo*> previous;
 };
 
+// Zustand pro Skript-Welt (R5.5, script_domain() aus :world_api).
+std::map<u32, Context>& contexts() {
+    static std::map<u32, Context> instances;
+    return instances;
+}
+
 Context& context() {
-    static Context instance;
-    return instance;
+    return contexts()[script_domain()];
 }
 
 std::string_view text(const u8* data, i32 length) {
@@ -62,14 +68,16 @@ bool same_layout(const reflect::TypeInfo& type,
             a.range.has_value() == b.range.has_value() &&
             (!a.range || (a.range->min == b.range->min && a.range->max == b.range->max &&
                           a.range->step == b.range->step));
-        if (a.name != b.name || a.type != b.type || a.hint != b.hint || !same_range) {
+        if (a.name != b.name || a.type != b.type || a.hint != b.hint || a.local != b.local ||
+            !same_range) {
             return false;
         }
     }
     return true;
 }
 
-i32 api_register_script(const u8* name, i32 length, const ScriptFieldDesc* fields, i32 count) {
+i32 api_register_script(const u8* name, i32 length, const ScriptFieldDesc* fields, i32 count,
+                        i32 replicated) {
     Context& c = context();
     if (c.types == nullptr) {
         return -1;
@@ -92,6 +100,7 @@ i32 api_register_script(const u8* name, i32 length, const ScriptFieldDesc* field
         if (desc.hint >= 0 && desc.hint <= static_cast<i32>(reflect::Hint::Asset)) {
             field.hint = static_cast<reflect::Hint>(desc.hint);
         }
+        field.local = desc.local != 0;
         composite.push_back(std::move(field));
     }
 
@@ -100,14 +109,15 @@ i32 api_register_script(const u8* name, i32 length, const ScriptFieldDesc* field
         log::error("Skript {} heißt wie eine Komponente der Engine", type_name);
         return -1;
     }
-    if (existing != nullptr && same_layout(*existing, composite)) {
+    if (existing != nullptr && same_layout(*existing, composite) &&
+        existing->replicated == (replicated != 0)) {
         c.registered.push_back(existing);
         return static_cast<i32>(existing->index);
     }
     if (existing != nullptr) {
         c.types->retire(*existing);
     }
-    const reflect::TypeInfo& added = c.types->add_composite(type_name, composite);
+    const reflect::TypeInfo& added = c.types->add_composite(type_name, composite, replicated != 0);
     if (existing != nullptr) {
         c.pending.emplace_back(existing, &added);
         log::info("Skript {}: Felder geändert, Komponenten ziehen um", type_name);
@@ -252,6 +262,12 @@ void clear_registered_script_types() {
     Context& c = context();
     c.previous = std::move(c.registered);
     c.registered.clear();
+}
+
+void drop_script_domain(u32 domain) {
+    if (domain != 0) {
+        contexts().erase(domain);
+    }
 }
 
 } // namespace ngine::script

@@ -121,6 +121,39 @@ void SnapshotEncoder::acknowledge(u32 client, u32 tick) {
     }
 }
 
+bool SnapshotEncoder::relevant(u32 client, u64 entity) const {
+    const Impl& d = *impl_;
+    const auto it = d.clients.find(client);
+    if (it == d.clients.end()) {
+        return false;
+    }
+    if (!d.world->alive(entity)) {
+        return false;
+    }
+    if (!it->second.focus) {
+        return true;
+    }
+    for (const world::ComponentId id : d.global) {
+        if (d.world->has(entity, id)) {
+            return true;
+        }
+    }
+    const auto* transform =
+        static_cast<const world::WorldTransform*>(d.world->get(entity, d.world_transform));
+    if (!transform) {
+        return true;
+    }
+    return math::length(transform->position() - *it->second.focus) <= d.settings.relevance;
+}
+
+bool SnapshotEncoder::near(u32 client, const math::DVec3& position, f64 radius) const {
+    const auto it = impl_->clients.find(client);
+    if (it == impl_->clients.end()) {
+        return false;
+    }
+    return !it->second.focus || math::length(position - *it->second.focus) <= radius;
+}
+
 void SnapshotEncoder::capture(u32 tick) {
     NGINE_PROFILE_ZONE("replication::SnapshotEncoder::capture");
     Impl& d = *impl_;

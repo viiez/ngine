@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <format>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string>
@@ -994,4 +995,72 @@ TEST_CASE("Possess names the figure of a client", "[replication]") {
     CHECK_FALSE(replication::decode_possess(std::span{message.data(), 4}).has_value());
     const std::array<std::byte, 1> unknown{std::byte{42}};
     CHECK_FALSE(replication::game_message(unknown).has_value());
+}
+
+TEST_CASE("Events and sounds survive encoding and reject broken messages", "[replication]") {
+    const replication::NetEvent event{
+        .tick = 77, .entity = 0x1122334455667788ULL, .value = 2.5f, .name = "Licht"};
+    const auto message = replication::encode_event(event);
+    CHECK(replication::game_message(message) == replication::GameMessage::Event);
+    const auto decoded = replication::decode_event(message);
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->tick == 77);
+    CHECK(decoded->entity == event.entity);
+    CHECK(decoded->value == 2.5f);
+    CHECK(decoded->name == "Licht");
+    CHECK_FALSE(replication::decode_event(std::span{message.data(), message.size() - 1}));
+    // Lange Namen werden gekürzt.
+    const auto long_name = replication::encode_event({.name = std::string(200, 'x')});
+    CHECK(replication::decode_event(long_name)->name.size() == replication::max_event_name);
+
+    replication::NetSound sound{.tick = 9,
+                                .sound = 42,
+                                .position = math::DVec3{1.0, -2.0, 3.5},
+                                .bus = 2,
+                                .volume = 0.5f,
+                                .pitch = 1.25f};
+    const auto positioned = replication::encode_sound(sound);
+    CHECK(replication::game_message(positioned) == replication::GameMessage::Sound);
+    const auto back = replication::decode_sound(positioned);
+    REQUIRE(back.has_value());
+    CHECK(back->tick == 9);
+    CHECK(back->sound == 42);
+    REQUIRE(back->position.has_value());
+    CHECK(back->position->y == -2.0);
+    CHECK(back->bus == 2);
+    CHECK(back->volume == 0.5f);
+    CHECK(back->pitch == 1.25f);
+    sound.position.reset();
+    const auto plain = replication::encode_sound(sound);
+    CHECK(plain.size() + 24 == positioned.size());
+    CHECK_FALSE(replication::decode_sound(plain)->position.has_value());
+    CHECK_FALSE(replication::decode_sound(std::span{positioned.data(), plain.size()}));
+    // Nicht endliche Werte gelten als kaputt.
+    sound.volume = std::numeric_limits<f32>::infinity();
+    CHECK_FALSE(replication::decode_sound(replication::encode_sound(sound)));
+}
+
+TEST_CASE("Encoder answers relevance like the snapshot", "[replication]") {
+    Link link;
+    link.encoder.set_focus(1, math::DVec3{0.0, 0.0, 0.0});
+    world::Entity close = link.server.create("Nah");
+    close.set(at(10.0));
+    world::Entity outside = link.server.create("Weit weg");
+    outside.set(at(500.0));
+    world::Entity global = link.server.create("Wetter");
+    global.set(Health{3});
+    link.step();
+    CHECK(link.encoder.relevant(1, close.id()));
+    CHECK_FALSE(link.encoder.relevant(1, outside.id()));
+    CHECK(link.encoder.relevant(1, global.id()));
+    // Unbekannte Clients und tote Entities sind nie relevant.
+    CHECK_FALSE(link.encoder.relevant(2, close.id()));
+    const u64 gone = close.id();
+    close.destroy();
+    CHECK_FALSE(link.encoder.relevant(1, gone));
+    CHECK(link.encoder.near(1, math::DVec3{30.0, 0.0, 0.0}, 50.0));
+    CHECK_FALSE(link.encoder.near(1, math::DVec3{60.0, 0.0, 0.0}, 50.0));
+    // Gezeichnete Zeit nach interpolate().
+    link.mirror.interpolate(0.0, 3.0);
+    CHECK(link.mirror.render_tick() == Catch::Approx(link.mirror.last_tick() - 3.0));
 }

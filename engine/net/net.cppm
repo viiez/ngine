@@ -87,6 +87,13 @@ public:
     // Verbindet zu "adresse:port", z. B. "127.0.0.1:27020". Fertig ist die Verbindung erst mit
     // event::Connected.
     [[nodiscard]] Result<ConnectionId> connect(std::string_view address);
+    // Verbindung im Speicher zu einem anderen Transport im selben Prozess (R5.5, Listen-Server):
+    // server bekommt sie wie einen neuen Client, dieser Transport wie ein connect(). Beide melden
+    // beim nächsten poll() event::Connected. Ohne loopback geht nichts durch das Netz, und die
+    // Simulation von Latenz und Verlust gilt nicht; mit loopback läuft das Paar über die
+    // Loopback-Schicht der Bibliothek, die simulate() kennt (Tests). Liefert die Verbindung dieses
+    // Transports.
+    [[nodiscard]] Result<ConnectionId> connect_local(Transport& server, bool loopback = false);
 
     // Höchstens 512 KiB pro Nachricht. false, wenn die Verbindung nicht (mehr) besteht.
     bool send(ConnectionId connection, std::span<const std::byte> data, Delivery delivery);

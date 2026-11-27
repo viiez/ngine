@@ -14,6 +14,7 @@ import ngine.physics;
 import ngine.world;
 import ngine.audio;
 import ngine.animation;
+import :runtime;
 
 namespace ngine::script {
 
@@ -60,6 +61,8 @@ enum class EventKind : i32 {
     // Ereignis eines Zustands der Animation (R4.6); a: Entity mit dem Skript, b: Entity mit dem
     // Animator, text: Name des Ereignisses.
     Animation,
+    // Ereignis vom Server (R5.5, Net.Broadcast); a: Entity, text: Name, value: Wert.
+    Net,
 };
 
 struct NativeEvent {
@@ -110,6 +113,9 @@ struct GameApi {
     // Aktiver Zustand als UTF-8 in out (höchstens capacity Bytes); liefert die volle Länge, -1 ohne
     // Animator.
     i32 (*anim_state)(u64 entity, u8* out, i32 capacity);
+    // Netz (R5.5). Ereignis an die Clients: player 0 an alle, die entity kennen, sonst an den
+    // Spieler, dem die Figur player gehört. 1: angenommen, 0: kein Netz (ohne Server).
+    i32 (*net_send)(u64 entity, u64 player, const u8* name, i32 length, f32 value);
 };
 
 [[nodiscard]] GameApi make_game_api();
@@ -127,6 +133,8 @@ void bind_script_audio(audio::AudioSystem* audio, audio::AudioEngine* engine,
                        const world::TerrainMaterials* materials);
 // Animation für Skripte (R4.6); nullptr löst sie.
 void bind_script_animation(animation::AnimationSystem* animation);
+// Netz für Skripte auf dem Server (R5.5); nullptr löst es.
+void bind_script_net(const ScriptNet* net);
 // Meldet die Ereignisse der Physik und der Animation am Bus an; sie sammeln sich bis
 // take_script_events() bzw. take_script_animation_events().
 void bind_script_events(events::EventBus* bus);
@@ -134,5 +142,8 @@ void bind_script_events(events::EventBus* bus);
 // Ereignisse der Animation seit dem letzten Aufruf, je Vorfahre des Animators eins (für Update).
 // Die Namen bleiben bis zum nächsten Aufruf gültig.
 [[nodiscard]] std::vector<NativeEvent> take_script_animation_events();
+
+// Vergisst den Zustand einer Skript-Welt in dieser Partition (R5.5).
+void drop_game_domain(u32 domain);
 
 } // namespace ngine::script

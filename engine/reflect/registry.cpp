@@ -205,8 +205,8 @@ std::span<const TypeInfo* const> TypeRegistry::types() const noexcept {
     return impl_->ordered;
 }
 
-TypeInfo& TypeRegistry::add_composite(std::string_view name,
-                                      std::span<const CompositeField> fields) {
+TypeInfo& TypeRegistry::add_composite(std::string_view name, std::span<const CompositeField> fields,
+                                      bool replicated) {
     auto data = std::make_shared<CompositeData>();
     TypeInfo info{.name = std::string{name},
                   .id = type_id(name),
@@ -216,6 +216,7 @@ TypeInfo& TypeRegistry::add_composite(std::string_view name,
                   .trivial = true,
                   .ops = composite_ops,
                   .fields = {}};
+    info.replicated = replicated;
     usize offset = 0;
     for (const CompositeField& field : fields) {
         verify(field.type != nullptr && field.type->alignment > 0,
@@ -230,7 +231,8 @@ TypeInfo& TypeRegistry::add_composite(std::string_view name,
                                     .type = field.type,
                                     .offset = offset,
                                     .range = field.range,
-                                    .hint = field.hint});
+                                    .hint = field.hint,
+                                    .local = field.local});
         offset += field.type->size;
         info.alignment = std::max(info.alignment, field.type->alignment);
         info.trivial = info.trivial && field.type->trivial;

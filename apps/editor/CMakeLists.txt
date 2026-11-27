@@ -4,7 +4,7 @@ target_sources(ngine_editor PRIVATE FILE_SET CXX_MODULES FILES
     assets.cppm input.cppm inspector_panel.cppm menu.cppm overlay.cppm scene_tree.cppm
     viewport_tools.cppm prefab_tools.cppm terrain_tools.cppm
     terrain_materials_panel.cppm scripts_panel.cppm audio_panel.cppm
-    animation_panel.cppm)
+    animation_panel.cppm listen_play.cppm)
 target_link_libraries(ngine_editor PRIVATE
     ngine::core ngine::edit ngine::filesystem ngine::math ngine::profile ngine::reflect
     ngine::world ngine::asset ngine::rhi ngine::rhi_vulkan ngine::render ngine::platform

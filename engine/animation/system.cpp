@@ -29,6 +29,14 @@ namespace {
 // Vorfahren, die palette() höchstens hinaufsucht.
 constexpr u32 max_ancestors = 16;
 
+// Plätze in AnimatorParameters (R5.2).
+constexpr usize synced_parameters = 4;
+
+// Zähler der Auslöser auf Platz slot (R5.5).
+u32 trigger_count(u32 triggers, usize slot) noexcept {
+    return (triggers >> (static_cast<u32>(slot) * 8)) & 0xFF;
+}
+
 } // namespace
 
 AnimationSystem::AnimationSystem(asset::ResourceManager& resources, jobs::JobSystem* jobs)
@@ -181,7 +189,6 @@ void AnimationSystem::update(world::World& world, f64 dt) {
     }
 
     // Client: Parameter, wie sie der Server zuletzt geschickt hat (R5.2).
-    constexpr usize synced_parameters = 4;
     if (sync_ == ParameterSync::Follow) {
         for (Instance* instance : active_) {
             const auto* synced = world.entity(instance->entity).get<AnimatorParameters>();
@@ -195,8 +202,15 @@ void AnimationSystem::update(world::World& world, f64 dt) {
             for (usize i = 0; i < count; ++i) {
                 if (machine.parameter_type(i) != ParameterType::Trigger) {
                     (void)machine.set_float(machine.parameter_name(i), values[i]);
+                } else if (instance->triggers_seen && trigger_count(synced->triggers, i) !=
+                                                          trigger_count(instance->triggers, i)) {
+                    // Mehrere Auslöser seit dem letzten Stand lösen einmal aus.
+                    (void)machine.set_trigger(machine.parameter_name(i));
                 }
             }
+            // Beim ersten Stand nur merken: Alte Auslöser gelten nicht noch einmal.
+            instance->triggers = synced->triggers;
+            instance->triggers_seen = true;
         }
     }
 
@@ -225,8 +239,11 @@ void AnimationSystem::update(world::World& world, f64 dt) {
                     values[i] = machine.parameter_value(i);
                 }
             }
-            const AnimatorParameters synced{
-                .p0 = values[0], .p1 = values[1], .p2 = values[2], .p3 = values[3]};
+            const AnimatorParameters synced{.p0 = values[0],
+                                            .p1 = values[1],
+                                            .p2 = values[2],
+                                            .p3 = values[3],
+                                            .triggers = instance->triggers};
             world::Entity entity = world.entity(instance->entity);
             const auto* current = entity.get<AnimatorParameters>();
             if (current == nullptr || *current != synced) {
@@ -279,7 +296,24 @@ bool AnimationSystem::set_bool(u64 entity, std::string_view name, bool value) {
 }
 
 bool AnimationSystem::set_trigger(u64 entity, std::string_view name) {
-    return set_float(entity, name, 1.0f);
+    if (!set_float(entity, name, 1.0f)) {
+        return false;
+    }
+    // Server: Zähler für die Clients (R5.5, TD-61).
+    Instance* instance = find(entity);
+    if (sync_ == ParameterSync::Publish && instance != nullptr && instance->ready) {
+        const StateMachine& machine = instance->machine;
+        const usize count = std::min(machine.parameter_count(), synced_parameters);
+        for (usize i = 0; i < count; ++i) {
+            if (machine.parameter_type(i) == ParameterType::Trigger &&
+                machine.parameter_name(i) == name) {
+                const u32 shift = static_cast<u32>(i) * 8;
+                const u32 next = (trigger_count(instance->triggers, i) + 1) & 0xFF;
+                instance->triggers = (instance->triggers & ~(0xFFu << shift)) | (next << shift);
+            }
+        }
+    }
+    return true;
 }
 
 std::optional<f32> AnimationSystem::parameter(u64 entity, std::string_view name) const {

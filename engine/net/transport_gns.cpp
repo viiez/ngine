@@ -270,6 +270,38 @@ Result<ConnectionId> Transport::connect(std::string_view address) {
     return connection;
 }
 
+Result<ConnectionId> Transport::connect_local(Transport& server, bool loopback) {
+    if (&server == this) {
+        return std::unexpected("Ein Transport kann sich nicht mit sich selbst verbinden");
+    }
+    HSteamNetConnection own = k_HSteamNetConnection_Invalid;
+    HSteamNetConnection other = k_HSteamNetConnection_Invalid;
+    if (!impl_->sockets->CreateSocketPair(&own, &other, loopback, nullptr, nullptr)) {
+        return std::unexpected("Verbindung im Speicher lässt sich nicht anlegen");
+    }
+    ISteamNetworkingUtils* utils = SteamNetworkingUtils();
+    // Paare entstehen ohne Optionen; Benutzerdaten und Rückruf kommen nachträglich, damit eine
+    // Trennung beim jeweils anderen Transport ankommt.
+    const auto adopt = [&](Impl& impl, HSteamNetConnection connection) {
+        impl.sockets->SetConnectionUserData(
+            connection, static_cast<int64>(reinterpret_cast<std::intptr_t>(&impl)));
+        SteamNetworkingConfigValue_t callback{};
+        callback.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged,
+                        reinterpret_cast<void*>(&on_status_changed));
+        utils->SetConfigValueStruct(callback, k_ESteamNetworkingConfig_Connection,
+                                    static_cast<intptr_t>(connection));
+        impl.sockets->SetConnectionPollGroup(connection, impl.poll_group);
+        impl.open.insert(connection);
+        // Ein Paar ist sofort verbunden.
+        if (impl.connected.insert(connection).second) {
+            impl.pending.emplace_back(event::Connected{connection});
+        }
+    };
+    adopt(*impl_, own);
+    adopt(*server.impl_, other);
+    return own;
+}
+
 bool Transport::send(ConnectionId connection, std::span<const std::byte> data, Delivery delivery) {
     if (!impl_->connected.contains(connection)) {
         return false;

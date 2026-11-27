@@ -450,7 +450,15 @@ public:
             view_rotation_ = view.rotation;
             throw_origin_ = view.eye;
         }
-        camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
+        // Im Editor (Spielen als Listen-Server, R5.5) gibt es keine Kamera-Entity in der Welt.
+        if (mode_ == SceneMode::Game) {
+            camera_.set(world::Transform{.position = view_position_, .rotation = view_rotation_});
+        } else {
+            renderer_->camera_override =
+                render::CameraView{.position = view_position_,
+                                   .rotation = math::to_mat3(view_rotation_),
+                                   .camera = camera_settings_};
+        }
         update_animation(dt);
         update_audio(dt);
     }

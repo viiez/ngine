@@ -206,6 +206,30 @@ jobs:
           cat "$log"
           grep -q "steuert" "$log"
 
+      # Listen-Server (R5.5): Server und Client in einem Prozess mit zwei Skript-Welten, der
+      # Client des Hosts verbindet sich im Speicher und läuft die feste Spur; ein zweiter Prozess
+      # verbindet sich über UDP und bekommt eine neue Figur. Beide müssen laufen.
+      - name: Listen-Server und Client starten
+        if: ${{ !matrix.tsan }}
+        shell: bash
+        run: |
+          exe="build/${{ matrix.preset }}/apps/sandbox/ngine_sandbox"
+          [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
+          log="$RUNNER_TEMP/host.log"
+          "$exe" --host 27021 --headless --frames 2400 > "$log" 2>&1 &
+          host=$!
+          for i in $(seq 1 240); do
+            grep -q "Listen-Server bereit" "$log" && break
+            kill -0 "$host" 2>/dev/null || break
+            sleep 0.5
+          done
+          grep -q "Listen-Server bereit" "$log"
+          "$exe" --client 127.0.0.1:27021 --headless --frames 600
+          wait "$host"
+          cat "$log"
+          grep -q "(neu)" "$log"
+          grep -q "Figur ist .* gelaufen" "$log"
+
       - name: Server und ohne Fenster rechnen gleich
         if: ${{ !matrix.tsan }}
         shell: bash
@@ -243,6 +267,11 @@ jobs:
           xvfb-run -a "$exe" --frames 60 --no-ini --play 30 --scene "$RUNNER_TEMP/szene-a.json" \
             --save "$RUNNER_TEMP/szene-c.json"
           cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-c.json"
+          # Seit R5.5: als Listen-Server spielen (Server aus der Sicherung, Welt des Dokuments als
+          # Spiegel des Clients) und stoppen; die Welt muss danach ebenso unverändert sein.
+          xvfb-run -a "$exe" --frames 120 --no-ini --host-play 90 --port 27022 \
+            --scene "$RUNNER_TEMP/szene-a.json" --save "$RUNNER_TEMP/szene-h.json"
+          cmp "$RUNNER_TEMP/szene-a.json" "$RUNNER_TEMP/szene-h.json"
           # Seit R2.4: Modell aus dem Asset-Ordner einfügen (wie Ziehen aus dem Browser) und
           # speichern; die Szene verweist über die Asset-ID darauf und übersteht Öffnen und
           # Speichern textgleich.

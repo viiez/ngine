@@ -29,7 +29,8 @@ void register_types(reflect::TypeRegistry& types) {
             .field("p0", &AnimatorParameters::p0)
             .field("p1", &AnimatorParameters::p1)
             .field("p2", &AnimatorParameters::p2)
-            .field("p3", &AnimatorParameters::p3);
+            .field("p3", &AnimatorParameters::p3)
+            .field("triggers", &AnimatorParameters::triggers);
     }
 }
 

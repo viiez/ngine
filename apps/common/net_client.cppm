@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <cstddef>
+#include <deque>
 #include <expected>
 #include <format>
 #include <memory>
@@ -13,18 +14,23 @@ module;
 
 // Verbindung eines Clients zum Server mit Spielwelt (R5.2): Transport, Replikation in die eigene
 // Welt, welche Figur ihm gehört, Befehle zum Server und der Stand der eigenen Figur zurück (R5.3),
-// seit R5.4 die Deltas des Terrains (replication::TerrainReceiver).
-// Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client --headless) und die Bots
-// (--bots) teilen das.
-export module sandbox.net_client;
+// seit R5.4 die Deltas des Terrains (replication::TerrainReceiver), seit R5.5 Ereignisse und
+// Einmal-Klänge der Skripte des Servers im Takt der Interpolation und die Felder der
+// Client-Skripte. Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client
+// --headless), die Bots
+// (--bots) und seit R5.5 der Client des Listen-Servers (Sandbox --host, Editor) teilen das; bis
+// R5.4 stand es in der Sandbox.
+export module app.net_client;
 
 import ngine.core;
+import ngine.audio;
 import ngine.input;
 import ngine.net;
 import ngine.replication;
+import ngine.script;
 import ngine.world;
 
-namespace sandbox {
+namespace app {
 
 using namespace ngine;
 
@@ -57,11 +63,47 @@ public:
         return client;
     }
 
+    // Verbindung im Speicher zum Transport eines Servers im selben Prozess (R5.5, Listen-Server).
+    // world, schema und server müssen den Client überleben.
+    [[nodiscard]] static std::expected<std::unique_ptr<NetClient>, std::string>
+    connect_local(world::World& world, const replication::Schema& schema, net::Transport& server) {
+        auto transport = net::Transport::create();
+        if (!transport) {
+            return std::unexpected(transport.error());
+        }
+        auto client =
+            std::unique_ptr<NetClient>{new NetClient{std::move(*transport), world, schema}};
+        if (auto result = client->client_.connect_local(server); !result) {
+            return std::unexpected(result.error());
+        }
+        client->address_ = "Speicher";
+        return client;
+    }
+
+    // Skripte der Client-Welt (Rolle Client): Ihre Felder überstehen das Anwenden der
+    // Schnappschüsse, Ereignisse des Servers gehen an sie. nullptr löst sie.
+    void set_scripts(script::ScriptSystem* scripts) noexcept {
+        scripts_ = scripts;
+    }
+    // Spielt Einmal-Klänge des Servers ab; nullptr (ohne Audio) verwirft sie.
+    void set_audio(audio::AudioSystem* audio) noexcept {
+        audio_ = audio;
+    }
+
     // Einmal pro Bild: Schnappschüsse anwenden und bestätigen, Nachrichten des Spiels lesen.
     [[nodiscard]] std::expected<void, std::string> poll() {
         received_.clear();
-        if (auto result = client_.poll(received_); !result) {
-            return result;
+        // Werte der laufenden Skripte in ihre Komponenten, damit der Schnappschuss nur die
+        // replizierten Felder überschreibt; danach zurück in die Instanzen.
+        if (scripts_ != nullptr) {
+            scripts_->store_fields();
+        }
+        auto polled = client_.poll(received_);
+        if (scripts_ != nullptr) {
+            scripts_->load_fields();
+        }
+        if (!polled) {
+            return polled;
         }
         owner_states_.clear();
         for (const replication::Received& message : received_) {
@@ -82,6 +124,16 @@ public:
                            !result && terrain_errors_++ == 0) {
                     log::warn("Client: {}", result.error());
                 }
+            } else if (kind == replication::GameMessage::Event) {
+                if (auto event = replication::decode_event(message.data)) {
+                    events_.push_back(std::move(*event));
+                    ++event_stats_.received;
+                }
+            } else if (kind == replication::GameMessage::Sound) {
+                if (auto sound = replication::decode_sound(message.data)) {
+                    sounds_.push_back(*sound);
+                    ++event_stats_.sounds;
+                }
             }
         }
         if (apply_terrain_) {
@@ -93,6 +145,54 @@ public:
         }
         return {};
     }
+
+    // Nach Mirror::interpolate(): Ereignisse und Klänge, deren Tick die gezeichnete Zeit erreicht
+    // hat; zu späte sofort. Ein Ereignis für eine Entity, die der Spiegel (noch) nicht kennt,
+    // wartet bis zu event_patience Ticks auf sie.
+    void deliver() {
+        const f64 now = client_.mirror().render_tick();
+        const auto due = [&](u32 tick) { return static_cast<f64>(tick) <= now; };
+        while (!sounds_.empty() && due(sounds_.front().tick)) {
+            const replication::NetSound& sound = sounds_.front();
+            if (audio_ != nullptr) {
+                (void)audio_->play_at(
+                    sound.sound, sound.position,
+                    audio::OneShotParams{.bus = static_cast<audio::AudioBus>(
+                                             std::min<u32>(sound.bus, audio::bus_count - 1)),
+                                         .volume = sound.volume,
+                                         .pitch = sound.pitch});
+            }
+            sounds_.pop_front();
+        }
+        while (!events_.empty() && due(events_.front().tick)) {
+            const replication::NetEvent& event = events_.front();
+            const u64 local = client_.mirror().local_id(event.entity);
+            if (local == 0) {
+                if (now < static_cast<f64>(event.tick) + event_patience) {
+                    // Reihenfolge bleibt: Spätere warten mit.
+                    break;
+                }
+                ++event_stats_.dropped;
+            } else if (scripts_ != nullptr) {
+                scripts_->deliver_net_event(local, event.name, event.value);
+                ++event_stats_.delivered;
+            }
+            events_.pop_front();
+        }
+    }
+
+    struct EventStats {
+        u64 received = 0;
+        u64 delivered = 0;
+        // Die Entity kam nicht rechtzeitig.
+        u64 dropped = 0;
+        u64 sounds = 0;
+    };
+    [[nodiscard]] const EventStats& event_stats() const noexcept {
+        return event_stats_;
+    }
+    // So viele Ticks wartet ein Ereignis auf seine Entity (1 s).
+    static constexpr f64 event_patience = 30.0;
 
     // Eine Nachricht des Spiels an den Server (Befehle, R5.3), unzuverlässig.
     void send_game(std::span<const std::byte> data) {
@@ -181,14 +281,16 @@ public:
         return std::format(
             "Netz: Ping {} ms, Verlust {}, {} Schnappschüsse/s mit {:.1f} KB/s (zuletzt {} B, "
             "höchstens {} B), empfangen {:.1f} KB/s, gesendet {:.1f} KB/s; {} Entities, Puffer "
-            "{:.1f} Ticks, {} interpoliert, {} ohne Basis, {} zu spät; Terrain {:.1f} KB{}",
+            "{:.1f} Ticks, {} interpoliert, {} ohne Basis, {} zu spät; Ereignisse {} ({} "
+            "zugestellt, {} verworfen), Klänge {}; Terrain {:.1f} KB{}",
             stats.ping_ms,
             stats.loss >= 0.0f ? std::format("{:.1f} %", stats.loss * 100.0f) : std::string{"?"},
             stats.snapshots_per_second, static_cast<f64>(stats.snapshot_bytes_per_second) / 1024.0,
             stats.last_snapshot_bytes, stats.largest_snapshot_bytes,
             stats.receive_bytes_per_second / 1024.0f, stats.send_bytes_per_second / 1024.0f,
             client_.mirror().entity_count(), stats.mirror.buffer_ticks, stats.mirror.interpolated,
-            stats.mirror.missing_base, stats.mirror.stale,
+            stats.mirror.missing_base, stats.mirror.stale, event_stats_.received,
+            event_stats_.delivered, event_stats_.dropped, event_stats_.sounds,
             static_cast<f64>(terrain_bytes()) / 1024.0,
             apply_terrain_ ? std::format(" in {} Chunks, Umgebung {}, Pinsel {} offen, {} "
                                          "bestätigt, {} abweichend, {} verfallen",
@@ -215,6 +317,11 @@ private:
     bool apply_terrain_ = true;
     usize terrain_bytes_ = 0;
     u32 terrain_errors_ = 0;
+    script::ScriptSystem* scripts_ = nullptr;
+    audio::AudioSystem* audio_ = nullptr;
+    std::deque<replication::NetEvent> events_;
+    std::deque<replication::NetSound> sounds_;
+    EventStats event_stats_;
     // Nur für send_command().
     std::vector<replication::Command> recent_;
     u32 next_command_ = 1;
@@ -222,4 +329,4 @@ private:
     f32 pitch_ = 0.0f;
 };
 
-} // namespace sandbox
+} // namespace app

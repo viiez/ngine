@@ -129,6 +129,8 @@ struct ManagedApi {
     i32 (*reset_instances)() = nullptr;
     i32 (*validate_scripts)() = nullptr;
     i32 (*deliver_events)(const NativeEvent*, i32) = nullptr;
+    void (*select_domain)(i32, i32) = nullptr;
+    void (*forget_domain)(i32) = nullptr;
 };
 
 // Anordnung der Structs, wie C# sie meldet: Typ → Größe und Offsets der Felder.
@@ -225,6 +227,9 @@ struct ScriptRuntime::Impl {
     NativeApi native{native_log, native_add, make_world_api(), make_script_api(), make_game_api()};
     bool scripts_loaded = false;
     std::string assembly_dir;
+    // Skript-Welten und ihre Rollen (R5.5); 0 gibt es immer.
+    std::map<u32, ScriptRole> domains{{0, ScriptRole::Local}};
+    u32 next_domain = 1;
 };
 
 Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& desc) {
@@ -364,7 +369,8 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         !function(m.run_scripts, "RunScripts") || !function(m.store_fields, "StoreFields") ||
         !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances") ||
         !function(m.validate_scripts, "ValidateScripts") ||
-        !function(m.deliver_events, "DeliverEvents")) {
+        !function(m.deliver_events, "DeliverEvents") ||
+        !function(m.select_domain, "SelectDomain") || !function(m.forget_domain, "ForgetDomain")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
     impl->assembly_dir = desc.assembly_dir;
@@ -404,17 +410,118 @@ Result<u32> ScriptRuntime::load_scripts(std::string_view assembly_path) {
             std::format("Skripte aus {} lassen sich nicht laden", assembly_path));
     }
     impl_->scripts_loaded = true;
-    // Skript-Komponenten als Typen anmelden; Komponenten geänderter Typen ziehen um.
-    clear_registered_script_types();
-    if (script_registry() != nullptr) {
-        if (impl_->managed.register_scripts() < 0) {
-            return std::unexpected("Skript-Komponenten lassen sich nicht anmelden");
+    // Skript-Komponenten in jeder Skript-Welt als Typen anmelden (R5.5), die gewählte zuletzt.
+    const u32 selected = domain();
+    Result<void> result;
+    for (const auto& [id, role] : impl_->domains) {
+        if (id == selected) {
+            continue;
         }
-        if (const usize moved = migrate_script_types(); moved > 0) {
-            log::info("{} Skript-Komponenten auf geänderte Felder umgezogen", moved);
+        select_domain(id);
+        if (auto adopted = adopt_scripts(); !adopted) {
+            result = adopted;
         }
     }
+    select_domain(selected);
+    if (auto adopted = adopt_scripts(); !adopted) {
+        return std::unexpected(adopted.error());
+    }
+    if (!result) {
+        return std::unexpected(result.error());
+    }
     return static_cast<u32>(count);
+}
+
+Result<void> ScriptRuntime::adopt_scripts() {
+    // Skript-Komponenten als Typen anmelden; Komponenten geänderter Typen ziehen um.
+    clear_registered_script_types();
+    if (!impl_->scripts_loaded || script_registry() == nullptr) {
+        return {};
+    }
+    if (impl_->managed.register_scripts() < 0) {
+        return std::unexpected("Skript-Komponenten lassen sich nicht anmelden");
+    }
+    if (const usize moved = migrate_script_types(); moved > 0) {
+        log::info("{} Skript-Komponenten auf geänderte Felder umgezogen", moved);
+    }
+    return {};
+}
+
+u32 ScriptRuntime::create_domain(ScriptRole role) {
+    const u32 id = impl_->next_domain++;
+    impl_->domains.emplace(id, role);
+    select_domain(id);
+    set_script_client(role == ScriptRole::Client);
+    return id;
+}
+
+void ScriptRuntime::select_domain(u32 domain) {
+    const auto found = impl_->domains.find(domain);
+    verify(found != impl_->domains.end(), "Unbekannte Skript-Welt");
+    set_script_domain(domain);
+    impl_->managed.select_domain(static_cast<i32>(domain), static_cast<i32>(found->second));
+}
+
+void ScriptRuntime::destroy_domain(u32 domain) {
+    if (domain == 0 || !impl_->domains.contains(domain)) {
+        return;
+    }
+    select_domain(domain);
+    if (impl_->scripts_loaded) {
+        (void)impl_->managed.reset_instances();
+        apply_script_commands();
+    }
+    impl_->managed.forget_domain(static_cast<i32>(domain));
+    drop_world_domain(domain);
+    drop_game_domain(domain);
+    drop_script_domain(domain);
+    impl_->domains.erase(domain);
+    select_domain(0);
+}
+
+u32 ScriptRuntime::domain() const noexcept {
+    return script_domain();
+}
+
+ScriptRole ScriptRuntime::role() const noexcept {
+    const auto found = impl_->domains.find(script_domain());
+    return found != impl_->domains.end() ? found->second : ScriptRole::Local;
+}
+
+void ScriptRuntime::set_role(ScriptRole role) {
+    const u32 domain = script_domain();
+    const auto found = impl_->domains.find(domain);
+    if (found == impl_->domains.end() || domain == 0) {
+        return;
+    }
+    found->second = role;
+    select_domain(domain);
+    set_script_client(role == ScriptRole::Client);
+}
+
+usize ScriptRuntime::domain_count() const noexcept {
+    return impl_->domains.size() - 1;
+}
+
+void ScriptRuntime::bind_net(const ScriptNet* net) {
+    bind_script_net(net);
+}
+
+Result<void> ScriptRuntime::deliver_net_event(u64 entity, std::string_view name, f32 value) {
+    if (!impl_->scripts_loaded || script_world() == nullptr) {
+        return {};
+    }
+    const NativeEvent event{.kind = EventKind::Net,
+                            .a = entity,
+                            .value = value,
+                            .text = reinterpret_cast<const u8*>(name.data()),
+                            .text_length = static_cast<i32>(name.size())};
+    const i32 errors = impl_->managed.deliver_events(&event, 1);
+    apply_script_commands();
+    if (errors > 0) {
+        return std::unexpected(std::format("Fehler in OnNetEvent({})", name));
+    }
+    return {};
 }
 
 void ScriptRuntime::use_types(reflect::TypeRegistry* types) {
@@ -490,7 +597,9 @@ void ScriptRuntime::bind_animation(animation::AnimationSystem* animation) {
 
 void ScriptRuntime::store_fields() {
     NGINE_PROFILE_ZONE("ScriptRuntime::store_fields");
+    set_script_storing(true);
     (void)impl_->managed.store_fields();
+    set_script_storing(false);
 }
 
 void ScriptRuntime::load_fields() {
@@ -513,7 +622,24 @@ void ScriptRuntime::validate() {
 
 Result<bool> ScriptRuntime::unload_scripts() {
     NGINE_PROFILE_ZONE("ScriptRuntime::unload_scripts");
+    // Alle Skript-Welten (R5.5): Felder in die Komponenten, Instanzen stoppen, damit keine Welt den
+    // alten Kontext festhält. Die gewählte Welt macht das Entladen selbst.
+    const u32 selected = domain();
+    set_script_storing(true);
+    for (const auto& [id, role] : impl_->domains) {
+        if (id == selected) {
+            continue;
+        }
+        select_domain(id);
+        if (script_world() != nullptr) {
+            (void)impl_->managed.store_fields();
+            (void)impl_->managed.reset_instances();
+            apply_script_commands();
+        }
+    }
+    select_domain(selected);
     const i32 result = impl_->managed.unload_scripts();
+    set_script_storing(false);
     if (result < 0) {
         return std::unexpected("Skripte lassen sich nicht entladen");
     }

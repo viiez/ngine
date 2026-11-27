@@ -41,6 +41,7 @@ entsteht vor dem ersten PR, das Review nach dem letzten Merge.
 | [R5.2](R5.2-replikation.md) | Konstruktion | Replikation | abgeschlossen |
 | [R5.3](R5.3-vorhersage.md) | Konstruktion | Vorhersage der Spielfigur | abgeschlossen |
 | [R5.4](R5.4-terrain-uebers-netz.md) | Konstruktion | Terrain übers Netz | abgeschlossen |
+| [R5.5](R5.5-listen-server-und-skripte-im-netz.md) | Konstruktion | Listen-Server und Skripte im Netz | in Arbeit |
 
 ## Vorlage
 

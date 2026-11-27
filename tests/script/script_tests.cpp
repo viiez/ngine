@@ -963,3 +963,255 @@ TEST_CASE("Game scripts steer the player and switch the lantern", "[script]") {
     std::error_code ignored;
     std::filesystem::remove_all(cache, ignored);
 }
+
+namespace {
+
+// Skripte für Server und Client (R5.5): ohne Attribut nur auf dem Server, [Client] nur auf dem
+// Client, [Everywhere] auf beiden.
+std::string net_scripts(std::string_view server_step) {
+    return std::format(R"(using NGine;
+public class Zentrale : Script
+{{
+    public int Zug;
+    public int Licht;
+    public override void FixedUpdate()
+    {{
+        Zug += {};
+        if (Zug == 2)
+        {{
+            Net.Broadcast(Entity, "zwei", 2.5f);
+            Net.Send(Entity, Entity, "privat", 1.0f);
+            Audio.Play(77, new DVec3(1.0, 2.0, 3.0), AudioBus.Effects, 0.5f);
+        }}
+        if (Input.For(Entity).Pressed("light"))
+        {{
+            Licht += 1;
+        }}
+    }}
+}}
+
+[Replicated]
+public class Tor : Script
+{{
+    public int Offen = 1;
+    [Local] public int Geheim = 2;
+}}
+
+[Client]
+public class Anzeige : Script
+{{
+    public int Laeufe;
+    public int Ereignisse;
+    public float Wert;
+    public override void FixedUpdate()
+    {{
+        Laeufe += 1;
+        // Schreibt eine replizierte Komponente: Warnung im Log.
+        Get<Transform>().Position = new DVec3(Laeufe, 0.0, 0.0);
+    }}
+    public override void OnNetEvent(string name, float value)
+    {{
+        Ereignisse += 1;
+        Wert = value;
+    }}
+}}
+
+[Everywhere]
+public class Ueberall : Script
+{{
+    public int Server;
+    public int Client;
+    public override void FixedUpdate()
+    {{
+        if (Net.IsServer) Server += 1;
+        if (Net.IsClient) Client += 1;
+    }}
+}}
+)",
+                       server_step);
+}
+
+struct SentEvent {
+    u64 entity = 0;
+    u64 player = 0;
+    std::string name;
+    f32 value = 0.0f;
+};
+
+} // namespace
+
+TEST_CASE("Server and client script worlds share one runtime with roles", "[script]") {
+    auto& rt = runtime();
+    ScriptProject project;
+    project.write("quellen/Netz.cs", net_scripts("1"));
+
+    jobs::JobSystem jobs{{.worker_count = 1}};
+    reflect::TypeRegistry server_types;
+    register_engine_types(server_types);
+    world::World server_world{server_types};
+    world::Simulation server_simulation{server_world, jobs};
+    auto server = std::make_unique<script::ScriptSystem>(
+        rt, server_types,
+        script::ScriptSystemDesc{.project = project.project(),
+                                 .cache_dir = project.cache(),
+                                 .watch = true,
+                                 .role = script::ScriptRole::Server});
+    server->start(true);
+    const auto& status = server->status();
+    REQUIRE(status.last_build.has_value());
+    if (status.last_build->sdk_missing) {
+        server.reset();
+        if (dotnet_required()) {
+            FAIL(".NET-SDK fehlt: " + status.last_build->output);
+        }
+        SKIP(".NET-SDK fehlt");
+    }
+    INFO(status.last_build->output);
+    REQUIRE(status.last_build->ok);
+    CHECK(server->role() == script::ScriptRole::Server);
+
+    // Der Client lädt dieselbe Assembly in seine eigene Registry, ohne selbst zu bauen.
+    reflect::TypeRegistry client_types;
+    register_engine_types(client_types);
+    world::World client_world{client_types};
+    world::Simulation client_simulation{client_world, jobs};
+    auto client = std::make_unique<script::ScriptSystem>(
+        rt, client_types,
+        script::ScriptSystemDesc{.project = project.project(),
+                                 .cache_dir = project.cache(),
+                                 .build = false,
+                                 .watch = false,
+                                 .role = script::ScriptRole::Client});
+    client->start(true);
+    CHECK(client->role() == script::ScriptRole::Client);
+    CHECK(client->status().classes == status.classes);
+    for (const char* name : {"Anzeige", "Tor", "Ueberall", "Zentrale"}) {
+        REQUIRE(server_types.find(name) != nullptr);
+        REQUIRE(client_types.find(name) != nullptr);
+        // Gleiche Reihenfolge, gleiches Schema.
+        CHECK(server_types.find(name)->index == client_types.find(name)->index);
+    }
+    // [Replicated] und Klassen, die auf Clients laufen, gehen mit; [Local] nimmt ein Feld aus.
+    CHECK(server_types.find("Tor")->replicated);
+    CHECK(server_types.find("Anzeige")->replicated);
+    CHECK(server_types.find("Ueberall")->replicated);
+    CHECK_FALSE(server_types.find("Zentrale")->replicated);
+    CHECK_FALSE(server_types.find("Tor")->find_field("Offen")->local);
+    CHECK(server_types.find("Tor")->find_field("Geheim")->local);
+
+    const auto add_all = [](world::World& w) {
+        world::Entity entity = w.create("Tor");
+        entity.set(world::Transform{});
+        for (const char* name : {"Anzeige", "Tor", "Ueberall", "Zentrale"}) {
+            (void)w.ensure(entity.id(), w.component(*w.types().find(name)));
+        }
+        return entity;
+    };
+    world::Entity on_server = add_all(server_world);
+    world::Entity on_client = add_all(client_world);
+
+    std::vector<SentEvent> events;
+    std::vector<std::pair<u64, std::optional<math::DVec3>>> sounds;
+    script::ScriptNet net{
+        .event = [&](u64 entity, u64 player, std::string_view name,
+                     f32 value) { events.push_back({entity, player, std::string{name}, value}); },
+        .sound = [&](u64 sound, std::optional<math::DVec3> position, audio::AudioBus, f32,
+                     f32) { sounds.emplace_back(sound, position); }};
+    input::ActionState figure_actions{input::ActionMap::standard()};
+    server->bind(&server_world);
+    server->bind_net(&net);
+    server->bind_input(on_server.id(), &figure_actions);
+    server->add_to(server_simulation);
+    client->bind(&client_world);
+    client->add_to(client_simulation);
+
+    const auto frame = [&](std::vector<platform::Event> input = {}) {
+        figure_actions.begin_frame();
+        for (const platform::Event& event : input) {
+            figure_actions.handle(event);
+        }
+        figure_actions.end_frame(1.0f / 60.0f);
+        server_simulation.advance(1.0 / 60.0 + 1e-6);
+        client_simulation.advance(1.0 / 60.0 + 1e-6);
+        figure_actions.end_fixed_step();
+    };
+    const auto value = [](world::World& w, world::Entity entity, std::string_view type,
+                          std::string_view name) -> i32 {
+        const reflect::TypeInfo& info = *w.types().find(type);
+        return field<i32>(w.get_mut(entity.id(), w.component(info)), info, name);
+    };
+    for (int i = 0; i < 3; ++i) {
+        frame();
+    }
+    server->store_fields();
+    client->store_fields();
+    CHECK(value(server_world, on_server, "Zentrale", "Zug") == 3);
+    CHECK(value(server_world, on_server, "Ueberall", "Server") == 3);
+    CHECK(value(server_world, on_server, "Ueberall", "Client") == 0);
+    CHECK(value(server_world, on_server, "Anzeige", "Laeufe") == 0);
+    CHECK(value(client_world, on_client, "Zentrale", "Zug") == 0);
+    CHECK(value(client_world, on_client, "Ueberall", "Client") == 3);
+    CHECK(value(client_world, on_client, "Ueberall", "Server") == 0);
+    CHECK(value(client_world, on_client, "Anzeige", "Laeufe") == 3);
+    // Einmal gewarnt, obwohl das Skript in jedem Schritt schreibt.
+    CHECK(capture()->contains("Client-Skript schreibt Transform (repliziert)"));
+    CHECK(on_client.get<world::Transform>()->position.x == 3.0);
+
+    // Net.Broadcast, Net.Send und Audio.Play ohne Audio gehen ans Netz.
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].entity == on_server.id());
+    CHECK(events[0].player == 0);
+    CHECK(events[0].name == "zwei");
+    CHECK(events[0].value == 2.5f);
+    CHECK(events[1].player == on_server.id());
+    CHECK(events[1].name == "privat");
+    REQUIRE(sounds.size() == 1);
+    CHECK(sounds[0].first == 77);
+    REQUIRE(sounds[0].second.has_value());
+    CHECK(sounds[0].second->z == 3.0);
+
+    // OnNetEvent auf dem Client.
+    client->deliver_net_event(on_client.id(), "zwei", 2.5f);
+    client->store_fields();
+    CHECK(value(client_world, on_client, "Anzeige", "Ereignisse") == 1);
+    {
+        const reflect::TypeInfo& info = *client_types.find("Anzeige");
+        CHECK(field<f32>(client_world.get_mut(on_client.id(), client_world.component(info)), info,
+                         "Wert") == 2.5f);
+    }
+
+    // Input.For: Die Laterne auf dem Server sieht die Taste des Spielers der Figur (TD-66).
+    frame({platform::event::KeyPressed{platform::Key::F}});
+    frame({platform::event::KeyReleased{platform::Key::F}});
+    server->store_fields();
+    CHECK(value(server_world, on_server, "Zentrale", "Licht") == 1);
+
+    // Hot Reload: Der Server baut neu, beide Welten bekommen die neuen Klassen mit ihren Werten.
+    project.write("quellen/Netz.cs", net_scripts("10"));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(3);
+    while (status.generation < 2 && std::chrono::steady_clock::now() < deadline) {
+        server->update();
+        client->update();
+        frame();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    REQUIRE(status.generation == 2);
+    // Das Sichern der Felder beim Neuladen zählt nicht als Schreiben.
+    CHECK_FALSE(capture()->contains("Client-Skript schreibt Anzeige"));
+    server->store_fields();
+    client->store_fields();
+    const i32 zug = value(server_world, on_server, "Zentrale", "Zug");
+    const i32 seen = value(client_world, on_client, "Ueberall", "Client");
+    frame();
+    server->store_fields();
+    client->store_fields();
+    CHECK(value(server_world, on_server, "Zentrale", "Zug") == zug + 10);
+    CHECK(value(client_world, on_client, "Ueberall", "Client") == seen + 1);
+    CHECK(value(client_world, on_client, "Zentrale", "Zug") == 0);
+
+    server->bind_net(nullptr);
+    client->bind(nullptr);
+    server->bind(nullptr);
+    client.reset();
+    server.reset();
+}

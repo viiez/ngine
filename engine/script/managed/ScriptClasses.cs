@@ -10,7 +10,7 @@ namespace NGine;
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 public unsafe struct ScriptApi
 {
-    public delegate* unmanaged<byte*, int, ScriptFieldDesc*, int, int> RegisterScript;
+    public delegate* unmanaged<byte*, int, ScriptFieldDesc*, int, int, int> RegisterScript;
     public delegate* unmanaged<int, int, long> FieldOffset;
     public delegate* unmanaged<int, void*> Prototype;
     public delegate* unmanaged<void*, byte**, int> StringGet;
@@ -30,6 +30,9 @@ public unsafe struct ScriptFieldDesc
     public double Min;
     public double Max;
     public double Step;
+    // 1: [Local] (R5.5).
+    public int Local;
+    public int Reserved;
 }
 
 // Ein Feld eines Skripts und wie es in den Speicher der Komponente kommt.
@@ -131,8 +134,59 @@ internal sealed unsafe class ScriptClass
     public required Type Type;
     public required string Name;
     public required ScriptField[] Fields;
-    public int TypeIndex = -1;
-    public readonly Dictionary<ulong, Script> Instances = new();
+    // Wo die Klasse läuft (R5.5): [Client], [Everywhere] oder ohne Attribut nur auf dem Server.
+    public NetPlacement Placement;
+    // [Replicated]: Die Komponente geht mit den Schnappschüssen an die Clients.
+    public bool Replicated;
+
+    // Typ-Index und Instanzen pro Skript-Welt (R5.5); es gilt die gewählte (Host.Domain).
+    private sealed class Slot
+    {
+        public int TypeIndex = -1;
+        public readonly Dictionary<ulong, Script> Instances = new();
+    }
+    private readonly Dictionary<int, Slot> slots = new();
+    private Slot? current;
+    private int currentDomain = -1;
+
+    private Slot Current
+    {
+        get
+        {
+            if (current == null || currentDomain != Host.Domain)
+            {
+                if (!slots.TryGetValue(Host.Domain, out current))
+                {
+                    current = new Slot();
+                    slots[Host.Domain] = current;
+                }
+                currentDomain = Host.Domain;
+            }
+            return current;
+        }
+    }
+
+    public int TypeIndex
+    {
+        get => Current.TypeIndex;
+        set => Current.TypeIndex = value;
+    }
+    public Dictionary<ulong, Script> Instances => Current.Instances;
+
+    // Vergisst eine Skript-Welt; ihre Instanzen sind schon gestoppt.
+    public void Forget(int domain)
+    {
+        slots.Remove(domain);
+        current = null;
+    }
+
+    // Ob die Klasse in einer Skript-Welt mit dieser Rolle läuft.
+    public bool RunsAs(NetRole role) => role switch
+    {
+        NetRole.Server => Placement != NetPlacement.Client,
+        NetRole.Client => Placement != NetPlacement.Server,
+        _ => true,
+    };
 
     public static ScriptClass Create(Type type)
     {
@@ -148,7 +202,18 @@ internal sealed unsafe class ScriptClass
                 fields.Add(field);
             }
         }
-        return new ScriptClass { Type = type, Name = type.Name, Fields = fields.ToArray() };
+        NetPlacement placement = type.GetCustomAttribute<ClientAttribute>() != null ? NetPlacement.Client
+            : type.GetCustomAttribute<EverywhereAttribute>() != null ? NetPlacement.Everywhere
+            : NetPlacement.Server;
+        return new ScriptClass
+        {
+            Type = type,
+            Name = type.Name,
+            Fields = fields.ToArray(),
+            Placement = placement,
+            // Skripte, die auf Clients laufen, brauchen ihre Komponente dort: Sie geht immer mit.
+            Replicated = placement != NetPlacement.Server || type.GetCustomAttribute<ReplicatedAttribute>() != null,
+        };
     }
 
     // Meldet den Typ bei der Engine und schreibt die Standardwerte (Feldinitialisierer) in die
@@ -182,12 +247,14 @@ internal sealed unsafe class ScriptClass
                 }
                 if (field.Info.GetCustomAttribute<ColorAttribute>() != null) descs[i].Hint = 1;
                 if (field.Info.GetCustomAttribute<AssetAttribute>() != null) descs[i].Hint = 4;
+                if (field.Info.GetCustomAttribute<LocalAttribute>() != null) descs[i].Local = 1;
             }
             byte[] className = Encoding.UTF8.GetBytes(Name);
             fixed (byte* classText = className)
             fixed (ScriptFieldDesc* fieldData = descs)
             {
-                TypeIndex = Host.ScriptApi->RegisterScript(classText, className.Length, fieldData, descs.Length);
+                TypeIndex = Host.ScriptApi->RegisterScript(classText, className.Length, fieldData, descs.Length,
+                                                          Replicated ? 1 : 0);
             }
         }
         finally

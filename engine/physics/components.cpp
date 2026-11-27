@@ -136,8 +136,8 @@ void register_types(reflect::TypeRegistry& types) {
             .field("ground_entity", &CharacterMotion::ground_entity)
             .hint(reflect::Hint::Entity)
             .local()
+            // Schritte fremder Figuren klingen auf Clients nach ihrem Boden (R5.5).
             .field("ground_material", &CharacterMotion::ground_material)
-            .local()
             .field("crouched", &CharacterMotion::crouched);
     }
     // Zuletzt, damit die Reihenfolge der übrigen Typen bleibt (R5.3).

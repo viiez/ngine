@@ -40,6 +40,10 @@ struct AudioSystemStats {
     usize one_shots = 0;
     // Wartet auf das Laden eines Klangs.
     usize pending = 0;
+    // Geladene Klänge und Klangsätze, und wie viele seit dem Start freigegeben wurden (R5.5).
+    usize loaded_sounds = 0;
+    usize loaded_sets = 0;
+    u64 released = 0;
 };
 
 class AudioSystem {
@@ -75,6 +79,12 @@ public:
 
     // Stoppt alles und vergisst die Quellen (z. B. beim Stoppen des Spielmodus).
     void stop_all();
+
+    // Klänge und Klangsätze, die so lange keine Stimme hatten, gibt update() frei (R5.5, TD-57);
+    // beim nächsten Abspielen lädt der Manager sie neu.
+    void set_release_after(f64 seconds) noexcept {
+        release_after_ = seconds;
+    }
 
     [[nodiscard]] const ListenerPose& listener() const noexcept {
         return listener_;
@@ -113,9 +123,15 @@ private:
         f32 variation_pitch = 1.0f;
         bool pending = true;
         u32 waited = 0;
+        // Gewählter Klang (aus einem Satz), solange die Stimme läuft.
+        u64 playing_sound = 0;
     };
 
     [[nodiscard]] Choice choose(u64 sound);
+    void touch(u64 id) {
+        last_used_[id] = time_;
+    }
+    void release_unused();
     [[nodiscard]] f32 random() noexcept;
     [[nodiscard]] VoiceMix mix_for(const EmitterPose& pose, bool spatial, f32 volume,
                                    f32 pitch) const noexcept;
@@ -136,6 +152,11 @@ private:
     u64 frame_ = 0;
     u64 random_state_ = 0x9E3779B97F4A7C15ull;
     usize pending_ = 0;
+    // Zeit seit dem Start und wann jeder Klang bzw. Satz zuletzt gewählt wurde oder spielte.
+    f64 time_ = 0.0;
+    f64 release_after_ = 30.0;
+    std::unordered_map<u64, f64> last_used_;
+    u64 released_ = 0;
 };
 
 } // namespace ngine::audio

@@ -64,6 +64,9 @@ public abstract class Script
     // Ereignis eines Zustands der Animation (z. B. "Fuss_links") aus dem letzten Bild, vor Update
     // zugestellt; an den Skripten der Entity mit dem Animator und ihrer Vorfahren.
     public virtual void OnAnimEvent(string name, Entity animator) { }
+    // Nur auf Clients (R5.5): Ereignis, das ein Skript auf dem Server mit Net.Broadcast oder
+    // Net.Send an diese Entity geschickt hat, im Takt der Interpolation zugestellt.
+    public virtual void OnNetEvent(string name, float value) { }
 
     // Bequemer Zugriff auf Komponenten der eigenen Entity.
     protected ref T Get<T>() where T : unmanaged, IComponent => ref Entity.Get<T>();
@@ -99,3 +102,42 @@ public sealed class ColorAttribute : Attribute { }
 // ulong mit der Kennung eines Assets.
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class AssetAttribute : Attribute { }
+
+// --- Skripte im Netz (R5.5) ---------------------------------------------------------------------
+//
+// Ohne Attribut läuft ein Skript nur auf dem Server (und ohne Netz wie bisher). [Client] läuft nur
+// auf Clients (Darstellung, Klang), [Everywhere] auf beiden; Net.Role sagt, wo man gerade ist.
+
+// Läuft nur auf Clients, z. B. Klänge aus Ereignissen der Animation.
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class ClientAttribute : Attribute { }
+
+// Läuft auf Server und Clients.
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class EverywhereAttribute : Attribute { }
+
+// Die Felder der Komponente gehen mit den Schnappschüssen an die Clients (außer [Local]). Auf
+// Clients sind sie nur lesbar: Was ein Client-Skript schreibt, überschreibt der nächste
+// Schnappschuss.
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class ReplicatedAttribute : Attribute { }
+
+// Feld einer [Replicated]-Klasse, das auf dem Server bleibt.
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class LocalAttribute : Attribute { }
+
+// Wo eine Skript-Welt läuft: ohne Netz, als Server oder als Client.
+public enum NetRole
+{
+    Local = 0,
+    Server = 1,
+    Client = 2,
+}
+
+// Wo eine Skript-Klasse läuft.
+public enum NetPlacement
+{
+    Server,
+    Client,
+    Everywhere,
+}
