@@ -1,7 +1,7 @@
 # R5: Multiplayer
 
 - **Phase:** Konstruktion
-- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 bis R5.3 abgeschlossen)
+- **Status:** in Arbeit (Plan abgestimmt mit dem Merge von #59, R5.1 bis R5.4 abgeschlossen)
 - **Pull Requests:** #59 (Plan), Iterationen siehe Review
 
 R5 ist der fünfte und letzte Reifegrad der Konstruktion vor dem Review und der Evaluation der
