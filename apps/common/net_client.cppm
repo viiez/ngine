@@ -15,8 +15,9 @@ module;
 // Verbindung eines Clients zum Server mit Spielwelt (R5.2): Transport, Replikation in die eigene
 // Welt, welche Figur ihm gehört, Befehle zum Server und der Stand der eigenen Figur zurück (R5.3),
 // seit R5.4 die Deltas des Terrains (replication::TerrainReceiver), seit R5.5 Ereignisse und
-// Einmal-Klänge der Skripte des Servers im Takt der Interpolation und die Felder der Client-Skripte.
-// Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client --headless), die Bots
+// Einmal-Klänge der Skripte des Servers im Takt der Interpolation und die Felder der
+// Client-Skripte. Die Sandbox mit Fenster (--client), der Client ohne Fenster (--client
+// --headless), die Bots
 // (--bots) und seit R5.5 der Client des Listen-Servers (Sandbox --host, Editor) teilen das; bis
 // R5.4 stand es in der Sandbox.
 export module app.net_client;
@@ -65,8 +66,7 @@ public:
     // Verbindung im Speicher zum Transport eines Servers im selben Prozess (R5.5, Listen-Server).
     // world, schema und server müssen den Client überleben.
     [[nodiscard]] static std::expected<std::unique_ptr<NetClient>, std::string>
-    connect_local(world::World& world, const replication::Schema& schema,
-                  net::Transport& server) {
+    connect_local(world::World& world, const replication::Schema& schema, net::Transport& server) {
         auto transport = net::Transport::create();
         if (!transport) {
             return std::unexpected(transport.error());
@@ -155,12 +155,12 @@ public:
         while (!sounds_.empty() && due(sounds_.front().tick)) {
             const replication::NetSound& sound = sounds_.front();
             if (audio_ != nullptr) {
-                (void)audio_->play_at(sound.sound, sound.position,
-                                      audio::OneShotParams{
-                                          .bus = static_cast<audio::AudioBus>(std::min<u32>(
-                                              sound.bus, audio::bus_count - 1)),
-                                          .volume = sound.volume,
-                                          .pitch = sound.pitch});
+                (void)audio_->play_at(
+                    sound.sound, sound.position,
+                    audio::OneShotParams{.bus = static_cast<audio::AudioBus>(
+                                             std::min<u32>(sound.bus, audio::bus_count - 1)),
+                                         .volume = sound.volume,
+                                         .pitch = sound.pitch});
             }
             sounds_.pop_front();
         }

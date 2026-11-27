@@ -169,8 +169,7 @@ public:
         ++player.messages;
         for (replication::Command& command : *commands) {
             // Prüfen (R5.3): Länge von move, Tasten, Blick. Die Bewegung selbst rechnet der Server.
-            if (replication::limit_command(command, map_, max_pitch) > 0 &&
-                player.limited++ == 0) {
+            if (replication::limit_command(command, map_, max_pitch) > 0 && player.limited++ == 0) {
                 log::warn("Client {}: Befehl {} außerhalb der Grenzen, begrenzt",
                           message.connection, command.number);
             }
@@ -270,7 +269,8 @@ public:
             const auto* transform = figure ? figure.get<world::WorldTransform>() : nullptr;
             terrain_.set_focus(client, transform != nullptr ? std::optional{transform->position()}
                                                             : std::nullopt);
-            for (const auto& message : terrain_.encode(client, player.commands.last(), player.dug)) {
+            for (const auto& message :
+                 terrain_.encode(client, player.commands.last(), player.dug)) {
                 (void)server_->send(client, message, net::Delivery::Reliable);
             }
             player.dug = false;
@@ -342,9 +342,9 @@ public:
             const replication::TerrainClientStats terrain = terrain_.stats(client);
             log::info("  Client {}: Figur {} ({:.1f} m vom Start), {} Nachrichten, {} abgelehnt, "
                       "{} begrenzt; Befehle {} verarbeitet, {} wiederholt ({} ohne Eingabe), {} "
-                      "verworfen, {} übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} Entities, {} "
-                      "warten, {} ohne Basis; Terrain {} Chunks, {:.1f} KB, Beitritt {:.1f} KB{}, {} "
-                      "vorgemerkt",
+                      "verworfen, {} übergelaufen, {} warten; {:.1f} KB/s, Schnappschuss {} B, {} "
+                      "Entities, {} warten, {} ohne Basis; Terrain {} Chunks, {:.1f} KB, Beitritt "
+                      "{:.1f} KB{}, {} vorgemerkt",
                       client, figure ? figure.name() : std::string_view{"fehlt"}, math::length(at),
                       player.messages, player.rejected, player.limited, commands.processed,
                       commands.repeated, commands.idle, commands.dropped, commands.overflow,
@@ -422,7 +422,6 @@ private:
     std::map<net::ConnectionId, ConnectedPlayer> players_;
     replication::TerrainSender terrain_;
 };
-
 
 // Was ein Bild des Servers gekostet hat, für den Statusbericht.
 export struct ServerFrameStats {
@@ -531,19 +530,18 @@ public:
                   "{} Figuren, {} repliziert; Bild im Mittel {:.2f} ms, höchstens {:.2f} ms; "
                   "Schnappschuss bis {} Bytes",
                   game_->simulation().time().tick, players_.player_count(),
-                  game_->world().entity_count(), game_->physics().body_count(),
-                  stats.active_bodies, stats.characters, server_.entity_count(),
+                  game_->world().entity_count(), game_->physics().body_count(), stats.active_bodies,
+                  stats.characters, server_.entity_count(),
                   stats_.count > 0 ? stats_.total_ms / static_cast<f64>(stats_.count) : 0.0,
                   stats_.max_ms, stats_.snapshot_bytes);
         if (net_stats_.events > 0 || net_stats_.sounds > 0 || net_stats_.unowned > 0) {
             const f64 seconds = static_cast<f64>(std::max<u64>(stats_.count, 1)) / 60.0;
-            log::info("  Skripte: {} Ereignisse ({:.2f} KB/s), {} Klänge ({:.2f} KB/s) an Clients, "
-                      "{} an Figuren ohne Spieler",
-                      net_stats_.events,
-                      static_cast<f64>(net_stats_.event_bytes) / 1024.0 / seconds,
-                      net_stats_.sounds,
-                      static_cast<f64>(net_stats_.sound_bytes) / 1024.0 / seconds,
-                      net_stats_.unowned);
+            log::info(
+                "  Skripte: {} Ereignisse ({:.2f} KB/s), {} Klänge ({:.2f} KB/s) an Clients, "
+                "{} an Figuren ohne Spieler",
+                net_stats_.events, static_cast<f64>(net_stats_.event_bytes) / 1024.0 / seconds,
+                net_stats_.sounds, static_cast<f64>(net_stats_.sound_bytes) / 1024.0 / seconds,
+                net_stats_.unowned);
         }
         players_.report();
         stats_ = {};
@@ -585,8 +583,8 @@ public:
     }
 
     // Audio.Play der Skripte ohne Audio-Gerät: an Clients in Hörweite, ohne Ort an alle.
-    void send_sound(u64 sound, std::optional<math::DVec3> position, audio::AudioBus bus,
-                    f32 volume, f32 pitch) {
+    void send_sound(u64 sound, std::optional<math::DVec3> position, audio::AudioBus bus, f32 volume,
+                    f32 pitch) {
         const auto message = replication::encode_sound({.tick = server_.tick() + 1,
                                                         .sound = sound,
                                                         .position = position,
@@ -641,9 +639,8 @@ private:
             send_event(entity, player, name, value);
         };
         net_.sound = [this](u64 sound, std::optional<math::DVec3> position, audio::AudioBus bus,
-                            f32 volume, f32 pitch) {
-            send_sound(sound, position, bus, volume, pitch);
-        };
+                            f32 volume,
+                            f32 pitch) { send_sound(sound, position, bus, volume, pitch); };
         if (script::ScriptSystem* scripts = game.scripts()) {
             scripts->bind_net(&net_);
         }
@@ -690,9 +687,8 @@ public:
         game.animation().set_rendering(false);
         game.animation().set_parameter_sync(animation::ParameterSync::Publish);
         if (desc.runtime != nullptr) {
-            game.enable_scripts(
-                *desc.runtime, nullptr,
-                {.watch = false, .wait = true, .role = script::ScriptRole::Server});
+            game.enable_scripts(*desc.runtime, nullptr,
+                                {.watch = false, .wait = true, .role = script::ScriptRole::Server});
         }
         math::DVec3 spawn{};
         if (desc.load) {
@@ -718,9 +714,8 @@ public:
             }
         }
         log::info("Listen-Server bereit{}: {} Entities, Skripte {}",
-                  server->session_->port()
-                      ? std::format(" auf Port {}", *server->session_->port())
-                      : std::string{" (nur im Speicher)"},
+                  server->session_->port() ? std::format(" auf Port {}", *server->session_->port())
+                                           : std::string{" (nur im Speicher)"},
                   game.world().entity_count(), game.scripts_running() ? "laufen" : "aus");
         return server;
     }

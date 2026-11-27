@@ -998,8 +998,8 @@ TEST_CASE("Possess names the figure of a client", "[replication]") {
 }
 
 TEST_CASE("Events and sounds survive encoding and reject broken messages", "[replication]") {
-    const replication::NetEvent event{.tick = 77, .entity = 0x1122334455667788ULL, .value = 2.5f,
-                                      .name = "Licht"};
+    const replication::NetEvent event{
+        .tick = 77, .entity = 0x1122334455667788ULL, .value = 2.5f, .name = "Licht"};
     const auto message = replication::encode_event(event);
     CHECK(replication::game_message(message) == replication::GameMessage::Event);
     const auto decoded = replication::decode_event(message);
@@ -1013,8 +1013,12 @@ TEST_CASE("Events and sounds survive encoding and reject broken messages", "[rep
     const auto long_name = replication::encode_event({.name = std::string(200, 'x')});
     CHECK(replication::decode_event(long_name)->name.size() == replication::max_event_name);
 
-    replication::NetSound sound{.tick = 9, .sound = 42, .position = math::DVec3{1.0, -2.0, 3.5},
-                                .bus = 2, .volume = 0.5f, .pitch = 1.25f};
+    replication::NetSound sound{.tick = 9,
+                                .sound = 42,
+                                .position = math::DVec3{1.0, -2.0, 3.5},
+                                .bus = 2,
+                                .volume = 0.5f,
+                                .pitch = 1.25f};
     const auto positioned = replication::encode_sound(sound);
     CHECK(replication::game_message(positioned) == replication::GameMessage::Sound);
     const auto back = replication::decode_sound(positioned);

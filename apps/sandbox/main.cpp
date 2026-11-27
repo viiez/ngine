@@ -211,8 +211,8 @@ void network_window(const app::NetClient& net, const app::PredictionReport& pred
         ui::text(std::format("Listen-Server{}: {} Spieler, {} Entities, Tick {}",
                              session.port() ? std::format(" auf Port {}", *session.port())
                                             : std::string{},
-                             session.players().player_count(),
-                             host->game().world().entity_count(), session.server().tick()));
+                             session.players().player_count(), host->game().world().entity_count(),
+                             session.server().tick()));
         for (const ngine::net::ConnectionId client : session.server().clients()) {
             const ngine::replication::EncoderClientStats client_stats =
                 session.server().stats(client);
@@ -512,9 +512,8 @@ int run_windowed(const Options& options) {
             }
         } else {
             auto created =
-                networked
-                    ? app::ModelScene::create_client(**device, (*device)->swapchain_format(),
-                                                     sandbox_assets.scene_assets())
+                networked ? app::ModelScene::create_client(**device, (*device)->swapchain_format(),
+                                                           sandbox_assets.scene_assets())
                 : options.playground
                     ? app::ModelScene::create_playground(**device, (*device)->swapchain_format(),
                                                          sandbox::voxel_origin(options.far),

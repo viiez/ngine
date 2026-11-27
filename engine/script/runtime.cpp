@@ -370,8 +370,7 @@ Result<std::unique_ptr<ScriptRuntime>> ScriptRuntime::create(const RuntimeDesc& 
         !function(m.load_fields, "LoadFields") || !function(m.reset_instances, "ResetInstances") ||
         !function(m.validate_scripts, "ValidateScripts") ||
         !function(m.deliver_events, "DeliverEvents") ||
-        !function(m.select_domain, "SelectDomain") ||
-        !function(m.forget_domain, "ForgetDomain")) {
+        !function(m.select_domain, "SelectDomain") || !function(m.forget_domain, "ForgetDomain")) {
         return std::unexpected("NGine.Scripting passt nicht zur Engine");
     }
     impl->assembly_dir = desc.assembly_dir;

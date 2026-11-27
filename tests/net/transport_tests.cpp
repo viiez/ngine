@@ -225,9 +225,8 @@ TEST_CASE("Transport pairs connect in memory next to a UDP client", "[net]") {
     // Trennt der Host, merkt es der Server; der UDP-Client bleibt.
     host->disconnect(*local);
     server_events.clear();
-    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
-        return count_events<net::event::Disconnected>(server_events) == 1;
-    }));
+    REQUIRE(pump(*server, server_events, *host, host_events,
+                 [&] { return count_events<net::event::Disconnected>(server_events) == 1; }));
     CHECK(server->connections().size() == 1);
     CHECK(remote->send(*udp, bytes("noch da"), net::Delivery::Reliable));
 
@@ -242,8 +241,7 @@ TEST_CASE("Transport pairs connect in memory next to a UDP client", "[net]") {
     }));
     const auto& connected = std::get<net::event::Connected>(server_events.front());
     server->disconnect(connected.connection);
-    REQUIRE(pump(*server, server_events, *host, host_events, [&] {
-        return count_events<net::event::Disconnected>(host_events) == 1;
-    }));
+    REQUIRE(pump(*server, server_events, *host, host_events,
+                 [&] { return count_events<net::event::Disconnected>(host_events) == 1; }));
     CHECK(host->connections().empty());
 }

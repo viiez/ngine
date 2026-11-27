@@ -40,7 +40,7 @@ bearbeitet; das Spiel nutzt die Werkzeuge nur im Editor-Build.
 | `ngine.physics` | `ngine::physics` | Physik (R4.2, PHYS-01, PHYS-02, PHYS-04): Jolt in doppelter Genauigkeit hinter `PhysicsWorld` (nur die interne Partition `ngine.physics:jolt` und die Dateien `jolt_world.cpp`, `jolt_characters.cpp`, `jolt_terrain.cpp`, `jolt_queries.cpp` kennen Jolt, seit R5.1), Komponenten `RigidBody` und `Collider` (Kugel, Quader, Kapsel, konvexe Hülle, Dreiecksnetz über eine `ShapeSource`) in der Reflection, feste Ebenen mit `layers_collide()`; Abgleich mit der Welt vor jedem Schritt und Rückschrieb in `Transform` und `RigidBody`, Schritt als Stufe der festen Simulation (`add_to()`), Jolts Jobs auf `ngine.jobs`; Abfragen `raycast()`, `raycast_all()`, `shape_cast()`, `overlap()` mit `QueryFilter`; Ereignisse `ContactBegan`, `ContactEnded`, `TriggerEntered`, `TriggerLeft` sortiert über den `EventBus`; `checksum()` für Tests ([ADR 0045](adr/0045-physics-jolt-double-precision.md)). Seit R4.3 (VOX-08, PHYS-03) Kollision des Terrains aus den Netzen der Chunks der Stufe 0 um Anker, gebaut in Jobs, mit Einfrieren ohne Form (`PhysicsSettings::terrain_radius`, `wait_for_terrain`, `is_frozen()`, `terrain_shapes()`), Material pro Dreieck mit Reibung aus der Tabelle (`set_terrain_materials()`, `RayHit::material`), Spielfiguren über `CharacterController` und `CharacterMotion` (Jolts `CharacterVirtual` nur im Adapter) mit den Ereignissen `CharacterLanded` und `CharacterStep` ([ADR 0046](adr/0046-terrain-collision-character-virtual.md)). Seit R5.3 Modus für Clients (`PhysicsSettings::remote`: nur Figuren mit `Predicted` bewegen sich, alles andere folgt kinematisch seinem Transform) und eine Figur einzeln lesen, setzen und rechnen (`CharacterSnapshot`, `character_snapshot()`, `set_character()`, `step_character()` ohne Ereignisse, [ADR 0053](adr/0053-commands-prediction-reconciliation.md)) | vorhanden (ab R4.2) |
 | `ngine.audio` | `ngine::audio` | Audio (R4.5, AUD-01, AUD-02): eigener `Mixer` im Thread des Geräts (256 Stimmen, 64 hörbar, virtuelle Stimmen, lineares Resampling, Busse `Master`, `Music`, `Effects`, `Ambient`, `Interface`, Rampen, weicher Begrenzer), Befehle und Meldungen über `SpscQueue` ohne Sperren (`:queue`, `:mixer`); `AudioDevice` mit miniaudio (`miniaudio.cpp`, nur hier und in `miniaudio_impl.cpp` bekannt) oder `NullDevice` im Echtzeit-Takt bzw. blockweise für Tests (`:device`); Dekodieren von WAV, FLAC, MP3 (miniaudio) und Ogg Vorbis (stb_vorbis) (`:decoder`), Ströme ab fünf Sekunden über einen eigenen Thread mit `SampleRing` pro Stimme (`:stream`); Assets `Sound` und `SoundSet` (`.soundset`, zufällige Wahl mit Streuung) mit `register_loaders()` (`:sound`); `AudioEngine` als Fassade mit Stimmen, Bussen und Statistik (`:engine`); Abschwächung, Panning mit gleicher Leistung und Doppler (`:spatial`); Komponenten `AudioSource` und `AudioListener` (`:components`) und `AudioSystem`, das sie pro Bild relativ zum Hörer mischt und Einmal-Klänge spielt (`:system`). `NGINE_WITH_AUDIO=OFF` baut nur das Null-Gerät ([ADR 0049](adr/0049-audio-own-mixer-miniaudio.md)) | vorhanden (ab R4.5) |
 | `ngine.animation` | `ngine::animation` | Animation (R4.6, ANIM-01, ANIM-02): Skelett und Clips eines Modells als Ressource `Rig` mit `register_loaders()` (aus dem Cache oder glTF), `Pose`, `sample()`, `blend()` (nlerp), `palette()` als 3×4-Matrizen `JointMatrix` (`:rig`); Automat als Asset `AnimGraph` (`.animgraph`, JSON mit Parametern `float`, `bool`, `trigger`, Zuständen mit Clip oder 1D-Blend und Ereignissen, Übergängen mit Bedingungen, Dauer und `after_end`, `parse_anim_graph()`, `register_graph_loader()`, `:graph`); `StateMachine` ohne Welt und Sperren mit weicher Überblendung und eingefrorener Pose bei Übergängen mitten in einer Überblendung (`:machine`); Komponente `Animator` mit `PoseMode` `Visible`, `Always`, `Never` und Ereignis `AnimationEvent` (`:components`); `AnimationSystem` rechnet Automaten, Posen und Paletten pro Bild in Jobs, schickt Ereignisse sortiert über den `EventBus` und schreibt nichts in die Welt (`:system`, [ADR 0050](adr/0050-animation-gpu-skinning.md)) | vorhanden (ab R4.6) |
-| `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` (`:runtime`) startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/`. Seit R4.4 C#-Bindings aus der Reflection (`:bindings`, Werkzeug `ngine_bindgen`, Prüfung der Anordnung beim Start), die Tabelle `NativeApi` für Welt, Eingabe, Physik und Terrain, Skript-Klassen als Typen der Registry mit Umzug beim Neuladen, Lauf als feste Stufe vor der Physik und als Stufe des Bildes, Ereignisse der Physik (seit R4.6 auch Parameter, Zustand und Ereignisse der Animation); `ScriptSystem` (`:system`) baut `assets/skripte` mit `dotnet build` im Hintergrund (`ScriptBuilder`, Meldungen als `Diagnostic`), beobachtet den Ordner und lädt neu ([ADR 0047](adr/0047-script-components-bindings-hot-reload.md)) | vorhanden (ab D2) |
+| `ngine.script` | `ngine::script` | C#-Scripting: `ScriptRuntime` (`:runtime`) startet .NET 10 über hostfxr, lädt Skripte in einen entladbaren Kontext, Aufrufe in beide Richtungen ([ADR 0023](adr/0023-dotnet-hosting-hostfxr.md)); Plattformcode in `native_linux.cpp`/`native_windows.cpp`, verwalteter Teil `NGine.Scripting` unter `engine/script/managed/`. Seit R4.4 C#-Bindings aus der Reflection (`:bindings`, Werkzeug `ngine_bindgen`, Prüfung der Anordnung beim Start), die Tabelle `NativeApi` für Welt, Eingabe, Physik und Terrain, Skript-Klassen als Typen der Registry mit Umzug beim Neuladen, Lauf als feste Stufe vor der Physik und als Stufe des Bildes, Ereignisse der Physik (seit R4.6 auch Parameter, Zustand und Ereignisse der Animation); `ScriptSystem` (`:system`) baut `assets/skripte` mit `dotnet build` im Hintergrund (`ScriptBuilder`, Meldungen als `Diagnostic`), beobachtet den Ordner und lädt neu ([ADR 0047](adr/0047-script-components-bindings-hot-reload.md)). Seit R5.5 ist jedes `ScriptSystem` eine Domäne der Laufzeit mit Rolle (`Local`, `Server`, `Client`), Ereignisse vom Server als `OnNetEvent`, `Input.For()` und Warnung beim Schreiben replizierter Komponenten auf Clients ([ADR 0055](adr/0055-listen-server-script-worlds-net-events.md)) | vorhanden (ab D2) |
 | `ngine.net` | `ngine::net` | Netzwerk-Transport: `Transport` mit Verbindungen, zuverlässigen und unzuverlässigen Nachrichten über UDP; Adapter für GameNetworkingSockets in `transport_gns.cpp` ([ADR 0024](adr/0024-networking-gns-snapshots.md)) | vorhanden (Durchstich D3) |
 | `ngine.replication` | `ngine::replication` | Replikation der Welt: `Schema` aus den markierten Komponenten der Reflection, Schnappschüsse als Delta gegen den bestätigten Stand mit Relevanz und Budget pro Client (`SnapshotEncoder`), Spiegel mit Interpolation auf dem Client (`Mirror`), `Server` und `Client` über einem `Transport` ([ADR 0024](adr/0024-networking-gns-snapshots.md), [ADR 0052](adr/0052-replication-deltas-relevance.md)); seit R5.1 Nachrichten des Spiels in `:input`: seine Figur (`encode_possess()`), seit R5.3 nummerierte Befehle pro festem Schritt (`Command`, `encode_commands()`, geprüft über `ActionMap::hash()` und `limit_command()`), die Warteschlange des Servers (`CommandQueue`) und der Stand des Besitzers (`OwnerState`, `encode_owner()`); `:prediction` mit `Predictor` (Ring der Befehle, Abgleich, Neurechnen über Rückrufe, Versatz der Darstellung) und `Mirror::set_predicted()` für die eigene Figur ([ADR 0053](adr/0053-commands-prediction-reconciliation.md)); seit R5.4 `:terrain` mit der Nachricht `Terrain` (`encode_terrain()`), `TerrainSender` (Zeiger pro Client und Chunk, Vorrang nach Abstand, Budget, „Umgebung vollständig“) und `TerrainReceiver` (Deltas über `world::restore_terrain()`, vorhergesagte Pinsel bis zur Bestätigung, [ADR 0054](adr/0054-terrain-deltas-over-network.md)); Kodierung der Schnappschüsse in `encoder.cpp` und `mirror.cpp`, gemeinsame Bausteine in `:wire` (nicht exportiert) | vorhanden (Ausbau R5) |
 | `ngine.platform` | `ngine::platform` | Fenster und Ereignisse über SDL3 (Tasten nach Scancode mit Loslassen, Texteingabe, Fokus, Maus mit relativem Modus und Zeigerform, Zwischenablage, Bildschirmskalierung, Rückruf zum Zeichnen beim Ziehen des Fensters; seit R4.1 Gamepads nach dem Xbox-Schema von SDL3 mit Anstecken, Abziehen, Tasten, Sticks und Triggern); seit R4.4 externe Programme mit gesammelter Ausgabe (`:process`, `run_process()`, Adapter `process_posix.cpp` und `process_windows.cpp`). Ohne `NGINE_WITH_WINDOW` baut es ohne SDL3 nur die Typen der Ereignisse (`window_null.cpp`, `Window::create()` meldet einen Fehler) | vorhanden |
@@ -418,7 +418,7 @@ Abgaben länger. `vkDeviceWaitIdle` gibt es nur noch beim Beenden.
 | `engine/<system>/` | Ein Engine-System |
 | `apps/sandbox/` | Testanwendung, an der jede Iteration sichtbar wird |
 | `apps/editor/` | Editor (ab R2.1) |
-| `apps/common/` | Gemeinsamer Code von Sandbox und Editor: Zusammenbau der Simulation ohne GPU (`app.game_world`, R5.1, auch für `--headless` und Server), Standardszene mit Renderer, Audio und Kamera darüber (`app.model_scene`), Physik und Spielplatz (`app.physics`), Spielfigur mit Steuerung, Kamera und Graben (`app.player`, R4.3), Vorhersage der eigenen Figur als Client (`app.prediction`, R5.3), Materialtabelle des Terrains mit Hot Reload (`app.terrain_materials`, R4.3), Start der Laufzeit für Skripte (`app.scripting`, R4.4), Prefabs, Eingabe |
+| `apps/common/` | Gemeinsamer Code von Sandbox und Editor: Zusammenbau der Simulation ohne GPU (`app.game_world`, R5.1, auch für `--headless` und Server), Standardszene mit Renderer, Audio und Kamera darüber (`app.model_scene`), Physik und Spielplatz (`app.physics`), Spielfigur mit Steuerung, Kamera und Graben (`app.player`, R4.3), Vorhersage der eigenen Figur als Client (`app.prediction`, R5.3), Server als Baustein (`app.game_server`: `GameServer`, `ServerSession`, `ListenServer`, R5.5) und Client mit Spiegel, Terrain, Ereignissen und Client-Skripten (`app.net_client`, R5.5), Materialtabelle des Terrains mit Hot Reload (`app.terrain_materials`, R4.3), Start der Laufzeit für Skripte (`app.scripting`, R4.4), Prefabs, Eingabe |
 | `tests/<system>/` | Catch2-Tests, gespiegelt zur Engine |
 | `cmake/` | Gemeinsame CMake-Funktionen |
 | `docs/` | Diese Dokumentation |
@@ -856,7 +856,7 @@ sequenceDiagram
 
 ### Dedizierter Server (R5.1)
 
-Der Server (`ngine_sandbox --server`, `apps/sandbox/game_server.cppm`) rechnet über
+Der Server (`ngine_sandbox --server`, seit R5.5 `app::GameServer` in `apps/common/game_server.cppm`) rechnet über
 `app::GameWorld` dieselbe Welt wie Sandbox und Editor, nur ohne Renderer und Audio
 ([ADR 0051](adr/0051-game-world-dedicated-server.md)).
 
@@ -891,3 +891,54 @@ sequenceDiagram
   seine neue Figur, die der Szene bleibt stehen.
 - Der Server meldet alle 300 Schritte Spieler, Entities, Körper und Rechenzeit pro Schritt und am
   Ende die Prüfsumme der Lagen.
+
+### Listen-Server und Skripte im Netz (R5.5)
+
+Ein Spieler hostet und spielt mit: Server und Client laufen im selben Prozess
+([ADR 0055](adr/0055-listen-server-script-worlds-net-events.md)).
+
+```mermaid
+flowchart LR
+    subgraph host["Ein Prozess: Sandbox --host oder Editor"]
+        subgraph ls["app::ListenServer"]
+            sw["GameWorld (Server)<br/>Skript-Domäne: Server"]
+            ss["ServerSession<br/>GameServer, replication::Server"]
+        end
+        subgraph cl["Client des Hosts"]
+            nc["app::NetClient<br/>Spiegel, Terrain, Ereignisse"]
+            cw["ModelScene bzw. Welt des Dokuments<br/>Skript-Domäne: Client"]
+        end
+        rt["eine ScriptRuntime"]
+        jobs["ein JobSystem"]
+        sw --- ss
+        ss <-->|"Paar im Speicher<br/>(CreateSocketPair)"| nc
+        nc --> cw
+        sw -.- rt
+        cw -.- rt
+        sw -.- jobs
+        cw -.- jobs
+    end
+    other["ngine_sandbox --client"] <-->|"UDP"| ss
+```
+
+- **`app::ServerSession`:** Transport, `replication::Server` und `app::GameServer`; `frame()`
+  verarbeitet Nachrichten und Befehle, rechnet einen festen Schritt und schickt mit 30 Hz
+  Schnappschüsse. Dedizierter Server, Listen-Server und Tests nutzen sie.
+- **`app::ListenServer`:** eigene `GameWorld` (aus `load`, z. B. Spielplatz, Szene oder Sicherung
+  des Editors), Session und `transport()` für `NetClient::connect_local()`; `advance(dt)` rechnet
+  pro Bild des Hosts bis zu vier Server-Bilder.
+- **Skript-Domänen:** `ScriptRuntime::create_domain(role)` und `select_domain()`; jedes
+  `ScriptSystem` wählt vor jedem Aufruf in .NET seine Domäne. Rollen: `Local` alle Klassen,
+  `Server` Klassen ohne `[Client]`, `Client` Klassen mit `[Client]` oder `[Everywhere]`. Bauen und
+  Hot Reload einmal pro Prozess für alle Domänen.
+- **Felder im Netz:** Der Server schreibt die Felder vor jedem Schnappschuss in die Komponenten
+  (`store_fields`), der Client sichert sie vor einem Schnappschuss und liest sie danach zurück.
+- **Ereignisse:** `Net.Broadcast()`/`Net.Send()` auf dem Server werden zur Nachricht `Event`
+  (zuverlässig, an Clients, für die die Entity relevant ist, bzw. an den Besitzer),
+  `Audio.Play` zur Nachricht `Sound` (unzuverlässig, Hörweite 50 m). `NetClient::deliver()` stellt
+  beide zu, wenn `Mirror::render_tick()` ihren Tick erreicht: Ereignisse als `OnNetEvent` an die
+  Skripte der Entity, Klänge an das `AudioSystem`.
+- **Editor:** `editor::ListenPlay` legt den `ListenServer` aus `SceneDocument::copy_play_backup()`
+  an, leert die Welt des Dokuments (`clear_while_playing()`) und verbindet sie als Spiegel; ein
+  zweites, gesperrtes `SceneDocument` über der Server-Welt zeigt Szenenbaum und Inspector auf
+  Wunsch dort. Beim Stoppen stellt `end_play()` die Welt bitgenau wieder her.

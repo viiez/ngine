@@ -74,8 +74,8 @@ std::optional<GameMessage> game_message(std::span<const std::byte> data) noexcep
     }
     const auto kind = static_cast<GameMessage>(data[0]);
     if (kind == GameMessage::Commands || kind == GameMessage::Possess ||
-        kind == GameMessage::Owner || kind == GameMessage::Terrain ||
-        kind == GameMessage::Event || kind == GameMessage::Sound) {
+        kind == GameMessage::Owner || kind == GameMessage::Terrain || kind == GameMessage::Event ||
+        kind == GameMessage::Sound) {
         return kind;
     }
     return std::nullopt;

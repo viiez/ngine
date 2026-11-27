@@ -133,8 +133,7 @@ public:
             log::error("Spielen als Listen-Server: Verbindung verloren");
             return false;
         }
-        prediction_->set_figure(net_->figure(), net_->figure_on_server(),
-                                net_->client().mirror());
+        prediction_->set_figure(net_->figure(), net_->figure_on_server(), net_->client().mirror());
         for (const replication::OwnerState& owner : net_->owner_states()) {
             prediction_->handle_owner(owner);
         }
@@ -174,7 +173,8 @@ public:
                                             : std::string{" (nur im Speicher)"},
                              session.server().tick()));
         ui::text(std::format("Server: {} Entities, {} repliziert",
-                             server_->game().world().entity_count(), session.server().entity_count()));
+                             server_->game().world().entity_count(),
+                             session.server().entity_count()));
         ui::text(std::format("Weitere Clients: ngine_sandbox --client <adresse>{}",
                              session.port() ? std::format(":{}", *session.port()) : std::string{}));
         ui::separator();

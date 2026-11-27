@@ -102,7 +102,6 @@ private:
     u64 resets_ = 0;
 };
 
-
 // Ein verbundener Spieler: seine Figur und seine Befehle (R5.3).
 
 } // namespace
@@ -120,7 +119,8 @@ export int run_game_server(const GameServerOptions& options) {
     // Skripte aus dem Cache; mit .NET-SDK baut der Server sie vorher, wenn sie veraltet sind.
     // Gewartet wird, damit die Szene ihre Skript-Komponenten kennt.
     if (runtime) {
-        game.enable_scripts(*runtime, nullptr, {.watch = false, .wait = true, .role = script::ScriptRole::Server});
+        game.enable_scripts(*runtime, nullptr,
+                            {.watch = false, .wait = true, .role = script::ScriptRole::Server});
     }
     const auto loading = std::chrono::steady_clock::now();
     math::DVec3 spawn{};
@@ -210,8 +210,9 @@ public:
         game_.animation().set_rendering(false);
         game_.animation().set_parameter_sync(animation::ParameterSync::Follow);
         if (runtime != nullptr) {
-            game_.enable_scripts(*runtime, nullptr,
-                                 {.watch = false, .wait = true, .role = script::ScriptRole::Client});
+            game_.enable_scripts(
+                *runtime, nullptr,
+                {.watch = false, .wait = true, .role = script::ScriptRole::Client});
         }
         replication::register_types(game_.types());
         schema_ = std::make_unique<replication::Schema>(game_.types());
@@ -369,12 +370,13 @@ export struct ListenServerOptions {
 export int run_listen_server(const ListenServerOptions& options) {
     // Der Client zuerst: Seine Welt besitzt das Job-System, das der Server mitbenutzt.
     HeadlessClient client{options.database, options.cache, options.runtime};
-    auto created = app::ListenServer::create({.database = options.database,
-                                              .cache = options.cache,
-                                              .jobs = &client.game().jobs(),
-                                              .runtime = options.runtime,
-                                              .load = {},
-                                              .port = options.port.value_or(app::default_game_port)});
+    auto created =
+        app::ListenServer::create({.database = options.database,
+                                   .cache = options.cache,
+                                   .jobs = &client.game().jobs(),
+                                   .runtime = options.runtime,
+                                   .load = {},
+                                   .port = options.port.value_or(app::default_game_port)});
     if (!created) {
         log::error("{}", created.error());
         return 1;

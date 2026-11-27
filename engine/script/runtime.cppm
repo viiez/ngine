@@ -2,8 +2,8 @@ module;
 
 #include <expected>
 #include <functional>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>

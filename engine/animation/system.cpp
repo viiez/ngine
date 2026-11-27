@@ -202,9 +202,8 @@ void AnimationSystem::update(world::World& world, f64 dt) {
             for (usize i = 0; i < count; ++i) {
                 if (machine.parameter_type(i) != ParameterType::Trigger) {
                     (void)machine.set_float(machine.parameter_name(i), values[i]);
-                } else if (instance->triggers_seen &&
-                           trigger_count(synced->triggers, i) !=
-                               trigger_count(instance->triggers, i)) {
+                } else if (instance->triggers_seen && trigger_count(synced->triggers, i) !=
+                                                          trigger_count(instance->triggers, i)) {
                     // Mehrere Auslöser seit dem letzten Stand lösen einmal aus.
                     (void)machine.set_trigger(machine.parameter_name(i));
                 }

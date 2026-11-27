@@ -1,12 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <expected>
 #include <format>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 
 import ngine.core;
 import ngine.audio;
@@ -40,15 +42,16 @@ public:
     SimulatedNetwork& operator=(const SimulatedNetwork&) = delete;
 };
 
-// Kleine Welt statt des Spielplatzes: flaches Terrain, die Figuren kommen neben den Startpunkt.
+// Kleine Welt statt des Spielplatzes: flaches Terrain um den Ursprung (32 m breit, Boden auf 10 m),
+// die Figuren kommen neben den Startpunkt in der Mitte.
 std::expected<math::DVec3, std::string> small_world(app::GameWorld& game) {
     game.world().create("Terrain").set(world::Terrain{.size_x = 2,
-                                                      .size_y = 1,
+                                                      .size_y = 2,
                                                       .size_z = 2,
                                                       .shape = world::TerrainShape::Flat,
                                                       .seed = 3,
-                                                      .ground = 4.0f});
-    return math::DVec3{16.0, 5.0, 16.0};
+                                                      .ground = 10.0f});
+    return math::DVec3{0.0, 11.0, 0.0};
 }
 
 struct Player {
@@ -78,8 +81,8 @@ void serve_two_players() {
 
     // Der Host teilt sein Job-System nicht mit, damit der Test unabhängig bleibt.
     Player local{nullptr};
-    auto in_memory = app::NetClient::connect_local(local.game.world(), *local.schema,
-                                                   host.transport());
+    auto in_memory =
+        app::NetClient::connect_local(local.game.world(), *local.schema, host.transport());
     REQUIRE(in_memory);
     local.net = std::move(*in_memory);
     Player remote{nullptr};
@@ -88,10 +91,14 @@ void serve_two_players() {
     REQUIRE(over_udp);
     remote.net = std::move(*over_udp);
 
+    // Im Takt der Uhr, damit Verzögerung, Verlust und Wiederholungen von UDP wie im Spiel wirken.
+    std::chrono::steady_clock::time_point next = std::chrono::steady_clock::now();
     const auto frame = [&] {
         CHECK(host.advance(1.0 / 60.0) == 1);
         local.frame();
         remote.frame();
+        next += std::chrono::microseconds{16'667};
+        std::this_thread::sleep_until(next);
     };
     for (int i = 0; i < 600 && !(local.net->ready() && remote.net->ready() &&
                                  local.net->figure() != 0 && remote.net->figure() != 0);
@@ -116,8 +123,8 @@ void serve_two_players() {
     app::ServerSession& session = host.session();
     session.send_event(local_figure, 0, "alle", 1.0f);
     session.send_event(remote_figure, remote_figure, "privat", 2.0f);
-    session.send_sound(42, math::DVec3{16.0, 5.0, 16.0}, audio::AudioBus::Effects, 1.0f, 1.0f);
-    session.send_sound(43, math::DVec3{5000.0, 5.0, 16.0}, audio::AudioBus::Effects, 1.0f, 1.0f);
+    session.send_sound(42, math::DVec3{0.0, 11.0, 0.0}, audio::AudioBus::Effects, 1.0f, 1.0f);
+    session.send_sound(43, math::DVec3{5000.0, 11.0, 0.0}, audio::AudioBus::Effects, 1.0f, 1.0f);
     CHECK(session.net_stats().events == 3);
     // Nur in Hörweite: der zweite Klang ist für niemanden.
     CHECK(session.net_stats().sounds == 2);
@@ -128,6 +135,12 @@ void serve_two_players() {
     CHECK(remote.net->event_stats().received == 2);
     CHECK(local.net->event_stats().dropped == 0);
     CHECK(remote.net->event_stats().dropped == 0);
+    // Beide Figuren stehen auf dem Terrain des Servers.
+    for (const u64 figure : {local_figure, remote_figure}) {
+        const auto* transform = host.game().world().entity(figure).get<world::Transform>();
+        REQUIRE(transform != nullptr);
+        CHECK(transform->position.y > 9.5);
+    }
 
     // Ein Spieler geht, der andere bleibt.
     remote.net->disconnect();
